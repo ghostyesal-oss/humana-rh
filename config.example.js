@@ -2,5 +2,5 @@
 // config.js n'est pas versionné (voir .gitignore).
 window.HUMANA_CONFIG = {
   SUPABASE_URL: "https://chrchwgsrqzmekdsmrub.supabase.co/rest/v1/",
-  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNocmNod2dzcnF6bWVrZHNtcnViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwMzY4NDUsImV4cCI6MjEwMjYxMjg0NX0.rpdYzi7UXIDFtyXyb3nLhAdYyyrX8Kjm9Kqdz4s4DBk"
+  SUPABASE_ANON_KEY: "sb_publishable_RaxmvjVw0Aby0pCXFGBdKA_Ut47FEdE"
 };
