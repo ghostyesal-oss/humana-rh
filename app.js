@@ -377,6 +377,11 @@ async function initialize() {
     supabase = getSupabaseClient();
     setLoginState({ ready: Boolean(supabase) });
 
+    if (window.__pendingAuthSession) {
+      window.humanaRender(window.__pendingAuthSession);
+      return;
+    }
+
     const portalUser = readPortalUser();
     if (portalUser) {
       portalMode = true;
@@ -403,11 +408,14 @@ async function initialize() {
       if (event === "SIGNED_OUT") renderLogin();
     });
 
-    session = await restoreSession();
-    if (session) {
-      demoMode = false;
-      renderApp();
-      clearAuthParamsFromUrl();
+    const hasOAuthCode = new URLSearchParams(window.location.search).has("code");
+    if (!hasOAuthCode) {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        session = data.session;
+        demoMode = false;
+        renderApp();
+      }
     }
   } catch (error) {
     setLoginState({ ready: false, error: error.message || "Impossible de demarrer l'application." });
