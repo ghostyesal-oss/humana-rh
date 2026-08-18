@@ -344,7 +344,8 @@ function createSupabaseClient(url, key) {
     auth: {
       detectSessionInUrl: true,
       persistSession: true,
-      autoRefreshToken: true
+      autoRefreshToken: true,
+      flowType: "pkce"
     }
   });
 }
@@ -386,6 +387,17 @@ function withTimeout(promise, ms) {
   ]);
 }
 
+async function waitForAuthSession(client, maxMs = 8000) {
+  const started = Date.now();
+  while (Date.now() - started < maxMs) {
+    const { data, error } = await client.auth.getSession();
+    if (error) throw error;
+    if (data.session) return data.session;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return null;
+}
+
 async function initialize() {
   try {
     ensureAppContainer();
@@ -414,7 +426,7 @@ async function initialize() {
     if (!supabaseClient) return;
 
     supabaseClient.auth.onAuthStateChange((event, nextSession) => {
-      if (nextSession) {
+      if (nextSession && event !== "SIGNED_OUT") {
         session = nextSession;
         demoMode = false;
         renderApp();
@@ -424,14 +436,29 @@ async function initialize() {
       if (event === "SIGNED_OUT") renderLogin();
     });
 
-    const hasOAuthCode = new URLSearchParams(window.location.search).has("code");
-    if (!hasOAuthCode) {
-      const { data } = await supabaseClient.auth.getSession();
-      if (data.session) {
-        session = data.session;
+    const { data, error } = await supabaseClient.auth.getSession();
+    if (error) throw error;
+    if (data.session) {
+      session = data.session;
+      demoMode = false;
+      renderApp();
+      clearAuthParamsFromUrl();
+      return;
+    }
+
+    if (isOAuthReturn()) {
+      const oauthSession = await waitForAuthSession(supabaseClient);
+      if (oauthSession) {
+        session = oauthSession;
         demoMode = false;
         renderApp();
+        clearAuthParamsFromUrl();
+        return;
       }
+      setLoginState({
+        ready: true,
+        error: "Connexion Microsoft impossible. Reessayez ou contactez votre administrateur."
+      });
     }
   } catch (error) {
     setLoginState({ ready: false, error: error.message || "Impossible de demarrer l'application." });
