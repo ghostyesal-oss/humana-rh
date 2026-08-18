@@ -64,10 +64,11 @@
 
       window.__humanaSupabase = window.supabase.createClient(url, key, {
         auth: {
-          detectSessionInUrl: true,
+          detectSessionInUrl: false,
           persistSession: true,
           autoRefreshToken: true,
-          flowType: "pkce"
+          flowType: "pkce",
+          appendPkceFlowIdToRedirects: true
         }
       });
       if (loginButton) loginButton.disabled = false;
@@ -81,6 +82,36 @@
       }
 
       window.__pendingAuthSession = null;
+
+      window.__authReady = (async function () {
+        var params = new URLSearchParams(window.location.search);
+        var oauthError = params.get("error");
+        var oauthErrorDescription = params.get("error_description");
+        if (oauthError || oauthErrorDescription) {
+          showLoginError(decodeURIComponent((oauthErrorDescription || oauthError).replace(/\+/g, " ")));
+          window.history.replaceState({}, document.title, window.location.pathname);
+          return;
+        }
+
+        var code = params.get("code");
+        if (!code) return;
+
+        var flowId = params.get("sb_flow_id") || undefined;
+        try {
+          var exchanged = await window.__humanaSupabase.auth.exchangeCodeForSession(
+            code,
+            flowId ? { flowId: flowId } : undefined
+          );
+          window.history.replaceState({}, document.title, window.location.pathname);
+          if (exchanged.error) throw exchanged.error;
+          if (exchanged.data.session) {
+            window.__pendingAuthSession = exchanged.data.session;
+          }
+        } catch (err) {
+          showLoginError(err.message || "Impossible de finaliser la connexion Microsoft.");
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      })();
 
       window.humanaOnSession = function (authSession) {
         window.__pendingAuthSession = authSession;
@@ -124,7 +155,10 @@
           if (loginButton) loginButton.disabled = true;
           var result = await client.auth.signInWithOAuth({
             provider: "azure",
-            options: { redirectTo: config.REDIRECT_URL || "https://humana-rh.vercel.app", scopes: "email" }
+            options: {
+              redirectTo: config.REDIRECT_URL || "https://humana-rh.vercel.app",
+              scopes: "openid email profile"
+            }
           });
           if (result.error) {
             window.__oauthStarting = false;
@@ -184,6 +218,6 @@
       }
     }, true);
   </script>
-  <script src="app.js?v=11" charset="UTF-8"></script>
+  <script src="app.js?v=12" charset="UTF-8"></script>
 </body>
 </html>
