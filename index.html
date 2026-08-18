@@ -168,18 +168,37 @@
 
       if (loginButton) loginButton.addEventListener("click", window.humanaSignIn);
       document.getElementById("demo-login")?.addEventListener("click", function () {
-        if (typeof window.humanaStartDemo === "function") {
-          window.humanaStartDemo();
-          return;
+        function tryDemo() {
+          if (typeof window.humanaStartDemo === "function") {
+            window.humanaStartDemo();
+            return true;
+          }
+          return false;
         }
-        var errorBox = document.getElementById("login-error");
-        if (errorBox) {
-          errorBox.hidden = false;
-          errorBox.textContent = "Application en chargement. Reessayez dans quelques secondes.";
+        if (!tryDemo()) {
+          var tries = 0;
+          var timer = setInterval(function () {
+            if (tryDemo() || ++tries > 150) {
+              clearInterval(timer);
+              if (tries > 150) {
+                showLoginError("Application non chargee. Videz le cache (Ctrl+Shift+R) et rechargez.");
+              }
+            }
+          }, 100);
         }
       });
     })();
+
+    window.addEventListener("error", function (event) {
+      if (event.filename && event.filename.indexOf("app.js") !== -1) {
+        var errorBox = document.getElementById("login-error");
+        if (errorBox) {
+          errorBox.hidden = false;
+          errorBox.textContent = "Erreur application: " + event.message;
+        }
+      }
+    }, true);
   </script>
-  <script src="app.js?v=8"></script>
+  <script src="app.js?v=9" charset="UTF-8"></script>
 </body>
 </html>
