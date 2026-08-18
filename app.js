@@ -6,54 +6,54 @@ let portalMode = false;
 let currentPage = "dashboard";
 
 const pages = {
-  dashboard: ["Bonjour Sophie 👋", "Voici ce qui se passe dans votre entreprise aujourd’hui."],
-  employees: ["Collaborateurs", "Gérez les profils, les équipes et les informations RH."],
-  leave: ["Congés & absences", "Suivez les demandes et les soldes de congés."],
-  documents: ["Documents", "Centralisez et partagez les documents de l’entreprise."],
+  dashboard: ["Bonjour Sophie ", "Voici ce qui se passe dans votre entreprise aujourd'hui."],
+  employees: ["Collaborateurs", "Gerez les profils, les equipes et les informations RH."],
+  leave: ["Conges & absences", "Suivez les demandes et les soldes de conges."],
+  documents: ["Documents", "Centralisez et partagez les documents de l'entreprise."],
   recruitment: ["Recrutement", "Pilotez vos offres et votre vivier de candidats."],
-  reviews: ["Évaluations", "Préparez et suivez les campagnes d’entretien."]
+  reviews: ["Evaluations", "Preparez et suivez les campagnes d'entretien."]
 };
 
 const navigation = [
-  ["dashboard", "▦", "Tableau de bord"],
-  ["employees", "♙", "Collaborateurs"],
-  ["leave", "▣", "Congés & absences"],
-  ["documents", "▤", "Documents"],
-  ["recruitment", "▱", "Recrutement"],
-  ["reviews", "☑", "Évaluations"]
+  ["dashboard", "#", "Tableau de bord"],
+  ["employees", "@", "Collaborateurs"],
+  ["leave", "%", "Conges & absences"],
+  ["documents", "&", "Documents"],
+  ["recruitment", "*", "Recrutement"],
+  ["reviews", "+", "Evaluations"]
 ];
 
 const employees = [
   ["Sophie Martin", "Responsable RH", "Ressources humaines", "Actif", "SM", "violet"],
-  ["Thomas Bernard", "Lead développeur", "Produit & Tech", "Actif", "TB", "blue"],
-  ["Lina Benali", "Product designer", "Produit & Tech", "En congé", "LB", "orange"],
+  ["Thomas Bernard", "Lead developpeur", "Produit & Tech", "Actif", "TB", "blue"],
+  ["Lina Benali", "Product designer", "Produit & Tech", "En conge", "LB", "orange"],
   ["Hugo Leroy", "Commercial grands comptes", "Ventes", "Actif", "HL", "green"],
-  ["Emma Petit", "Contrôleuse de gestion", "Finance", "Actif", "EP", "pink"]
+  ["Emma Petit", "Controleuse de gestion", "Finance", "Actif", "EP", "pink"]
 ];
 
 const leaveRequests = [
-  ["Lina Benali", "Congés payés", "19 – 30 août 2026", "10 jours", "Approuvée", "LB"],
-  ["Hugo Leroy", "RTT", "21 août 2026", "1 jour", "À valider", "HL"],
-  ["Thomas Bernard", "Congés payés", "7 – 11 septembre 2026", "5 jours", "À valider", "TB"]
+  ["Lina Benali", "Conges payes", "19  30 aout 2026", "10 jours", "Approuvee", "LB"],
+  ["Hugo Leroy", "RTT", "21 aout 2026", "1 jour", "A valider", "HL"],
+  ["Thomas Bernard", "Conges payes", "7  11 septembre 2026", "5 jours", "A valider", "TB"]
 ];
 
 const documents = [
-  ["Politique de télétravail", "Politiques RH", "12 août 2026", "PDF"],
-  ["Guide d’intégration", "Onboarding", "8 août 2026", "PDF"],
-  ["Modèle d’entretien annuel", "Évaluations", "2 août 2026", "DOCX"],
-  ["Charte informatique", "Conformité", "28 juillet 2026", "PDF"]
+  ["Politique de teletravail", "Politiques RH", "12 aout 2026", "PDF"],
+  ["Guide d'integration", "Onboarding", "8 aout 2026", "PDF"],
+  ["Modele d'entretien annuel", "Evaluations", "2 aout 2026", "DOCX"],
+  ["Charte informatique", "Conformite", "28 juillet 2026", "PDF"]
 ];
 
 const jobs = [
-  ["Développeur·se full-stack", "Produit & Tech", 12, "Entretiens", "blue"],
-  ["Account executive", "Ventes", 8, "Sélection", "green"],
-  ["Office manager", "Opérations", 5, "Publiée", "orange"]
+  ["Developpeur-se full-stack", "Produit & Tech", 12, "Entretiens", "blue"],
+  ["Account executive", "Ventes", 8, "Selection", "green"],
+  ["Office manager", "Operations", 5, "Publiee", "orange"]
 ];
 
 const reviews = [
-  ["Thomas Bernard", "S1 2026", 100, "Terminée", "4,6 / 5"],
-  ["Emma Petit", "S1 2026", 70, "En cours", "—"],
-  ["Hugo Leroy", "S1 2026", 30, "À compléter", "—"]
+  ["Thomas Bernard", "S1 2026", 100, "Terminee", "4,6 / 5"],
+  ["Emma Petit", "S1 2026", 70, "En cours", "-"],
+  ["Hugo Leroy", "S1 2026", 30, "A completer", "-"]
 ];
 
 const avatar = (initials, color = "violet") =>
@@ -63,7 +63,7 @@ function badge(value) {
   const normalized = value.toLowerCase();
   const tone = normalized.includes("actif") || normalized.includes("approuv") || normalized.includes("termin")
     ? "success"
-    : normalized.includes("valid") || normalized.includes("cours") || normalized.includes("compléter")
+    : normalized.includes("valid") || normalized.includes("cours") || normalized.includes("completer")
       ? "warning"
       : "neutral";
   return `<span class="badge ${tone}">${value}</span>`;
@@ -126,7 +126,7 @@ async function signInWithMicrosoft() {
   }
   const button = document.querySelector("#microsoft-login");
   button.disabled = true;
-  button.lastChild.textContent = " Redirection…";
+  button.lastChild.textContent = " Redirection...";
   const { error } = await supabase.auth.signInWithOAuth({
     provider: "azure",
     options: { redirectTo: window.HUMANA_CONFIG?.REDIRECT_URL || "https://humana-rh.vercel.app", scopes: "email" }
@@ -137,28 +137,28 @@ async function signInWithMicrosoft() {
 function dashboardPage() {
   return `
     <section class="stats-grid">
-      ${statCard("♙", "Collaborateurs", "48", "+3 ce mois", "purple")}
-      ${statCard("▣", "Absents aujourd’hui", "4", "Voir le planning", "orange")}
-      ${statCard("▱", "Postes ouverts", "3", "25 candidats", "blue")}
-      ${statCard("☑", "Entretiens à faire", "7", "Avant le 31 août", "green")}
+      ${statCard("@", "Collaborateurs", "48", "+3 ce mois", "purple")}
+      ${statCard("%", "Absents aujourd'hui", "4", "Voir le planning", "orange")}
+      ${statCard("*", "Postes ouverts", "3", "25 candidats", "blue")}
+      ${statCard("+", "Entretiens a faire", "7", "Avant le 31 aout", "green")}
     </section>
     <section class="dashboard-grid">
       <div class="card">
-        ${cardHeading("Demandes à valider", "Tout voir")}
+        ${cardHeading("Demandes a valider", "Tout voir")}
         ${leaveRequests.slice(1).map(request => `
           <div class="request-item">${avatar(request[5])}
-            <div><strong>${request[0]}</strong><span>${request[1]} · ${request[2]}</span></div>
-            <div class="quick-actions"><button aria-label="Refuser">×</button><button class="approve" aria-label="Approuver">✓</button></div>
+            <div><strong>${request[0]}</strong><span>${request[1]} - ${request[2]}</span></div>
+            <div class="quick-actions"><button aria-label="Refuser">x</button><button class="approve" aria-label="Approuver">ok</button></div>
           </div>`).join("")}
       </div>
       <div class="card">
-        ${cardHeading("Équipe en un coup d’œil", "Organigramme")}
+        ${cardHeading("Equipe en un coup d'oeil", "Organigramme")}
         <div class="team-chart">
           <div class="donut"><div><strong>48</strong><span>personnes</span></div></div>
           <div class="legend">
             <span><i class="dot purple"></i>Produit & Tech <b>18</b></span>
             <span><i class="dot blue"></i>Ventes <b>12</b></span>
-            <span><i class="dot orange"></i>Opérations <b>10</b></span>
+            <span><i class="dot orange"></i>Operations <b>10</b></span>
             <span><i class="dot green"></i>Autres <b>8</b></span>
           </div>
         </div>
@@ -167,16 +167,16 @@ function dashboardPage() {
 }
 
 const statCard = (icon, label, value, detail, tone) => `
-  <article class="stat-card"><div class="stat-icon ${tone}">${icon}</div><span>${label}</span><strong>${value}</strong><small>${detail} ↗</small></article>`;
+  <article class="stat-card"><div class="stat-icon ${tone}">${icon}</div><span>${label}</span><strong>${value}</strong><small>${detail} </small></article>`;
 
 const cardHeading = (title, action) => `
-  <div class="card-heading"><h3>${title}</h3><button>${action} ›</button></div>`;
+  <div class="card-heading"><h3>${title}</h3><button>${action} ></button></div>`;
 
 function employeesPage() {
   return `
     <div class="card table-card">
-      <div class="toolbar"><label class="search-box">⌕ <input id="employee-search" placeholder="Rechercher un collaborateur…"></label><button class="primary">＋ Ajouter</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Collaborateur</th><th>Équipe</th><th>Statut</th><th></th></tr></thead>
+      <div class="toolbar"><label class="search-box">? <input id="employee-search" placeholder="Rechercher un collaborateur..."></label><button class="primary">+ Ajouter</button></div>
+      <div class="table-wrap"><table><thead><tr><th>Collaborateur</th><th>Equipe</th><th>Statut</th><th></th></tr></thead>
       <tbody id="employee-rows">${employeeRows(employees)}</tbody></table></div>
     </div>`;
 }
@@ -184,14 +184,14 @@ function employeesPage() {
 function employeeRows(list) {
   return list.map(employee => `
     <tr><td><div class="person">${avatar(employee[4], employee[5])}<div><strong>${employee[0]}</strong><span>${employee[1]}</span></div></div></td>
-    <td>${employee[2]}</td><td>${badge(employee[3])}</td><td><button class="icon-button">•••</button></td></tr>`).join("");
+    <td>${employee[2]}</td><td>${badge(employee[3])}</td><td><button class="icon-button"></button></td></tr>`).join("");
 }
 
 function leavePage() {
   return `
     <div class="card table-card">
-      <div class="toolbar"><div class="tabs"><button class="active">Demandes</button><button>Calendrier</button><button>Soldes</button></div><button class="primary">＋ Nouvelle demande</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Collaborateur</th><th>Type</th><th>Dates</th><th>Durée</th><th>Statut</th></tr></thead><tbody>
+      <div class="toolbar"><div class="tabs"><button class="active">Demandes</button><button>Calendrier</button><button>Soldes</button></div><button class="primary">+ Nouvelle demande</button></div>
+      <div class="table-wrap"><table><thead><tr><th>Collaborateur</th><th>Type</th><th>Dates</th><th>Duree</th><th>Statut</th></tr></thead><tbody>
       ${leaveRequests.map(request => `<tr><td><div class="person">${avatar(request[5])}<strong>${request[0]}</strong></div></td><td>${request[1]}</td><td>${request[2]}</td><td>${request[3]}</td><td>${badge(request[4])}</td></tr>`).join("")}
       </tbody></table></div>
     </div>`;
@@ -199,16 +199,16 @@ function leavePage() {
 
 function documentsPage() {
   return `<section class="document-grid">${documents.map(document => `
-    <article class="document-card"><div class="file-icon">▤</div><div><strong>${document[0]}</strong><span>${document[1]}</span><small>Mis à jour le ${document[2]}</small></div><span class="file-type">${document[3]}</span></article>`).join("")}</section>`;
+    <article class="document-card"><div class="file-icon">&</div><div><strong>${document[0]}</strong><span>${document[1]}</span><small>Mis a jour le ${document[2]}</small></div><span class="file-type">${document[3]}</span></article>`).join("")}</section>`;
 }
 
 function recruitmentPage() {
   return `<section class="jobs-grid">${jobs.map(job => `
-    <article class="card job-card"><div class="job-icon ${job[4]}">▱</div>${badge(job[3])}<h3>${job[0]}</h3><p>${job[1]}</p><div class="candidate-count">♙ <strong>${job[2]}</strong> candidats</div><button class="outline-button">Voir le poste ›</button></article>`).join("")}</section>`;
+    <article class="card job-card"><div class="job-icon ${job[4]}">*</div>${badge(job[3])}<h3>${job[0]}</h3><p>${job[1]}</p><div class="candidate-count">@ <strong>${job[2]}</strong> candidats</div><button class="outline-button">Voir le poste ></button></article>`).join("")}</section>`;
 }
 
 function reviewsPage() {
-  return `<div class="card reviews-card">${cardHeading("Campagne d’entretiens · S1 2026", "Configurer")}
+  return `<div class="card reviews-card">${cardHeading("Campagne d'entretiens - S1 2026", "Configurer")}
     ${reviews.map(review => `<div class="review-row"><div><strong>${review[0]}</strong><span>${review[1]}</span></div><div class="progress"><i style="width:${review[2]}%"></i></div><b>${review[2]}%</b>${badge(review[3])}<strong>${review[4]}</strong></div>`).join("")}</div>`;
 }
 
@@ -233,19 +233,19 @@ function renderApp() {
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand"><span>H</span> Humana</div>
-        <button class="close-menu" aria-label="Fermer">×</button>
+        <button class="close-menu" aria-label="Fermer">x</button>
         <nav><p>ESPACE RH</p>${navigation.map(item => `
           <button data-page="${item[0]}" class="${currentPage === item[0] ? "active" : ""}"><span class="nav-icon">${item[1]}</span>${item[2]}${item[0] === "leave" ? "<i>2</i>" : ""}</button>`).join("")}</nav>
         <div class="sidebar-bottom">
-          <button><span class="nav-icon">⚙</span> Paramètres</button>
-          <div class="user-card">${avatar(initials)}<div><strong>${name}</strong><span>${email}</span></div><button id="logout" aria-label="Se déconnecter">↪</button></div>
+          <button><span class="nav-icon">*</span> Parametres</button>
+          <div class="user-card">${avatar(initials)}<div><strong>${name}</strong><span>${email}</span></div><button id="logout" aria-label="Se deconnecter"></button></div>
         </div>
       </aside>
       <button class="backdrop" aria-label="Fermer le menu"></button>
       <main class="main-content">
-        <header class="topbar"><button class="menu-button" aria-label="Menu">☰</button><div class="top-search">⌕ <span>Rechercher…</span><kbd>Ctrl K</kbd></div><button class="notification" aria-label="Notifications">♢<i></i></button><button class="primary compact">＋ Action rapide</button></header>
+        <header class="topbar"><button class="menu-button" aria-label="Menu"></button><div class="top-search">? <span>Rechercher...</span><kbd>Ctrl K</kbd></div><button class="notification" aria-label="Notifications">*<i></i></button><button class="primary compact">+ Action rapide</button></header>
         <div class="page">
-          <div class="page-heading"><div><h1>${pages[currentPage][0]}</h1><p>${pages[currentPage][1]}</p></div>${demoMode ? `<span class="demo-pill">Mode démo</span>` : ""}</div>
+          <div class="page-heading"><div><h1>${pages[currentPage][0]}</h1><p>${pages[currentPage][1]}</p></div>${demoMode ? `<span class="demo-pill">Mode demo</span>` : ""}</div>
           <div id="page-content">${pageContent()}</div>
         </div>
       </main>
@@ -305,7 +305,7 @@ function readPortalUser() {
   }
 
   const userElement = document.querySelector(
-    ".navbar .user-name, .navbar .username, a[title*='Sign Out'], a[title*='Déconnexion']"
+    ".navbar .user-name, .navbar .username, a[title*='Sign Out'], a[title*='Deconnexion']"
   );
   const visibleName = userElement?.textContent?.trim();
   if (visibleName) return { name: visibleName.replace(/^Signed in as\s*/i, ""), email: "" };
