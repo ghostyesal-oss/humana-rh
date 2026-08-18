@@ -64,6 +64,51 @@
       window.__humanaSupabase = window.supabase.createClient(url, key);
       if (loginButton) loginButton.disabled = false;
       if (configNote) configNote.hidden = true;
+
+      window.humanaSignIn = async function () {
+        var errorBox = document.getElementById("login-error");
+        var client = window.__humanaSupabase;
+        if (!client) {
+          if (errorBox) {
+            errorBox.hidden = false;
+            errorBox.textContent = "Connexion Supabase indisponible.";
+          }
+          return;
+        }
+        try {
+          if (loginButton) loginButton.disabled = true;
+          var result = await client.auth.signInWithOAuth({
+            provider: "azure",
+            options: { redirectTo: window.location.origin, scopes: "email" }
+          });
+          if (result.error) {
+            if (errorBox) {
+              errorBox.hidden = false;
+              errorBox.textContent = result.error.message;
+            }
+            if (loginButton) loginButton.disabled = false;
+          }
+        } catch (err) {
+          if (errorBox) {
+            errorBox.hidden = false;
+            errorBox.textContent = err.message || "Erreur de connexion.";
+          }
+          if (loginButton) loginButton.disabled = false;
+        }
+      };
+
+      if (loginButton) loginButton.addEventListener("click", window.humanaSignIn);
+      document.getElementById("demo-login")?.addEventListener("click", function () {
+        if (typeof window.humanaStartDemo === "function") {
+          window.humanaStartDemo();
+          return;
+        }
+        var errorBox = document.getElementById("login-error");
+        if (errorBox) {
+          errorBox.hidden = false;
+          errorBox.textContent = "Application en chargement. Reessayez dans quelques secondes.";
+        }
+      });
     })();
   </script>
   <script src="app.js"></script>
