@@ -1,4 +1,5 @@
 const { SUPABASE_URL = "", SUPABASE_ANON_KEY = "" } = window.HUMANA_CONFIG || {};
+const normalizedSupabaseUrl = SUPABASE_URL.replace(/\/rest\/v1\/?$/, "").replace(/\/$/, "");
 let supabase = null;
 let app = null;
 let session = null;
@@ -332,7 +333,7 @@ async function initialize() {
 
   try {
     const sdk = await loadSupabaseSdk();
-    supabase = sdk ? sdk.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+    supabase = sdk ? sdk.createClient(normalizedSupabaseUrl, SUPABASE_ANON_KEY) : null;
   } catch (error) {
     renderLogin(error.message);
     return;
