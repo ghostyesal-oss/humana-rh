@@ -129,7 +129,7 @@ async function signInWithMicrosoft() {
   button.lastChild.textContent = " Redirection…";
   const { error } = await supabase.auth.signInWithOAuth({
     provider: "azure",
-    options: { redirectTo: window.location.origin, scopes: "email" }
+    options: { redirectTo: window.HUMANA_CONFIG?.REDIRECT_URL || "https://humana-rh.vercel.app", scopes: "email" }
   });
   if (error) renderLogin(error.message);
 }
@@ -323,13 +323,44 @@ function getSupabaseSettings() {
   };
 }
 
+function createSupabaseClient(url, key) {
+  return window.supabase.createClient(url, key, {
+    auth: {
+      detectSessionInUrl: true,
+      persistSession: true,
+      autoRefreshToken: true
+    }
+  });
+}
+
 function getSupabaseClient() {
   if (window.__humanaSupabase) return window.__humanaSupabase;
   const { url, key } = getSupabaseSettings();
   if (!url || !key) return null;
   if (!window.supabase?.createClient) return null;
-  window.__humanaSupabase = window.supabase.createClient(url, key);
+  window.__humanaSupabase = createSupabaseClient(url, key);
   return window.__humanaSupabase;
+}
+
+function isOAuthReturn() {
+  const params = new URLSearchParams(window.location.search);
+  return params.has("code") || window.location.hash.includes("access_token");
+}
+
+function clearAuthParamsFromUrl() {
+  if (!isOAuthReturn()) return;
+  window.history.replaceState({}, document.title, window.location.pathname);
+}
+
+async function restoreSession() {
+  if (!supabase) return null;
+  if (isOAuthReturn()) {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    return data.session;
+  }
+  const result = await withTimeout(supabase.auth.getSession(), 4000);
+  return result?.data?.session ?? null;
 }
 
 function withTimeout(promise, ms) {
@@ -359,21 +390,37 @@ async function initialize() {
       return;
     }
 
-    supabase = getSupabaseClient();
     if (!supabase) return;
 
-    const result = await withTimeout(supabase.auth.getSession(), 4000);
-    session = result?.data?.session ?? null;
-    if (session) renderApp();
-
-    supabase.auth.onAuthStateChange((_event, nextSession) => {
-      session = nextSession;
-      session ? renderApp() : renderLogin();
+    supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (nextSession) {
+        session = nextSession;
+        demoMode = false;
+        renderApp();
+        clearAuthParamsFromUrl();
+        return;
+      }
+      if (event === "SIGNED_OUT") renderLogin();
     });
+
+    session = await restoreSession();
+    if (session) {
+      demoMode = false;
+      renderApp();
+      clearAuthParamsFromUrl();
+    }
   } catch (error) {
     setLoginState({ ready: false, error: error.message || "Impossible de demarrer l'application." });
   }
 }
+
+window.humanaOnSession = function (authSession) {
+  session = authSession;
+  demoMode = false;
+  ensureAppContainer();
+  renderApp();
+  clearAuthParamsFromUrl();
+};
 
 window.humanaStartDemo = function () {
   demoMode = true;
