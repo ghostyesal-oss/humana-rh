@@ -1,14 +1,6 @@
-<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#7158e8">
-  <meta name="description" content="Humana, votre espace de gestion des ressources humaines.">
-  <title>Humana — Espace RH</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+[11 lines collapsed]
+
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -20,9 +12,39 @@
     data-portal-id="{{ user.id }}"
   >
     <p class="boot-message">Chargement de votre espace RH…</p>
+  <div id="app" aria-live="polite">
+    <main class="login-page">
+      <section class="login-brand">
+        <div class="brand brand-large"><span>H</span> Humana</div>
+        <div class="login-message">
+          <span class="eyebrow">L'espace RH qui rassemble</span>
+          <h1>Votre equipe.<br><em>Simplement.</em></h1>
+          <p>Une experience fluide pour accompagner vos collaborateurs, du premier jour a chaque nouvelle etape.</p>
+          <div class="trust-row"><span>Donnees securisees</span><span>Conforme RGPD</span></div>
+        </div>
+      </section>
+      <section class="login-panel">
+        <div class="login-card">
+          <div class="mobile-brand brand"><span>H</span> Humana</div>
+          <div class="login-icon">&#9670;</div>
+          <h2>Bienvenue</h2>
+          <p>Connectez-vous avec votre compte professionnel pour acceder a votre espace RH.</p>
+          <button id="microsoft-login" class="microsoft-button" disabled>
+            <span class="microsoft-logo"><i></i><i></i><i></i><i></i></span>
+            Continuer avec Microsoft
+          </button>
+          <div id="config-note" class="config-note">Connexion en cours de preparation...</div>
+          <p id="login-error" class="error-message" hidden></p>
+          <div class="separator"><span>ou</span></div>
+          <button id="demo-login" class="demo-button">Voir l'apercu de demonstration</button>
+          <small>En continuant, vous acceptez les conditions d'utilisation et la politique de confidentialite.</small>
+        </div>
+      </section>
+    </main>
   </div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="config.js"></script>
   <script src="app.js" defer></script>
+  <script src="app.js"></script>
 </body>
 </html>
