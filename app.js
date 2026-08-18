@@ -93,7 +93,7 @@ function renderLogin(error = "") {
             <span class="microsoft-logo"><i></i><i></i><i></i><i></i></span>
             Continuer avec Microsoft
           </button>
-          ${supabase ? "" : `<div class="config-note">Renseignez vos clés Supabase dans <code>config.js</code> pour activer la connexion.</div>`}
+          ${supabase ? "" : `<div class="config-note">Connexion indisponible. Vérifiez <code>config.js</code> sur GitHub (URL + clé anon).</div>`}
           ${error ? `<p class="error-message">${error}</p>` : ""}
           <div class="separator"><span>ou</span></div>
           <button id="demo-login" class="demo-button">Voir l’aperçu de démonstration</button>
@@ -302,54 +302,58 @@ function readPortalUser() {
   return match ? { name: match[1].trim(), email: "" } : null;
 }
 
-function loadSupabaseSdk() {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return Promise.resolve(null);
-  if (window.supabase?.createClient) return Promise.resolve(window.supabase);
+function getSupabaseClient() {
+  if (!normalizedSupabaseUrl || !SUPABASE_ANON_KEY) return null;
+  if (!window.supabase?.createClient) return null;
+  return window.supabase.createClient(normalizedSupabaseUrl, SUPABASE_ANON_KEY);
+}
 
-  return new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
-    script.onload = () => resolve(window.supabase);
-    script.onerror = () => reject(new Error("Le SDK Supabase n’a pas pu être chargé."));
-    document.head.appendChild(script);
-  });
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(() => resolve(null), ms))
+  ]);
 }
 
 async function initialize() {
   ensureAppContainer();
 
-  const portalUser = readPortalUser();
-  if (portalUser) {
-    portalMode = true;
-    session = {
-      user: {
-        email: portalUser.email,
-        user_metadata: { full_name: portalUser.name }
-      }
-    };
-    renderApp();
-    return;
-  }
-
   try {
-    const sdk = await loadSupabaseSdk();
-    supabase = sdk ? sdk.createClient(normalizedSupabaseUrl, SUPABASE_ANON_KEY) : null;
-  } catch (error) {
-    renderLogin(error.message);
-    return;
-  }
+    const portalUser = readPortalUser();
+    if (portalUser) {
+      portalMode = true;
+      session = {
+        user: {
+          email: portalUser.email,
+          user_metadata: { full_name: portalUser.name }
+        }
+      };
+      renderApp();
+      return;
+    }
 
-  if (!supabase) {
-    renderLogin();
-    return;
+    supabase = getSupabaseClient();
+    if (!supabase) {
+      renderLogin();
+      return;
+    }
+
+    const result = await withTimeout(supabase.auth.getSession(), 4000);
+    session = result?.data?.session ?? null;
+
+    if (session) {
+      renderApp();
+    } else {
+      renderLogin();
+    }
+
+    supabase.auth.onAuthStateChange((_event, nextSession) => {
+      session = nextSession;
+      session ? renderApp() : renderLogin();
+    });
+  } catch (error) {
+    renderLogin(error.message || "Impossible de démarrer l'application.");
   }
-  const { data } = await supabase.auth.getSession();
-  session = data.session;
-  session ? renderApp() : renderLogin();
-  supabase.auth.onAuthStateChange((_event, nextSession) => {
-    session = nextSession;
-    session ? renderApp() : renderLogin();
-  });
 }
 
 if (document.readyState === "loading") {
