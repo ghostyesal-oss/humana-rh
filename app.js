@@ -93,14 +93,14 @@ function bindLoginEvents() {
   }
 }
 
-function setLoginState({ ready = false, error = "" } = {}) {
+function setLoginState({ ready = false, error } = {}) {
   const microsoftButton = document.querySelector("#microsoft-login");
   const configNote = document.querySelector("#config-note");
   const errorMessage = document.querySelector("#login-error");
 
   if (microsoftButton) microsoftButton.disabled = !ready;
   if (configNote) configNote.hidden = ready;
-  if (errorMessage) {
+  if (errorMessage && error !== undefined) {
     errorMessage.hidden = !error;
     errorMessage.textContent = error;
   }
@@ -145,7 +145,10 @@ async function signInWithMicrosoft() {
   button.lastChild.textContent = " Redirection...";
   const { error } = await supabaseClient.auth.signInWithOAuth({
     provider: "azure",
-    options: { redirectTo: window.HUMANA_CONFIG?.REDIRECT_URL || "https://humana-rh.vercel.app", scopes: "email" }
+    options: {
+      redirectTo: window.HUMANA_CONFIG?.REDIRECT_URL || "https://humana-rh.vercel.app",
+      scopes: "openid email profile"
+    }
   });
   if (error) renderLogin(error.message);
 }
@@ -342,10 +345,11 @@ function getSupabaseSettings() {
 function createSupabaseClient(url, key) {
   return window.supabase.createClient(url, key, {
     auth: {
-      detectSessionInUrl: true,
+      detectSessionInUrl: false,
       persistSession: true,
       autoRefreshToken: true,
-      flowType: "pkce"
+      flowType: "pkce",
+      appendPkceFlowIdToRedirects: true
     }
   });
 }
@@ -402,6 +406,7 @@ async function initialize() {
   try {
     ensureAppContainer();
     bindLoginEvents();
+    if (window.__authReady) await window.__authReady;
     supabaseClient = getSupabaseClient();
     setLoginState({ ready: Boolean(supabaseClient) });
 
@@ -443,22 +448,6 @@ async function initialize() {
       demoMode = false;
       renderApp();
       clearAuthParamsFromUrl();
-      return;
-    }
-
-    if (isOAuthReturn()) {
-      const oauthSession = await waitForAuthSession(supabaseClient);
-      if (oauthSession) {
-        session = oauthSession;
-        demoMode = false;
-        renderApp();
-        clearAuthParamsFromUrl();
-        return;
-      }
-      setLoginState({
-        ready: true,
-        error: "Connexion Microsoft impossible. Reessayez ou contactez votre administrateur."
-      });
     }
   } catch (error) {
     setLoginState({ ready: false, error: error.message || "Impossible de demarrer l'application." });
