@@ -83,8 +83,21 @@
 
       window.humanaOnSession = function (authSession) {
         window.__pendingAuthSession = authSession;
-        if (typeof window.humanaRender === "function") {
-          window.humanaRender(authSession);
+        window.__oauthHandled = true;
+
+        function tryRender() {
+          if (typeof window.humanaRender === "function") {
+            window.humanaRender(authSession);
+            return true;
+          }
+          return false;
+        }
+
+        if (!tryRender()) {
+          var tries = 0;
+          var timer = setInterval(function () {
+            if (tryRender() || ++tries > 150) clearInterval(timer);
+          }, 100);
         }
       };
 
@@ -120,10 +133,6 @@
       }
 
       completeOAuthReturn(window.__humanaSupabase).then(handleAuthSession);
-
-      window.__humanaSupabase.auth.onAuthStateChange(function (event, authSession) {
-        if (authSession) handleAuthSession(authSession);
-      });
 
       window.humanaSignIn = async function () {
         var errorBox = document.getElementById("login-error");
@@ -171,6 +180,6 @@
       });
     })();
   </script>
-  <script src="app.js?v=7" defer onload="window.humanaApplyPendingSession && window.humanaApplyPendingSession()"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>
