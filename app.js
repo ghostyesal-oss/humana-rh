@@ -119,7 +119,11 @@ function renderLogin(error = "") {
 }
 
 async function signInWithMicrosoft() {
-  if (!supabase) return;
+  if (!supabase) supabase = getSupabaseClient();
+  if (!supabase) {
+    setLoginState({ ready: false, error: "Connexion Supabase indisponible. Rechargez la page." });
+    return;
+  }
   const button = document.querySelector("#microsoft-login");
   button.disabled = true;
   button.lastChild.textContent = " Redirection…";
@@ -320,10 +324,12 @@ function getSupabaseSettings() {
 }
 
 function getSupabaseClient() {
+  if (window.__humanaSupabase) return window.__humanaSupabase;
   const { url, key } = getSupabaseSettings();
   if (!url || !key) return null;
   if (!window.supabase?.createClient) return null;
-  return window.supabase.createClient(url, key);
+  window.__humanaSupabase = window.supabase.createClient(url, key);
+  return window.__humanaSupabase;
 }
 
 function withTimeout(promise, ms) {
@@ -337,6 +343,8 @@ async function initialize() {
   try {
     ensureAppContainer();
     bindLoginEvents();
+    supabase = getSupabaseClient();
+    setLoginState({ ready: Boolean(supabase) });
 
     const portalUser = readPortalUser();
     if (portalUser) {
@@ -352,12 +360,7 @@ async function initialize() {
     }
 
     supabase = getSupabaseClient();
-    if (!supabase) {
-      setLoginState({ ready: false, error: "" });
-      return;
-    }
-
-    setLoginState({ ready: true });
+    if (!supabase) return;
 
     const result = await withTimeout(supabase.auth.getSession(), 4000);
     session = result?.data?.session ?? null;
@@ -371,5 +374,11 @@ async function initialize() {
     setLoginState({ ready: false, error: error.message || "Impossible de demarrer l'application." });
   }
 }
+
+window.humanaStartDemo = function () {
+  demoMode = true;
+  supabase = getSupabaseClient();
+  renderApp();
+};
 
 initialize();
