@@ -72,29 +72,57 @@
       if (loginButton) loginButton.disabled = false;
       if (configNote) configNote.hidden = true;
 
-      function handleAuthSession(authSession) {
-        if (!authSession) return;
-        if (typeof window.humanaOnSession === "function") {
-          window.humanaOnSession(authSession);
-          return;
-        }
-        var tries = 0;
-        var timer = setInterval(function () {
-          if (typeof window.humanaOnSession === "function") {
-            clearInterval(timer);
-            window.humanaOnSession(authSession);
-          } else if (++tries > 50) {
-            clearInterval(timer);
-          }
-        }, 100);
+      function showLoginError(message) {
+        var errorBox = document.getElementById("login-error");
+        if (!errorBox) return;
+        errorBox.hidden = false;
+        errorBox.textContent = message;
       }
 
-      window.__humanaSupabase.auth.onAuthStateChange(function (_event, authSession) {
-        handleAuthSession(authSession);
-      });
+      window.__pendingAuthSession = null;
 
-      window.__humanaSupabase.auth.getSession().then(function (result) {
-        handleAuthSession(result.data.session);
+      window.humanaOnSession = function (authSession) {
+        window.__pendingAuthSession = authSession;
+        if (typeof window.humanaRender === "function") {
+          window.humanaRender(authSession);
+        }
+      };
+
+      window.humanaApplyPendingSession = function () {
+        if (window.__pendingAuthSession && typeof window.humanaRender === "function") {
+          window.humanaRender(window.__pendingAuthSession);
+        }
+      };
+
+      async function completeOAuthReturn(client) {
+        var params = new URLSearchParams(window.location.search);
+        var code = params.get("code");
+
+        try {
+          if (code) {
+            var exchanged = await client.auth.exchangeCodeForSession(code);
+            if (exchanged.error) throw exchanged.error;
+            window.history.replaceState({}, document.title, window.location.pathname);
+            return exchanged.data.session;
+          }
+
+          var current = await client.auth.getSession();
+          return current.data.session;
+        } catch (err) {
+          showLoginError(err.message || "Impossible de finaliser la connexion.");
+          return null;
+        }
+      }
+
+      function handleAuthSession(authSession) {
+        if (!authSession) return;
+        window.humanaOnSession(authSession);
+      }
+
+      completeOAuthReturn(window.__humanaSupabase).then(handleAuthSession);
+
+      window.__humanaSupabase.auth.onAuthStateChange(function (event, authSession) {
+        if (authSession) handleAuthSession(authSession);
       });
 
       window.humanaSignIn = async function () {
@@ -143,6 +171,6 @@
       });
     })();
   </script>
-  <script src="app.js"></script>
+  <script src="app.js?v=7" defer onload="window.humanaApplyPendingSession && window.humanaApplyPendingSession()"></script>
 </body>
 </html>
