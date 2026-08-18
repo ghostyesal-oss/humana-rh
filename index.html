@@ -62,9 +62,40 @@
         return;
       }
 
-      window.__humanaSupabase = window.supabase.createClient(url, key);
+      window.__humanaSupabase = window.supabase.createClient(url, key, {
+        auth: {
+          detectSessionInUrl: true,
+          persistSession: true,
+          autoRefreshToken: true
+        }
+      });
       if (loginButton) loginButton.disabled = false;
       if (configNote) configNote.hidden = true;
+
+      function handleAuthSession(authSession) {
+        if (!authSession) return;
+        if (typeof window.humanaOnSession === "function") {
+          window.humanaOnSession(authSession);
+          return;
+        }
+        var tries = 0;
+        var timer = setInterval(function () {
+          if (typeof window.humanaOnSession === "function") {
+            clearInterval(timer);
+            window.humanaOnSession(authSession);
+          } else if (++tries > 50) {
+            clearInterval(timer);
+          }
+        }, 100);
+      }
+
+      window.__humanaSupabase.auth.onAuthStateChange(function (_event, authSession) {
+        handleAuthSession(authSession);
+      });
+
+      window.__humanaSupabase.auth.getSession().then(function (result) {
+        handleAuthSession(result.data.session);
+      });
 
       window.humanaSignIn = async function () {
         var errorBox = document.getElementById("login-error");
