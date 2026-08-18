@@ -1,5 +1,3 @@
-const { SUPABASE_URL = "", SUPABASE_ANON_KEY = "" } = window.HUMANA_CONFIG || {};
-const normalizedSupabaseUrl = SUPABASE_URL.replace(/\/rest\/v1\/?$/, "").replace(/\/$/, "");
 let supabase = null;
 let app = null;
 let session = null;
@@ -313,10 +311,19 @@ function readPortalUser() {
   return match ? { name: match[1].trim(), email: "" } : null;
 }
 
+function getSupabaseSettings() {
+  const { SUPABASE_URL = "", SUPABASE_ANON_KEY = "" } = window.HUMANA_CONFIG || {};
+  return {
+    url: SUPABASE_URL.replace(/\/rest\/v1\/?$/, "").replace(/\/$/, ""),
+    key: SUPABASE_ANON_KEY
+  };
+}
+
 function getSupabaseClient() {
-  if (!normalizedSupabaseUrl || !SUPABASE_ANON_KEY) return null;
+  const { url, key } = getSupabaseSettings();
+  if (!url || !key) return null;
   if (!window.supabase?.createClient) return null;
-  return window.supabase.createClient(normalizedSupabaseUrl, SUPABASE_ANON_KEY);
+  return window.supabase.createClient(url, key);
 }
 
 function withTimeout(promise, ms) {
