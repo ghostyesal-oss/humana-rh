@@ -71,42 +71,53 @@ function badge(value) {
   return `<span class="badge ${tone}">${value}</span>`;
 }
 
-function renderLogin(error = "") {
-  app.innerHTML = `
-    <main class="login-page">
-      <section class="login-brand">
-        <div class="brand brand-large"><span>H</span> Humana</div>
-        <div class="login-message">
-          <span class="eyebrow">L’espace RH qui rassemble</span>
-          <h1>Votre équipe.<br><em>Simplement.</em></h1>
-          <p>Une expérience fluide pour accompagner vos collaborateurs, du premier jour à chaque nouvelle étape.</p>
-          <div class="trust-row"><span>✓ Données sécurisées</span><span>✓ Conforme RGPD</span></div>
-        </div>
-      </section>
-      <section class="login-panel">
-        <div class="login-card">
-          <div class="mobile-brand brand"><span>H</span> Humana</div>
-          <div class="login-icon">♢</div>
-          <h2>Bienvenue</h2>
-          <p>Connectez-vous avec votre compte professionnel pour accéder à votre espace RH.</p>
-          <button id="microsoft-login" class="microsoft-button" ${supabase ? "" : "disabled"}>
-            <span class="microsoft-logo"><i></i><i></i><i></i><i></i></span>
-            Continuer avec Microsoft
-          </button>
-          ${supabase ? "" : `<div class="config-note">Connexion indisponible. Vérifiez <code>config.js</code> sur GitHub (URL + clé anon).</div>`}
-          ${error ? `<p class="error-message">${error}</p>` : ""}
-          <div class="separator"><span>ou</span></div>
-          <button id="demo-login" class="demo-button">Voir l’aperçu de démonstration</button>
-          <small>En continuant, vous acceptez les conditions d’utilisation et la politique de confidentialité.</small>
-        </div>
-      </section>
-    </main>`;
-
-  document.querySelector("#demo-login").addEventListener("click", () => {
+function bindLoginEvents() {
+  document.querySelector("#demo-login")?.addEventListener("click", () => {
     demoMode = true;
     renderApp();
   });
-  document.querySelector("#microsoft-login").addEventListener("click", signInWithMicrosoft);
+  document.querySelector("#microsoft-login")?.addEventListener("click", signInWithMicrosoft);
+}
+
+function setLoginState({ ready = false, error = "" } = {}) {
+  const microsoftButton = document.querySelector("#microsoft-login");
+  const configNote = document.querySelector("#config-note");
+  const errorMessage = document.querySelector("#login-error");
+
+  if (microsoftButton) microsoftButton.disabled = !ready;
+  if (configNote) configNote.hidden = ready;
+  if (errorMessage) {
+    errorMessage.hidden = !error;
+    errorMessage.textContent = error;
+  }
+}
+
+function renderLogin(error = "") {
+  if (!document.querySelector(".login-page")) {
+    app.innerHTML = `
+      <main class="login-page">
+        <section class="login-brand">
+          <div class="brand brand-large"><span>H</span> Humana</div>
+          <div class="login-message">
+            <span class="eyebrow">L'espace RH qui rassemble</span>
+            <h1>Votre equipe.<br><em>Simplement.</em></h1>
+            <p>Connectez-vous avec votre compte professionnel pour acceder a votre espace RH.</p>
+          </div>
+        </section>
+        <section class="login-panel">
+          <div class="login-card">
+            <h2>Bienvenue</h2>
+            <button id="microsoft-login" class="microsoft-button" disabled>Continuer avec Microsoft</button>
+            <div id="config-note" class="config-note">Connexion en cours de preparation...</div>
+            <p id="login-error" class="error-message" hidden></p>
+            <button id="demo-login" class="demo-button">Voir l'apercu de demonstration</button>
+          </div>
+        </section>
+      </main>`;
+  }
+
+  bindLoginEvents();
+  setLoginState({ ready: Boolean(supabase), error });
 }
 
 async function signInWithMicrosoft() {
@@ -316,9 +327,10 @@ function withTimeout(promise, ms) {
 }
 
 async function initialize() {
-  ensureAppContainer();
-
   try {
+    ensureAppContainer();
+    bindLoginEvents();
+
     const portalUser = readPortalUser();
     if (portalUser) {
       portalMode = true;
@@ -334,30 +346,23 @@ async function initialize() {
 
     supabase = getSupabaseClient();
     if (!supabase) {
-      renderLogin();
+      setLoginState({ ready: false, error: "" });
       return;
     }
 
+    setLoginState({ ready: true });
+
     const result = await withTimeout(supabase.auth.getSession(), 4000);
     session = result?.data?.session ?? null;
-
-    if (session) {
-      renderApp();
-    } else {
-      renderLogin();
-    }
+    if (session) renderApp();
 
     supabase.auth.onAuthStateChange((_event, nextSession) => {
       session = nextSession;
       session ? renderApp() : renderLogin();
     });
   } catch (error) {
-    renderLogin(error.message || "Impossible de démarrer l'application.");
+    setLoginState({ ready: false, error: error.message || "Impossible de demarrer l'application." });
   }
 }
 
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initialize);
-} else {
-  initialize();
-}
+initialize();
