@@ -29,14 +29,14 @@
           <div class="login-icon">&#9670;</div>
           <h2>Bienvenue</h2>
           <p>Connectez-vous avec votre compte professionnel pour acceder a votre espace RH.</p>
-          <button id="microsoft-login" class="microsoft-button">
+          <button id="microsoft-login" type="button" class="microsoft-button">
             <span class="microsoft-logo"><i></i><i></i><i></i><i></i></span>
             Continuer avec Microsoft
           </button>
           <div id="config-note" class="config-note" hidden>Connexion en cours de preparation...</div>
           <p id="login-error" class="error-message" hidden></p>
           <div class="separator"><span>ou</span></div>
-          <button id="demo-login" class="demo-button">Voir l'apercu de demonstration</button>
+          <button id="demo-login" type="button" class="demo-button">Voir l'apercu de demonstration</button>
           <small>En continuant, vous acceptez les conditions d'utilisation et la politique de confidentialite.</small>
         </div>
       </section>
@@ -66,7 +66,8 @@
         auth: {
           detectSessionInUrl: true,
           persistSession: true,
-          autoRefreshToken: true
+          autoRefreshToken: true,
+          flowType: "pkce"
         }
       });
       if (loginButton) loginButton.disabled = false;
@@ -107,34 +108,8 @@
         }
       };
 
-      async function completeOAuthReturn(client) {
-        var params = new URLSearchParams(window.location.search);
-        var code = params.get("code");
-
-        try {
-          if (code) {
-            var exchanged = await client.auth.exchangeCodeForSession(code);
-            if (exchanged.error) throw exchanged.error;
-            window.history.replaceState({}, document.title, window.location.pathname);
-            return exchanged.data.session;
-          }
-
-          var current = await client.auth.getSession();
-          return current.data.session;
-        } catch (err) {
-          showLoginError(err.message || "Impossible de finaliser la connexion.");
-          return null;
-        }
-      }
-
-      function handleAuthSession(authSession) {
-        if (!authSession) return;
-        window.humanaOnSession(authSession);
-      }
-
-      completeOAuthReturn(window.__humanaSupabase).then(handleAuthSession);
-
       window.humanaSignIn = async function () {
+        if (window.__oauthStarting) return;
         var errorBox = document.getElementById("login-error");
         var client = window.__humanaSupabase;
         if (!client) {
@@ -145,12 +120,14 @@
           return;
         }
         try {
+          window.__oauthStarting = true;
           if (loginButton) loginButton.disabled = true;
           var result = await client.auth.signInWithOAuth({
             provider: "azure",
             options: { redirectTo: config.REDIRECT_URL || "https://humana-rh.vercel.app", scopes: "email" }
           });
           if (result.error) {
+            window.__oauthStarting = false;
             if (errorBox) {
               errorBox.hidden = false;
               errorBox.textContent = result.error.message;
@@ -158,6 +135,7 @@
             if (loginButton) loginButton.disabled = false;
           }
         } catch (err) {
+          window.__oauthStarting = false;
           if (errorBox) {
             errorBox.hidden = false;
             errorBox.textContent = err.message || "Erreur de connexion.";
@@ -166,27 +144,34 @@
         }
       };
 
-      if (loginButton) loginButton.addEventListener("click", window.humanaSignIn);
-      document.getElementById("demo-login")?.addEventListener("click", function () {
-        function tryDemo() {
-          if (typeof window.humanaStartDemo === "function") {
-            window.humanaStartDemo();
-            return true;
-          }
-          return false;
-        }
-        if (!tryDemo()) {
-          var tries = 0;
-          var timer = setInterval(function () {
-            if (tryDemo() || ++tries > 150) {
-              clearInterval(timer);
-              if (tries > 150) {
-                showLoginError("Application non chargee. Videz le cache (Ctrl+Shift+R) et rechargez.");
-              }
+      if (loginButton) {
+        loginButton.addEventListener("click", window.humanaSignIn);
+        loginButton.dataset.humanaBound = "1";
+      }
+      var demoButton = document.getElementById("demo-login");
+      if (demoButton) {
+        demoButton.addEventListener("click", function () {
+          function tryDemo() {
+            if (typeof window.humanaStartDemo === "function") {
+              window.humanaStartDemo();
+              return true;
             }
-          }, 100);
-        }
-      });
+            return false;
+          }
+          if (!tryDemo()) {
+            var tries = 0;
+            var timer = setInterval(function () {
+              if (tryDemo() || ++tries > 150) {
+                clearInterval(timer);
+                if (tries > 150) {
+                  showLoginError("Application non chargee. Videz le cache (Ctrl+Shift+R) et rechargez.");
+                }
+              }
+            }, 100);
+          }
+        });
+        demoButton.dataset.humanaBound = "1";
+      }
     })();
 
     window.addEventListener("error", function (event) {
@@ -199,6 +184,6 @@
       }
     }, true);
   </script>
-  <script src="app.js?v=10" charset="UTF-8"></script>
+  <script src="app.js?v=11" charset="UTF-8"></script>
 </body>
 </html>
