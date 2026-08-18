@@ -414,7 +414,7 @@ async function initialize() {
   }
 }
 
-window.humanaOnSession = function (authSession) {
+window.humanaRender = function (authSession) {
   session = authSession;
   demoMode = false;
   ensureAppContainer();
@@ -422,10 +422,16 @@ window.humanaOnSession = function (authSession) {
   clearAuthParamsFromUrl();
 };
 
+window.humanaOnSession = window.humanaRender;
+
 window.humanaStartDemo = function () {
   demoMode = true;
   supabase = getSupabaseClient();
   renderApp();
 };
+
+if (window.__pendingAuthSession) {
+  window.humanaRender(window.__pendingAuthSession);
+}
 
 initialize();
