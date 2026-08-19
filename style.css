@@ -1,32 +1,32 @@
-/* Humana — style inspire du template Figma "Trustworthy App" (Etran) */
+/* Humana — theme inspire des guidelines Cegid */
 
 :root,
 [data-theme="light"] {
   color-scheme: light;
 
-  /* Palette Etran */
-  --forest: #394508;
-  --forest-mid: #619111;
-  --forest-deep: #2d3806;
-  --lime: #d2fd9c;
-  --lime-hover: #c5f08a;
-  --lime-muted: #eefadc;
+  /* Palette inspiree Cegid */
+  --forest: #022341;
+  --forest-mid: #0046fe;
+  --forest-deep: #011a33;
+  --lime: #cfe0ff;
+  --lime-hover: #bed4ff;
+  --lime-muted: #edf3ff;
 
-  --bg: #ededed;
+  --bg: #f5f7fb;
   --surface: #ffffff;
   --surface-2: #f7f7f7;
   --surface-hover: #f0f0f0;
   --border: #e0e0e0;
   --border-strong: #cccccc;
 
-  --text: #1a1a1a;
-  --text-secondary: #5d5d5d;
-  --text-tertiary: #8a8a8a;
+  --text: #0f172a;
+  --text-secondary: #475569;
+  --text-tertiary: #64748b;
 
-  --success-bg: #eefadc;
-  --success-text: #394508;
-  --warning-bg: #fff8e6;
-  --warning-text: #7a5a00;
+  --success-bg: #e8f7ef;
+  --success-text: #1f7a46;
+  --warning-bg: #fff7e8;
+  --warning-text: #8a5b12;
   --error-text: #b42318;
   --error-bg: #fef3f2;
 
@@ -45,11 +45,11 @@
   --login-brand-bg: var(--forest);
   --login-panel-bg: #ffffff;
   --table-head: #f7f7f7;
-  --backdrop: rgba(57, 69, 8, 0.55);
+  --backdrop: rgba(2, 35, 65, 0.55);
   --input-bg: #ffffff;
 
   --radius: 10px;
-  --radius-lg: 20px;
+  --radius-lg: 16px;
   --radius-pill: 999px;
 
   --s1: 4px;
@@ -60,7 +60,7 @@
   --s6: 32px;
   --s7: 48px;
   --transition: 150ms ease;
-  --font: "Manrope", "Segoe UI", system-ui, sans-serif;
+  --font: "Poppins", "Segoe UI", system-ui, sans-serif;
 
   --accent: var(--forest-mid);
   --accent-hover: var(--forest-deep);
@@ -69,7 +69,7 @@
   --brand: var(--forest-mid);
   --brand-dark: var(--forest-deep);
   --brand-soft: var(--lime-muted);
-  --brand-glow: rgba(210, 253, 156, 0.45);
+  --brand-glow: rgba(0, 70, 254, 0.18);
   --ink: var(--text);
   --ink-secondary: var(--text-secondary);
   --muted: var(--text-tertiary);
@@ -90,42 +90,42 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
-  --forest: #2a3306;
-  --forest-mid: #4d7310;
-  --forest-deep: #1f2604;
-  --lime: #b8e882;
-  --lime-hover: #a8d872;
-  --lime-muted: #2a3310;
+  --forest: #01162c;
+  --forest-mid: #3b7bff;
+  --forest-deep: #001021;
+  --lime: #9ebeff;
+  --lime-hover: #8cb0ff;
+  --lime-muted: #152948;
 
-  --bg: #1a1f0a;
-  --surface: #252b10;
-  --surface-2: #2f3714;
-  --surface-hover: #3a4418;
-  --border: #3d4818;
-  --border-strong: #4d5a20;
+  --bg: #0b1220;
+  --surface: #121c2f;
+  --surface-2: #1a2740;
+  --surface-hover: #22324f;
+  --border: #2a3c5e;
+  --border-strong: #36507c;
 
-  --text: #f5f5f0;
-  --text-secondary: #c5c9b8;
-  --text-tertiary: #8a9078;
+  --text: #e6eefc;
+  --text-secondary: #b8c8e4;
+  --text-tertiary: #8ea2c6;
 
-  --success-bg: #2a3310;
-  --success-text: #d2fd9c;
-  --warning-bg: #332a10;
+  --success-bg: #123326;
+  --success-text: #78d9a2;
+  --warning-bg: #332612;
   --warning-text: #f0c060;
   --error-text: #f87171;
   --error-bg: #331818;
 
-  --sidebar-bg: #1f2604;
+  --sidebar-bg: #07172c;
   --sidebar-border: rgba(255, 255, 255, 0.06);
   --sidebar-text: rgba(255, 255, 255, 0.65);
   --sidebar-active: var(--forest-mid);
   --topbar-bg: #252b10;
   --login-brand-bg: #1f2604;
   --login-panel-bg: #252b10;
-  --table-head: #2f3714;
+  --table-head: #1a2740;
   --backdrop: rgba(0, 0, 0, 0.65);
   --input-bg: #2f3714;
-  --brand-glow: rgba(184, 232, 130, 0.2);
+  --brand-glow: rgba(59, 123, 255, 0.2);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -823,7 +823,7 @@ small { font-size: 12px; color: var(--text-tertiary); }
 .balance-card:hover,
 .home-widget:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(57, 69, 8, 0.08);
+  box-shadow: 0 8px 24px rgba(2, 35, 65, 0.12);
 }
 
 .card { padding: var(--s5); }
@@ -1785,8 +1785,8 @@ tbody tr:hover td { background: var(--surface-2); }
     height: 38px;
     border: none;
     border-radius: var(--radius);
-    background: var(--lime);
-    color: var(--forest);
+    background: var(--forest-mid);
+    color: #ffffff;
     position: relative;
   }
 
