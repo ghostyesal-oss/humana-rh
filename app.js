@@ -50,7 +50,7 @@ function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", next);
   localStorage.setItem(THEME_KEY, next);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = next === "dark" ? "#1f1c1a" : "#f7f4ef";
+  if (meta) meta.content = next === "dark" ? "#141615" : "#f3f4f2";
 }
 
 function toggleTheme() {
@@ -1016,9 +1016,9 @@ function pageContent() {
   }
   if (appData.error) {
     return `
-      <article class="card">
+      <article class="card error-card">
         <p class="error-message">${appData.error}</p>
-        <button type="button" id="retry-load" class="primary" style="margin-top:14px">Reessayer</button>
+        <button type="button" id="retry-load" class="primary">Reessayer</button>
       </article>`;
   }
   return {
@@ -1249,16 +1249,16 @@ function renderLogin(error = "") {
         <section class="login-brand">
           <div class="brand brand-large"><span>H</span> Humana</div>
           <div class="login-message">
-            <span class="eyebrow">Humana</span>
-            <h1>Un espace RH simple,<br>pour votre <em>quotidien</em>.</h1>
-            <p>Pointage, conges, documents : tout est la, sans prise de tete.</p>
+            <span class="eyebrow">Humana RH</span>
+            <h1>Votre espace<br>ressources humaines.</h1>
+            <p>Pointage, conges, documents et administration — un seul outil pour le quotidien.</p>
           </div>
         </section>
         <section class="login-panel">
           <div class="login-theme-wrap">${themeToggleMarkup()}</div>
           <div class="login-card">
-            <h2>Content de vous revoir</h2>
-            <p>Connectez-vous avec votre compte professionnel.</p>
+            <h2>Connexion</h2>
+            <p>Utilisez votre compte Microsoft professionnel.</p>
             <button id="microsoft-login" type="button" class="microsoft-button" disabled>Continuer avec Microsoft</button>
             <div id="config-note" class="config-note">Connexion en cours de preparation...</div>
             <p id="login-error" class="error-message" hidden></p>
@@ -1296,10 +1296,10 @@ function renderApp() {
   const initials = profileInitials(name);
 
   app.innerHTML = `
-    <div class="app-shell">
+    <div class="app-shell" data-page="${currentPage}">
       <aside class="sidebar">
         <div class="brand"><span>H</span> Humana</div>
-        <button class="close-menu" type="button" aria-label="Fermer">x</button>
+        <button class="close-menu" type="button" aria-label="Fermer"></button>
         <nav>${getNavigationItems().map((item) => `
           <button type="button" data-page="${item[0]}" class="${currentPage === item[0] ? "active" : ""}">
             ${item[1]}${navBadge(item[0])}
@@ -1312,17 +1312,15 @@ function renderApp() {
       <main class="main-content">
         <header class="topbar">
           <button class="menu-button" type="button" aria-label="Menu"></button>
-          <div class="topbar-title">${pages[currentPage][0]}</div>
-          <div class="topbar-actions">${themeToggleMarkup()}</div>
+          <div class="topbar-actions">${demoMode ? `<span class="demo-pill">Mode demo</span>` : ""}${themeToggleMarkup()}</div>
         </header>
         <div class="page">
-          <div class="page-heading">
+          <header class="page-heading">
             <div>
               <h1>${pages[currentPage][0]}</h1>
               <p>${pages[currentPage][1]}</p>
             </div>
-            ${demoMode ? `<span class="demo-pill">Mode demo</span>` : ""}
-          </div>
+          </header>
           <div id="page-content" class="page-content">${pageContent()}</div>
         </div>
       </main>
