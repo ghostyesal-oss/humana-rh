@@ -36,6 +36,39 @@ const pages = {
   admin: ["Administration", "Gerez les utilisateurs, les roles et la hierarchie."]
 };
 
+const THEME_KEY = "humana-theme";
+
+function getTheme() {
+  return document.documentElement.getAttribute("data-theme") || "light";
+}
+
+function applyTheme(theme) {
+  const next = theme === "dark" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem(THEME_KEY, next);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = next === "dark" ? "#0f0d14" : "#7158e8";
+}
+
+function toggleTheme() {
+  applyTheme(getTheme() === "dark" ? "light" : "dark");
+}
+
+function themeToggleMarkup() {
+  return `<button type="button" class="theme-toggle" data-theme-toggle aria-label="Changer le theme">
+    <span class="theme-toggle-track"><span class="theme-toggle-thumb"></span></span>
+    <span class="theme-toggle-label" aria-hidden="true"></span>
+  </button>`;
+}
+
+function bindThemeToggle() {
+  document.querySelectorAll("[data-theme-toggle]").forEach((btn) => {
+    if (btn.dataset.humanaBound) return;
+    btn.dataset.humanaBound = "1";
+    btn.addEventListener("click", toggleTheme);
+  });
+}
+
 const navigation = [
   ["pointeuse", "P", "Pointeuse"],
   ["leave", "C", "Conges"],
@@ -345,7 +378,7 @@ function pointeusePage() {
   const today = new Date().toDateString();
   const todayPunches = punches.filter((p) => new Date(p.time).toDateString() === today);
   const dbNote = usesDatabase()
-    ? `<p class="data-note"> </p>`
+    ? `<p class="data-note">Donnees enregistrees dans Supabase.</p>`
     : `<p class="data-note demo">Mode demo : donnees locales uniquement. Connectez-vous avec Microsoft pour sauvegarder.</p>`;
 
   return `
@@ -912,6 +945,7 @@ async function bootstrapUser(options = {}) {
 }
 
 function bindLoginEvents() {
+  bindThemeToggle();
   const demoBtn = document.querySelector("#demo-login");
   if (demoBtn && !demoBtn.dataset.humanaBound) {
     demoBtn.dataset.humanaBound = "1";
@@ -957,6 +991,7 @@ function renderLogin(error = "") {
           </div>
         </section>
         <section class="login-panel">
+          <div class="login-theme-wrap">${themeToggleMarkup()}</div>
           <div class="login-card">
             <h2>Bienvenue</h2>
             <button id="microsoft-login" type="button" class="microsoft-button" disabled>Continuer avec Microsoft</button>
@@ -1013,6 +1048,7 @@ function renderApp() {
         <header class="topbar">
           <button class="menu-button" type="button" aria-label="Menu"></button>
           <div class="topbar-title">${pages[currentPage][0]}</div>
+          <div class="topbar-actions">${themeToggleMarkup()}</div>
         </header>
         <div class="page">
           <div class="page-heading">
@@ -1243,6 +1279,7 @@ function bindPageEvents() {
 }
 
 function bindAppEvents() {
+  bindThemeToggle();
   document.querySelectorAll("[data-page]").forEach((button) => {
     button.addEventListener("click", () => {
       currentPage = button.dataset.page;
