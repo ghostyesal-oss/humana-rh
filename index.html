@@ -74,11 +74,22 @@
       if (loginButton) loginButton.disabled = false;
       if (configNote) configNote.hidden = true;
 
+      function formatOAuthError(message) {
+        if (!message) return "Impossible de finaliser la connexion Microsoft.";
+        if (message.indexOf("Unable to exchange external code") !== -1) {
+          return "Configuration Microsoft incorrecte dans Supabase. Verifiez : (1) le Client Secret Azure = la Valeur, pas l'ID du secret, (2) l'URI de redirection Azure en type Web, (3) l'URL du tenant Azure dans Supabase.";
+        }
+        if (message.indexOf("Error getting user email") !== -1) {
+          return "Microsoft n'a pas transmis l'email. Ajoutez les autorisations email/openid dans Azure et le scope email dans Supabase.";
+        }
+        return message;
+      }
+
       function showLoginError(message) {
         var errorBox = document.getElementById("login-error");
         if (!errorBox) return;
         errorBox.hidden = false;
-        errorBox.textContent = message;
+        errorBox.textContent = formatOAuthError(message);
       }
 
       window.__pendingAuthSession = null;
@@ -218,6 +229,6 @@
       }
     }, true);
   </script>
-  <script src="app.js?v=12" charset="UTF-8"></script>
+  <script src="app.js?v=13" charset="UTF-8"></script>
 </body>
 </html>
