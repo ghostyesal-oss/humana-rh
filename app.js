@@ -1247,6 +1247,11 @@ function renderLogin(error = "") {
     app.innerHTML = `
       <main class="login-page">
         <section class="login-brand">
+          <div class="login-bg" aria-hidden="true">
+            <span class="login-blob login-blob-1"></span>
+            <span class="login-blob login-blob-2"></span>
+            <span class="login-blob login-blob-3"></span>
+          </div>
           <div class="brand brand-large"><span>H</span> Humana</div>
           <div class="login-message">
             <span class="eyebrow">Humana RH</span>
@@ -1290,6 +1295,21 @@ async function signInWithMicrosoft() {
   if (error) renderLogin(error.message);
 }
 
+function playViewAnimations() {
+  const content = document.querySelector("#page-content");
+  const topbar = document.querySelector(".topbar-page");
+  const heading = document.querySelector(".page-heading");
+
+  [content, topbar, heading].forEach((el) => {
+    if (!el) return;
+    el.classList.remove("is-animating");
+  });
+
+  requestAnimationFrame(() => {
+    [content, topbar, heading].forEach((el) => el?.classList.add("is-animating"));
+  });
+}
+
 function renderApp() {
   const name = getUserName();
   const email = session?.user?.email || "collaborateur@entreprise.fr";
@@ -1310,6 +1330,10 @@ function renderApp() {
       </aside>
       <button class="backdrop" type="button" aria-label="Fermer le menu"></button>
       <main class="main-content">
+        <div class="main-bg" aria-hidden="true">
+          <span class="main-blob main-blob-1"></span>
+          <span class="main-blob main-blob-2"></span>
+        </div>
         <header class="topbar">
           <button class="menu-button" type="button" aria-label="Menu"></button>
           <div class="topbar-page">${pages[currentPage][0]}</div>
@@ -1325,6 +1349,7 @@ function renderApp() {
     </div>`;
 
   bindAppEvents();
+  playViewAnimations();
 }
 
 function daysBetween(start, end) {
