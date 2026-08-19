@@ -64,6 +64,9 @@
   --bg-image-login: url("https://assets.cegid.com/asset/95337732-1b76-43e3-8a8e-51ec723ea9f4/Strat-texture-transformation-blue2-full18-1.png?_ts=1787149486692");
   --bg-image-main: url("https://assets.cegid.com/asset/0ed97535-5310-4182-9be4-7bd03a5f603c/Strategy-context-background.png?_ts=1787149486693");
   --bg-image-card: url("https://assets.cegid.com/asset/7b09e26c-e05d-47f8-9ce5-6ffc19726729/Strategy-context.png?_ts=1787149486692");
+  --bg-image-alt-1: url("https://assets.cegid.com/asset/f6c2b853-0dce-4135-a72e-9e29340bd0cf/Strategy-strategic-role.png?_ts=1787149486693");
+  --bg-image-alt-2: url("https://assets.cegid.com/asset/049ae3b1-c5a5-4433-9230-f3b4c6acc37a/Strategy-vision.png?_ts=1787149486693");
+  --bg-image-alt-3: url("https://assets.cegid.com/asset/706a86d0-be38-4c1c-9bcd-0a868a4860fb/Strategy-framework.png?_ts=1787149486694");
 
   --accent: var(--forest-mid);
   --accent-hover: var(--forest-deep);
@@ -764,6 +767,83 @@ small { font-size: 12px; color: var(--text-tertiary); }
   max-width: 1100px;
   margin: 0 auto;
   padding: var(--s5) var(--s5) var(--s7);
+}
+
+.page-content {
+  position: relative;
+  isolation: isolate;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  padding: 2px;
+}
+
+.page-content::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(245, 247, 251, 0.9)),
+    var(--bg-image-main);
+  background-size: cover;
+  background-position: center;
+  opacity: 0.85;
+  animation: softDrift 34s ease-in-out infinite alternate;
+}
+
+[data-theme="dark"] .page-content::before {
+  background-image:
+    linear-gradient(145deg, rgba(11, 18, 32, 0.78), rgba(11, 18, 32, 0.82)),
+    var(--bg-image-main);
+  opacity: 0.65;
+}
+
+.app-shell[data-current-page="home"] .page-content::before {
+  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(245, 247, 251, 0.9)), var(--bg-image-main);
+}
+
+.app-shell[data-current-page="pointeuse"] .page-content::before {
+  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(245, 247, 251, 0.9)), var(--bg-image-alt-1);
+}
+
+.app-shell[data-current-page="leave"] .page-content::before {
+  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(245, 247, 251, 0.9)), var(--bg-image-alt-2);
+}
+
+.app-shell[data-current-page="attestations"] .page-content::before {
+  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(245, 247, 251, 0.9)), var(--bg-image-alt-3);
+}
+
+.app-shell[data-current-page="hierarchy"] .page-content::before {
+  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(245, 247, 251, 0.9)), var(--bg-image-card);
+}
+
+.app-shell[data-current-page="admin"] .page-content::before {
+  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(245, 247, 251, 0.9)), var(--bg-image-main);
+}
+
+[data-theme="dark"] .app-shell[data-current-page="home"] .page-content::before {
+  background-image: linear-gradient(145deg, rgba(11, 18, 32, 0.78), rgba(11, 18, 32, 0.82)), var(--bg-image-main);
+}
+
+[data-theme="dark"] .app-shell[data-current-page="pointeuse"] .page-content::before {
+  background-image: linear-gradient(145deg, rgba(11, 18, 32, 0.78), rgba(11, 18, 32, 0.82)), var(--bg-image-alt-1);
+}
+
+[data-theme="dark"] .app-shell[data-current-page="leave"] .page-content::before {
+  background-image: linear-gradient(145deg, rgba(11, 18, 32, 0.78), rgba(11, 18, 32, 0.82)), var(--bg-image-alt-2);
+}
+
+[data-theme="dark"] .app-shell[data-current-page="attestations"] .page-content::before {
+  background-image: linear-gradient(145deg, rgba(11, 18, 32, 0.78), rgba(11, 18, 32, 0.82)), var(--bg-image-alt-3);
+}
+
+[data-theme="dark"] .app-shell[data-current-page="hierarchy"] .page-content::before {
+  background-image: linear-gradient(145deg, rgba(11, 18, 32, 0.78), rgba(11, 18, 32, 0.82)), var(--bg-image-card);
+}
+
+[data-theme="dark"] .app-shell[data-current-page="admin"] .page-content::before {
+  background-image: linear-gradient(145deg, rgba(11, 18, 32, 0.78), rgba(11, 18, 32, 0.82)), var(--bg-image-main);
 }
 
 .page-heading { margin-bottom: var(--s5); }
