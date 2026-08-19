@@ -50,7 +50,7 @@ function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", next);
   localStorage.setItem(THEME_KEY, next);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = next === "dark" ? "#111318" : "#eef0f3";
+  if (meta) meta.content = next === "dark" ? "#1f2604" : "#394508";
 }
 
 function toggleTheme() {
@@ -476,7 +476,7 @@ function homePage() {
 
   return `
     <section class="home-welcome">
-      <h2 class="home-title">${dayGreeting()}, ${firstName}</h2>
+      <h2 class="home-title">${dayGreeting()}, <b>${firstName}</b></h2>
       <p class="home-subtitle">Nous sommes ${todayLabel}. Voici votre espace du jour.</p>
     </section>
 
@@ -1250,8 +1250,8 @@ function renderLogin(error = "") {
           <div class="brand brand-large"><span>H</span> Humana</div>
           <div class="login-message">
             <span class="eyebrow">Humana RH</span>
-            <h1>Votre espace<br>ressources humaines.</h1>
-            <p>Pointage, conges, documents et administration — un seul outil pour le quotidien.</p>
+            <h1>Gestion RH<br><em>simplifiee</em>.</h1>
+            <p>Pointage, conges, documents — un espace fiable pour votre quotidien professionnel.</p>
           </div>
         </section>
         <section class="login-panel">
