@@ -50,7 +50,7 @@ function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", next);
   localStorage.setItem(THEME_KEY, next);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = next === "dark" ? "#1f2604" : "#394508";
+  if (meta) meta.content = next === "dark" ? "#0b1220" : "#022341";
 }
 
 function toggleTheme() {
