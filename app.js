@@ -31,12 +31,12 @@ const roleLabels = {
 };
 
 const pages = {
-  home: ["Accueil", "Votre espace RH en un coup d'oeil."],
-  pointeuse: ["Pointeuse", "Enregistrez vos arrivees et departs du jour."],
-  leave: ["Demandes de conges", "Deposez et suivez vos demandes d'absence."],
-  attestations: ["Demandes d'attestations", "Demandez vos documents RH en quelques clics."],
-  hierarchy: ["Hierarchie", "Visualisez l'organigramme et votre ligne hierarchique."],
-  admin: ["Administration", "Gerez les utilisateurs, les roles et la hierarchie."]
+  home: ["Accueil", "Tout ce dont vous avez besoin, au meme endroit."],
+  pointeuse: ["Pointeuse", "Enregistrez vos arrivees et vos departs."],
+  leave: ["Conges", "Consultez vos soldes et faites vos demandes."],
+  attestations: ["Attestations", "Demandez vos documents en quelques clics."],
+  hierarchy: ["Hierarchie", "Votre manager, votre equipe, l'organigramme."],
+  admin: ["Administration", "Gestion des comptes et des acces."]
 };
 
 const THEME_KEY = "humana-theme";
@@ -50,7 +50,7 @@ function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", next);
   localStorage.setItem(THEME_KEY, next);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = next === "dark" ? "#0b1220" : "#022341";
+  if (meta) meta.content = next === "dark" ? "#1f1c1a" : "#f7f4ef";
 }
 
 function toggleTheme() {
@@ -73,11 +73,11 @@ function bindThemeToggle() {
 }
 
 const navigation = [
-  ["home", "▣", "Accueil"],
-  ["pointeuse", "◷", "Pointeuse"],
-  ["leave", "◫", "Conges"],
-  ["attestations", "◧", "Attestations"],
-  ["hierarchy", "◉", "Hierarchie"]
+  ["home", "Accueil"],
+  ["pointeuse", "Pointeuse"],
+  ["leave", "Conges"],
+  ["attestations", "Attestations"],
+  ["hierarchy", "Hierarchie"]
 ];
 
 const HR_DOCUMENTS_BUCKET = "hr-documents";
@@ -138,7 +138,7 @@ function escapeHtml(value) {
 
 function getNavigationItems() {
   const items = [...navigation];
-  if (isAdmin()) items.push(["admin", "⚙", "Administration"]);
+  if (isAdmin()) items.push(["admin", "Administration"]);
   return items;
 }
 
@@ -366,18 +366,9 @@ function balanceCard(balance) {
 }
 
 function hoursCard(label, value) {
-  const meta = {
-    "Aujourd'hui": { icon: "☀", accent: "accent-today" },
-    "Cette semaine": { icon: "📅", accent: "accent-week" },
-    "Ce mois": { icon: "📊", accent: "accent-month" }
-  };
-  const item = meta[label] || { icon: "⏱", accent: "" };
   return `
-    <article class="hours-card ${item.accent}">
-      <div class="hours-card-top">
-        <span class="hours-icon" aria-hidden="true">${item.icon}</span>
-        <span>${label}</span>
-      </div>
+    <article class="hours-card">
+      <span class="hours-label">${label}</span>
       <strong>${formatDuration(value)}</strong>
     </article>`;
 }
@@ -463,8 +454,15 @@ function homeBalanceSummary(balance) {
     </div>`;
 }
 
+function dayGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Bonjour";
+  if (hour < 18) return "Bon apres-midi";
+  return "Bonsoir";
+}
+
 function homePage() {
-  const firstName = escapeHtml(getUserName().split(" ")[0] || "Collaborateur");
+  const firstName = escapeHtml(getUserName().split(" ")[0] || "vous");
   const { isIn } = getClockState();
   const hours = computeWorkedHours(getPunches());
   const balances = getLeaveBalances();
@@ -473,42 +471,34 @@ function homePage() {
   const todayLabel = new Date().toLocaleDateString("fr-FR", {
     weekday: "long",
     day: "numeric",
-    month: "long",
-    year: "numeric"
+    month: "long"
   });
 
   return `
-    <section class="home-welcome card">
-      <div>
-        <p class="home-eyebrow">Bonjour</p>
-        <h2 class="home-title">Bienvenue, ${firstName}</h2>
-        <p class="home-subtitle">Retrouvez ici vos actions et informations RH essentielles.</p>
-      </div>
-      <div class="home-date-badge">${todayLabel}</div>
+    <section class="home-welcome">
+      <h2 class="home-title">${dayGreeting()}, ${firstName}</h2>
+      <p class="home-subtitle">Nous sommes ${todayLabel}. Voici votre espace du jour.</p>
     </section>
 
     <section class="home-grid page-spacer">
       <article class="card home-widget">
         <div class="card-heading">
-          <h3>Pointeuse</h3>
-          <button type="button" class="home-link" data-goto-page="pointeuse">Voir tout</button>
+          <h3>Ma journee</h3>
+          <button type="button" class="home-link" data-goto-page="pointeuse">Historique</button>
         </div>
         <div class="home-clock">
-          <div class="clock-status ${isIn ? "in" : "out"} home-clock-status">
-            <strong>${isIn ? "En poste" : "Hors poste"}</strong>
-            <span>${isIn ? "Pointage actif" : "Aucun pointage en cours"}</span>
-          </div>
-          <p class="home-hours-today">Aujourd'hui : <b>${formatDuration(hours.today)}</b></p>
+          <p class="home-status-line ${isIn ? "is-in" : ""}">${isIn ? "Vous etes en poste" : "Vous n'avez pas encore pointe aujourd'hui"}</p>
+          <p class="home-hours-today">Temps aujourd'hui : <b>${formatDuration(hours.today)}</b></p>
           <button type="button" id="clock-toggle" class="clock-button ${isIn ? "out" : "in"}">
-            ${isIn ? "Pointer la sortie" : "Pointer l'arrivee"}
+            ${isIn ? "Je pars" : "J'arrive"}
           </button>
         </div>
       </article>
 
       <article class="card home-widget">
         <div class="card-heading">
-          <h3>Soldes de conges</h3>
-          <button type="button" class="home-link" data-goto-page="leave">Gerer</button>
+          <h3>Conges</h3>
+          <button type="button" class="home-link" data-goto-page="leave">Faire une demande</button>
         </div>
         <div class="home-balance-list">
           ${balances.map((balance) => homeBalanceSummary(balance)).join("")}
@@ -517,19 +507,19 @@ function homePage() {
 
       <article class="card home-widget">
         <div class="card-heading">
-          <h3>Documents RH</h3>
+          <h3>Documents partages</h3>
         </div>
         <div class="home-doc-list">
           ${documents.length
             ? documents.map((doc) => `
               <a class="home-doc-item" href="${escapeHtml(resolveHrDocumentUrl(doc))}" target="_blank" rel="noopener noreferrer">
-                <span class="home-doc-icon" aria-hidden="true">📄</span>
+                <span class="file-mark" aria-hidden="true"></span>
                 <div>
                   <strong>${escapeHtml(doc.title)}</strong>
-                  <span>${escapeHtml(doc.description || doc.category || "")} · ${formatDate(doc.published_at)}</span>
+                  <span>${escapeHtml(doc.description || doc.category || "Document")} · ${formatDate(doc.published_at)}</span>
                 </div>
               </a>`).join("")
-            : `<p class="empty-state">Aucun document partage pour le moment.</p>`}
+            : `<p class="empty-state">Rien de nouveau pour l'instant. Les RH publieront les documents ici.</p>`}
         </div>
       </article>
 
@@ -541,14 +531,14 @@ function homePage() {
           ${payslips.length
             ? payslips.map((slip) => `
               <div class="home-payslip-item">
-                <span class="home-payslip-icon" aria-hidden="true">💶</span>
+                <span class="payslip-month" aria-hidden="true">${escapeHtml((slip.period_label || "").slice(0, 3))}</span>
                 <div>
                   <strong>${escapeHtml(slip.period_label)}</strong>
                   <span>Bulletin mensuel</span>
                 </div>
-                <a class="home-payslip-btn" href="${escapeHtml(slip.file_url || "#")}" target="_blank" rel="noopener noreferrer">PDF</a>
+                <a class="home-payslip-btn" href="${escapeHtml(slip.file_url || "#")}" target="_blank" rel="noopener noreferrer">Ouvrir</a>
               </div>`).join("")
-            : `<p class="empty-state">Aucun bulletin disponible. Contactez les RH.</p>`}
+            : `<p class="empty-state">Vos bulletins apparaitront ici des qu'ils seront disponibles.</p>`}
         </div>
       </article>
     </section>`;
@@ -572,13 +562,12 @@ function pointeusePage() {
     </section>
     <section class="clock-grid page-spacer">
       <article class="card clock-card">
-        <p class="clock-label">Statut actuel</p>
         <div class="clock-status ${isIn ? "in" : "out"}">
-          <strong>${isIn ? "En poste" : "Hors poste"}</strong>
-          <span>${isIn ? "Vous etes pointe en entree." : "Pointez votre arrivee pour commencer."}</span>
+          <strong>${isIn ? "En poste" : "Pas encore pointe"}</strong>
+          <span>${isIn ? "Bonne journee, vous etes bien enregistre." : "Un clic pour signaler votre arrivee."}</span>
         </div>
         <button type="button" id="clock-toggle" class="clock-button ${isIn ? "out" : "in"}">
-          ${isIn ? "Pointer la sortie" : "Pointer l'arrivee"}
+          ${isIn ? "Je pars" : "J'arrive"}
         </button>
         <p class="clock-hint">${new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
       </article>
@@ -1260,15 +1249,16 @@ function renderLogin(error = "") {
         <section class="login-brand">
           <div class="brand brand-large"><span>H</span> Humana</div>
           <div class="login-message">
-            <span class="eyebrow">L'espace RH qui rassemble</span>
-            <h1>Votre equipe.<br><em>Simplement.</em></h1>
-            <p>Connectez-vous avec votre compte professionnel pour acceder a votre espace RH.</p>
+            <span class="eyebrow">Humana</span>
+            <h1>Un espace RH simple,<br>pour votre <em>quotidien</em>.</h1>
+            <p>Pointage, conges, documents : tout est la, sans prise de tete.</p>
           </div>
         </section>
         <section class="login-panel">
           <div class="login-theme-wrap">${themeToggleMarkup()}</div>
           <div class="login-card">
-            <h2>Bienvenue</h2>
+            <h2>Content de vous revoir</h2>
+            <p>Connectez-vous avec votre compte professionnel.</p>
             <button id="microsoft-login" type="button" class="microsoft-button" disabled>Continuer avec Microsoft</button>
             <div id="config-note" class="config-note">Connexion en cours de preparation...</div>
             <p id="login-error" class="error-message" hidden></p>
@@ -1310,12 +1300,12 @@ function renderApp() {
       <aside class="sidebar">
         <div class="brand"><span>H</span> Humana</div>
         <button class="close-menu" type="button" aria-label="Fermer">x</button>
-        <nav><p>ESPACE RH</p>${getNavigationItems().map((item) => `
+        <nav>${getNavigationItems().map((item) => `
           <button type="button" data-page="${item[0]}" class="${currentPage === item[0] ? "active" : ""}">
-            <span class="nav-icon">${item[1]}</span>${item[2]}${navBadge(item[0])}
+            ${item[1]}${navBadge(item[0])}
           </button>`).join("")}</nav>
         <div class="sidebar-bottom">
-          <div class="user-card">${avatar(initials)}<div><strong>${name}</strong><span>${email}</span>${isAdmin() ? `<span class="admin-pill">Admin</span>` : ""}</div><button type="button" id="logout" class="logout-btn" aria-label="Se deconnecter" title="Se deconnecter">⎋</button></div>
+          <div class="user-card">${avatar(initials)}<div><strong>${name}</strong><span>${email}</span>${isAdmin() ? `<span class="admin-pill">Admin</span>` : ""}</div><button type="button" id="logout" class="logout-btn" aria-label="Se deconnecter">Sortir</button></div>
         </div>
       </aside>
       <button class="backdrop" type="button" aria-label="Fermer le menu"></button>
@@ -1333,7 +1323,7 @@ function renderApp() {
             </div>
             ${demoMode ? `<span class="demo-pill">Mode demo</span>` : ""}
           </div>
-          <div id="page-content" class="page-enter">${pageContent()}</div>
+          <div id="page-content" class="page-content">${pageContent()}</div>
         </div>
       </main>
     </div>`;
