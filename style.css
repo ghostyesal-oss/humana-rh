@@ -346,6 +346,31 @@ tbody tr:hover td { background: var(--surface-hover); }
   box-shadow: 0 0 0 3px var(--purple-glow);
 }
 .feature-form textarea { resize: vertical; min-height: 88px; }
+.file-upload input[type="file"] {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  color: var(--ink);
+  background: var(--surface-2);
+}
+.file-upload input[type="file"]::file-selector-button {
+  margin-right: 12px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  color: white;
+  background: var(--purple);
+  font-weight: 700;
+  cursor: pointer;
+}
+.file-upload-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .empty-state, .empty-cell { color: var(--muted); font-size: 13px; text-align: center; }
 .empty-state { padding: 28px 16px; border: 1px dashed var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
