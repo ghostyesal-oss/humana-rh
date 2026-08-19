@@ -80,6 +80,9 @@ const navigation = [
   ["hierarchy", "👥", "Hierarchie"]
 ];
 
+const HR_DOCUMENTS_BUCKET = "hr-documents";
+const HR_DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
+
 const leaveTypes = ["Conges payes", "RTT", "Conge maladie", "Conge sans solde"];
 const attestationTypes = [
   "Attestation employeur",
@@ -414,6 +417,34 @@ function getHrDocuments() {
   return loadStore("hrDocuments", demoHrDocuments);
 }
 
+function resolveHrDocumentUrl(doc) {
+  return doc?.file_url || "#";
+}
+
+function sanitizeFileName(name) {
+  return String(name || "document")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .replace(/_+/g, "_")
+    .slice(0, 80) || "document";
+}
+
+async function uploadHrDocumentFile(file) {
+  const safeName = sanitizeFileName(file.name);
+  const storagePath = `docs/${Date.now()}-${safeName}`;
+  const { error } = await supabaseClient.storage
+    .from(HR_DOCUMENTS_BUCKET)
+    .upload(storagePath, file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: file.type || "application/octet-stream"
+    });
+  if (error) throw error;
+  const { data } = supabaseClient.storage.from(HR_DOCUMENTS_BUCKET).getPublicUrl(storagePath);
+  return { publicUrl: data.publicUrl, storagePath };
+}
+
 function getPayslips() {
   if (usesDatabase()) return appData.payslips || [];
   return loadStore("payslips", buildDemoPayslips());
@@ -491,7 +522,7 @@ function homePage() {
         <div class="home-doc-list">
           ${documents.length
             ? documents.map((doc) => `
-              <a class="home-doc-item" href="${escapeHtml(doc.file_url || "#")}" target="_blank" rel="noopener noreferrer">
+              <a class="home-doc-item" href="${escapeHtml(resolveHrDocumentUrl(doc))}" target="_blank" rel="noopener noreferrer">
                 <span class="home-doc-icon" aria-hidden="true">📄</span>
                 <div>
                   <strong>${escapeHtml(doc.title)}</strong>
@@ -911,7 +942,7 @@ function adminPage() {
     <div class="feature-grid page-spacer">
       <article class="card form-card">
         ${cardHeading("Publier un document RH")}
-        <form id="admin-hr-doc-form" class="feature-form">
+        <form id="admin-hr-doc-form" class="feature-form" enctype="multipart/form-data">
           <label>
             Titre
             <input type="text" name="title" required placeholder="Ex. Reglement interieur">
@@ -921,15 +952,17 @@ function adminPage() {
             <input type="text" name="description" placeholder="Courte description">
           </label>
           <label>
-            Lien du fichier (URL)
-            <input type="url" name="file_url" required placeholder="https://...">
-          </label>
-          <label>
             Categorie
             <input type="text" name="category" value="General">
           </label>
-          <button type="submit" class="primary">Publier le document</button>
+          <label class="file-upload">
+            Fichier a publier
+            <input type="file" name="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,application/pdf" ${usesDatabase() ? "required" : ""}>
+            <span class="file-upload-hint">PDF, Word, Excel ou image — maximum 10 Mo</span>
+          </label>
+          <button type="submit" class="primary">Televerser et publier</button>
         </form>
+        ${usesDatabase() ? "" : `<p class="hierarchy-meta">Le televersement de fichiers est disponible apres connexion Microsoft.</p>`}
       </article>
       <article class="card form-card">
         ${cardHeading("Ajouter un bulletin de paie")}
@@ -965,7 +998,27 @@ function adminPage() {
           <button type="submit" class="primary">Ajouter le bulletin</button>
         </form>
       </article>
-    </div>`;
+    </div>
+    <article class="card table-card page-spacer">
+      <div class="toolbar"><h3>Documents RH publies</h3></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Document</th><th>Categorie</th><th>Date</th><th>Fichier</th><th></th></tr></thead>
+          <tbody>
+            ${getHrDocuments().length
+              ? getHrDocuments().map((doc) => `
+                <tr>
+                  <td><strong>${escapeHtml(doc.title)}</strong><br><small>${escapeHtml(doc.description || "")}</small></td>
+                  <td>${escapeHtml(doc.category || "General")}</td>
+                  <td>${formatDate(doc.published_at)}</td>
+                  <td><a href="${escapeHtml(resolveHrDocumentUrl(doc))}" target="_blank" rel="noopener noreferrer">Ouvrir</a></td>
+                  <td><button type="button" class="outline-button admin-delete-hr-doc" data-doc-id="${doc.id}" data-storage-path="${escapeHtml(doc.storage_path || "")}">Supprimer</button></td>
+                </tr>`).join("")
+              : `<tr><td colspan="5" class="empty-cell">Aucun document publie.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </article>`;
 }
 
 function pageContent() {
@@ -1001,6 +1054,9 @@ function formatAppError(error) {
   }
   if (message.includes("does not exist") || (message.includes("relation") && message.includes("profiles"))) {
     return "Base Supabase non configuree. Executez supabase/schema.sql puis supabase/admin.sql dans SQL Editor.";
+  }
+  if (message.includes("bucket") || message.includes("storage")) {
+    return "Stockage Supabase non configure. Executez supabase/storage-hr-documents.sql dans SQL Editor.";
   }
   return error?.message || "Impossible de charger les donnees Supabase.";
 }
@@ -1506,25 +1562,68 @@ function bindPageEvents() {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
+    const file = data.get("file");
+    const fileEntry = file instanceof File && file.size > 0 ? file : null;
+
     withAction(async () => {
       const payload = {
         title: String(data.get("title") || "").trim(),
         description: String(data.get("description") || "").trim(),
-        file_url: String(data.get("file_url") || "").trim(),
         category: String(data.get("category") || "General").trim(),
         published_at: new Date().toISOString().slice(0, 10),
-        created_by: session.user.id
+        created_by: session.user.id,
+        file_url: "",
+        storage_path: null
       };
+
       if (usesDatabase()) {
+        if (!fileEntry) throw new Error("Selectionnez un fichier a televerser.");
+        if (fileEntry.size > HR_DOCUMENT_MAX_BYTES) {
+          throw new Error("Fichier trop volumineux. Taille maximum : 10 Mo.");
+        }
+        const uploaded = await uploadHrDocumentFile(fileEntry);
+        payload.file_url = uploaded.publicUrl;
+        payload.storage_path = uploaded.storagePath;
         const { error } = await supabaseClient.from("hr_documents").insert(payload);
         if (error) throw error;
       } else {
+        if (!fileEntry) throw new Error("Selectionnez un fichier ou connectez-vous avec Microsoft.");
         const docs = loadStore("hrDocuments", demoHrDocuments);
-        docs.unshift({ id: `local-${Date.now()}`, ...payload });
+        docs.unshift({
+          id: `local-${Date.now()}`,
+          ...payload,
+          file_url: "#",
+          file_name: fileEntry.name
+        });
         saveStore("hrDocuments", docs);
       }
+
       form.reset();
       currentPage = "admin";
+    });
+  });
+
+  document.querySelectorAll(".admin-delete-hr-doc").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!confirm("Supprimer ce document RH ?")) return;
+      withAction(async () => {
+        const docId = button.dataset.docId;
+        const storagePath = button.dataset.storagePath;
+        if (usesDatabase()) {
+          if (storagePath) {
+            const { error: storageError } = await supabaseClient.storage
+              .from(HR_DOCUMENTS_BUCKET)
+              .remove([storagePath]);
+            if (storageError) throw storageError;
+          }
+          const { error } = await supabaseClient.from("hr_documents").delete().eq("id", docId);
+          if (error) throw error;
+        } else {
+          const docs = loadStore("hrDocuments", demoHrDocuments).filter((doc) => doc.id !== docId);
+          saveStore("hrDocuments", docs);
+        }
+        currentPage = "admin";
+      });
     });
   });
 
