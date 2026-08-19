@@ -251,8 +251,8 @@ function countPendingAttestations() {
 }
 
 function navBadge(page) {
-  if (page === "leave" && countPendingLeave()) return `<i>${countPendingLeave()}</i>`;
-  if (page === "attestations" && countPendingAttestations()) return `<i>${countPendingAttestations()}</i>`;
+  if (page === "leave" && countPendingLeave()) return `<span class="nav-badge">${countPendingLeave()}</span>`;
+  if (page === "attestations" && countPendingAttestations()) return `<span class="nav-badge">${countPendingAttestations()}</span>`;
   return "";
 }
 
@@ -805,7 +805,7 @@ function hierarchyPage() {
                   <span>${profile.job_title || "Collaborateur"}</span>
                 </div>
               </div>`).join("")
-            : `<p class="empty-state">Aucun collaborateur rattache pour le moment.</p>`}
+            : `<p class="empty-inline">Aucun collaborateur rattache pour le moment.</p>`}
         </div>
       </article>
     </section>
@@ -1312,14 +1312,12 @@ function renderApp() {
       <main class="main-content">
         <header class="topbar">
           <button class="menu-button" type="button" aria-label="Menu"></button>
+          <div class="topbar-page">${pages[currentPage][0]}</div>
           <div class="topbar-actions">${demoMode ? `<span class="demo-pill">Mode demo</span>` : ""}${themeToggleMarkup()}</div>
         </header>
         <div class="page">
           <header class="page-heading">
-            <div>
-              <h1>${pages[currentPage][0]}</h1>
-              <p>${pages[currentPage][1]}</p>
-            </div>
+            <p>${pages[currentPage][1]}</p>
           </header>
           <div id="page-content" class="page-content">${pageContent()}</div>
         </div>
