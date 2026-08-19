@@ -441,7 +441,11 @@ function pageContent() {
     return `<div class="boot-message">Chargement des donnees...</div>`;
   }
   if (appData.error) {
-    return `<article class="card"><p class="error-message">${appData.error}</p></article>`;
+    return `
+      <article class="card">
+        <p class="error-message">${appData.error}</p>
+        <button type="button" id="retry-load" class="primary" style="margin-top:14px">Reessayer</button>
+      </article>`;
   }
   return {
     pointeuse: pointeusePage,
@@ -449,6 +453,45 @@ function pageContent() {
     attestations: attestationsPage,
     hierarchy: hierarchyPage
   }[currentPage]();
+}
+
+function isJwtClockError(error) {
+  const message = (error?.message || error?.details || String(error || "")).toLowerCase();
+  return message.includes("jwt issued at future") || message.includes("issued at future");
+}
+
+function formatAppError(error) {
+  if (isJwtClockError(error)) {
+    return "Synchronisation de session en cours. Cliquez sur Reessayer ou attendez quelques secondes. Verifiez aussi que l'heure de votre ordinateur est correcte.";
+  }
+  return error?.message || "Impossible de charger les donnees Supabase.";
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function syncSessionAfterLogin() {
+  if (!supabaseClient) return;
+  await wait(1200);
+  const { error } = await supabaseClient.auth.refreshSession();
+  if (error && !isJwtClockError(error)) throw error;
+  if (error) await wait(2000);
+}
+
+async function withSupabaseRetry(action, attempts = 4) {
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await action();
+    } catch (error) {
+      lastError = error;
+      if (!isJwtClockError(error) || attempt === attempts - 1) throw error;
+      await supabaseClient.auth.refreshSession().catch(() => {});
+      await wait(1000 * (attempt + 1));
+    }
+  }
+  throw lastError;
 }
 
 async function ensureProfile() {
@@ -462,39 +505,42 @@ async function ensureProfile() {
     full_name: metadata.full_name || metadata.name || user.email?.split("@")[0] || "Collaborateur"
   };
 
-  const { data, error } = await supabaseClient
-    .from("profiles")
-    .upsert(payload, { onConflict: "id" })
-    .select()
-    .single();
-
-  if (error) throw error;
-  appData.profile = data;
+  await withSupabaseRetry(async () => {
+    const { data, error } = await supabaseClient
+      .from("profiles")
+      .upsert(payload, { onConflict: "id" })
+      .select()
+      .single();
+    if (error) throw error;
+    appData.profile = data;
+  });
 }
 
 async function refreshAppData() {
   if (!usesDatabase()) return;
 
   const userId = session.user.id;
-  const [punchesRes, leaveRes, attestationRes, profilesRes, profileRes] = await Promise.all([
-    supabaseClient.from("time_punches").select("*").eq("user_id", userId).order("punched_at", { ascending: true }),
-    supabaseClient.from("leave_requests").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
-    supabaseClient.from("attestation_requests").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
-    supabaseClient.from("profiles").select("id, full_name, email, job_title, department, manager_id").order("full_name"),
-    supabaseClient.from("profiles").select("*").eq("id", userId).maybeSingle()
-  ]);
+  await withSupabaseRetry(async () => {
+    const [punchesRes, leaveRes, attestationRes, profilesRes, profileRes] = await Promise.all([
+      supabaseClient.from("time_punches").select("*").eq("user_id", userId).order("punched_at", { ascending: true }),
+      supabaseClient.from("leave_requests").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+      supabaseClient.from("attestation_requests").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+      supabaseClient.from("profiles").select("id, full_name, email, job_title, department, manager_id").order("full_name"),
+      supabaseClient.from("profiles").select("*").eq("id", userId).maybeSingle()
+    ]);
 
-  if (punchesRes.error) throw punchesRes.error;
-  if (leaveRes.error) throw leaveRes.error;
-  if (attestationRes.error) throw attestationRes.error;
-  if (profilesRes.error) throw profilesRes.error;
-  if (profileRes.error) throw profileRes.error;
+    if (punchesRes.error) throw punchesRes.error;
+    if (leaveRes.error) throw leaveRes.error;
+    if (attestationRes.error) throw attestationRes.error;
+    if (profilesRes.error) throw profilesRes.error;
+    if (profileRes.error) throw profileRes.error;
 
-  appData.punches = punchesRes.data || [];
-  appData.leaveRequests = leaveRes.data || [];
-  appData.attestationRequests = attestationRes.data || [];
-  appData.orgProfiles = profilesRes.data || [];
-  appData.profile = profileRes.data || appData.profile;
+    appData.punches = punchesRes.data || [];
+    appData.leaveRequests = leaveRes.data || [];
+    appData.attestationRequests = attestationRes.data || [];
+    appData.orgProfiles = profilesRes.data || [];
+    appData.profile = profileRes.data || appData.profile;
+  });
 }
 
 async function bootstrapUser() {
@@ -508,10 +554,11 @@ async function bootstrapUser() {
   renderApp();
 
   try {
+    await syncSessionAfterLogin();
     await ensureProfile();
     await refreshAppData();
   } catch (error) {
-    appData.error = error.message || "Impossible de charger les donnees Supabase.";
+    appData.error = formatAppError(error);
   } finally {
     appData.loading = false;
     renderApp();
@@ -785,6 +832,10 @@ function bindAppEvents() {
       orgProfiles: []
     };
     renderLogin();
+  });
+
+  document.querySelector("#retry-load")?.addEventListener("click", () => {
+    bootstrapUser();
   });
 
   bindPageEvents();
