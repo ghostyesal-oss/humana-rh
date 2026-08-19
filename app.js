@@ -50,7 +50,7 @@ function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", next);
   localStorage.setItem(THEME_KEY, next);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = next === "dark" ? "#0f0d14" : "#7158e8";
+  if (meta) meta.content = next === "dark" ? "#0b1120" : "#0f1729";
 }
 
 function toggleTheme() {
@@ -73,11 +73,11 @@ function bindThemeToggle() {
 }
 
 const navigation = [
-  ["home", "🏠", "Accueil"],
-  ["pointeuse", "⏱", "Pointeuse"],
-  ["leave", "🏖", "Conges"],
-  ["attestations", "📄", "Attestations"],
-  ["hierarchy", "👥", "Hierarchie"]
+  ["home", "▣", "Accueil"],
+  ["pointeuse", "◷", "Pointeuse"],
+  ["leave", "◫", "Conges"],
+  ["attestations", "◧", "Attestations"],
+  ["hierarchy", "◉", "Hierarchie"]
 ];
 
 const HR_DOCUMENTS_BUCKET = "hr-documents";
