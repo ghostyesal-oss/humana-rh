@@ -61,12 +61,12 @@
   --s7: 48px;
   --transition: 150ms ease;
   --font: "Poppins", "Segoe UI", system-ui, sans-serif;
-  --bg-image-login: url("./assets/bg/team-1.png");
-  --bg-image-main: url("./assets/bg/team-2.png");
-  --bg-image-card: url("./assets/bg/meeting-1.png");
-  --bg-image-alt-1: url("./assets/bg/workspace-1.png");
-  --bg-image-alt-2: url("./assets/bg/workspace-2.png");
-  --bg-image-alt-3: url("./assets/bg/team-1.png");
+  --bg-image-login: url("file:///C:/Users/LASRY/.cursor/projects/c-Users-LASRY-Projects-rh2-demo/assets/c__Users_LASRY_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-807cc566-ea3c-4494-8c74-100fb597e76c.png");
+  --bg-image-main: url("file:///C:/Users/LASRY/.cursor/projects/c-Users-LASRY-Projects-rh2-demo/assets/c__Users_LASRY_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-803ab0c0-a751-4739-9a4b-4d1dd65eca88.png");
+  --bg-image-card: url("file:///C:/Users/LASRY/.cursor/projects/c-Users-LASRY-Projects-rh2-demo/assets/c__Users_LASRY_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-620fb974-a816-4304-9b4e-4208c9cfd082.png");
+  --bg-image-alt-1: url("file:///C:/Users/LASRY/.cursor/projects/c-Users-LASRY-Projects-rh2-demo/assets/c__Users_LASRY_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-c05a8a7b-85f6-41e8-a269-c545a9bbff53.png");
+  --bg-image-alt-2: url("file:///C:/Users/LASRY/.cursor/projects/c-Users-LASRY-Projects-rh2-demo/assets/c__Users_LASRY_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-0424c149-aae3-420d-a5ff-84357873a0a7.png");
+  --bg-image-alt-3: url("file:///C:/Users/LASRY/.cursor/projects/c-Users-LASRY-Projects-rh2-demo/assets/c__Users_LASRY_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-807cc566-ea3c-4494-8c74-100fb597e76c.png");
 
   --accent: var(--forest-mid);
   --accent-hover: var(--forest-deep);
