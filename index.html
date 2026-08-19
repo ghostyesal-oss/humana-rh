@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#eef0f3">
+  <meta name="theme-color" content="#394508">
   <meta name="description" content="Humana, votre espace de gestion des ressources humaines.">
   <title>Humana — Espace RH</title>
   <script>
@@ -13,13 +13,13 @@
       var theme = stored === "dark" || stored === "light" ? stored : (prefersDark ? "dark" : "light");
       document.documentElement.setAttribute("data-theme", theme);
       var meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.content = theme === "dark" ? "#111318" : "#eef0f3";
+      if (meta) meta.content = theme === "dark" ? "#1f2604" : "#394508";
     })();
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=11">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
   <div id="app" aria-live="polite">
@@ -28,8 +28,8 @@
         <div class="brand brand-large"><span>H</span> Humana</div>
         <div class="login-message">
           <span class="eyebrow">Humana RH</span>
-          <h1>Votre espace<br>ressources humaines.</h1>
-          <p>Pointage, conges, documents et administration — un seul outil pour le quotidien.</p>
+          <h1>Gestion RH<br><em>simplifiee</em>.</h1>
+          <p>Pointage, conges, documents — un espace fiable pour votre quotidien professionnel.</p>
           <div class="trust-row"><span>Heberge en France</span><span>Donnees chiffrees</span></div>
         </div>
       </section>
@@ -244,6 +244,6 @@
       }
     }, true);
   </script>
-  <script src="app.js?v=27" charset="UTF-8"></script>
+  <script src="app.js?v=28" charset="UTF-8"></script>
 </body>
 </html>
