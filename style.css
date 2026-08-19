@@ -230,8 +230,20 @@ td { padding: 14px 20px; border-top: 1px solid #f0eff3; color: #6e6c7a; font-siz
 .admin-row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .admin-row-actions .outline-button { width: auto; min-width: 88px; }
 
+.hours-grid, .balance-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.hours-card, .balance-card { padding: 18px; border: 1px solid var(--line); border-radius: 13px; background: white; box-shadow: 0 3px 14px rgba(40, 34, 80, .025); }
+.hours-card span, .balance-head span { display: block; color: var(--muted); font-size: 12px; }
+.hours-card strong { display: block; margin-top: 8px; font-size: 28px; letter-spacing: -.03em; }
+.balance-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.balance-head strong { font-size: 14px; }
+.balance-track { height: 8px; overflow: hidden; border-radius: 999px; background: #eeeef2; }
+.balance-track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #7158e8, #9b84ff); }
+.balance-meta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; color: var(--muted); font-size: 11px; }
+.balance-meta b { color: var(--ink); }
+
 @media (max-width: 1050px) {
   .clock-grid, .feature-grid, .hierarchy-grid { grid-template-columns: 1fr; }
+  .hours-grid, .balance-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 780px) {
