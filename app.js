@@ -8,6 +8,7 @@ let session = null;
 let demoMode = false;
 let portalMode = false;
 let currentPage = "pointeuse";
+let bootstrapInFlight = null;
 let appData = {
   loading: false,
   error: "",
@@ -614,8 +615,12 @@ function isJwtClockError(error) {
 }
 
 function formatAppError(error) {
+  const message = (error?.message || "").toLowerCase();
   if (isJwtClockError(error)) {
     return "Synchronisation de session en cours. Cliquez sur Reessayer ou attendez quelques secondes. Verifiez aussi que l'heure de votre ordinateur est correcte.";
+  }
+  if (message.includes("does not exist") || (message.includes("relation") && message.includes("profiles"))) {
+    return "Base Supabase non configuree. Executez supabase/schema.sql puis supabase/admin.sql dans SQL Editor.";
   }
   return error?.message || "Impossible de charger les donnees Supabase.";
 }
@@ -624,12 +629,23 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function withTimeout(promise, ms, label = "Requete") {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} trop longue. Reessayez.`)), ms);
+    })
+  ]);
+}
+
 async function syncSessionAfterLogin() {
   if (!supabaseClient) return;
-  await wait(1200);
-  const { error } = await supabaseClient.auth.refreshSession();
-  if (error && !isJwtClockError(error)) throw error;
-  if (error) await wait(2000);
+  await wait(400);
+  try {
+    await withTimeout(supabaseClient.auth.refreshSession(), 6000, "Connexion");
+  } catch {
+    // On continue avec la session existante si le refresh echoue ou expire.
+  }
 }
 
 async function withSupabaseRetry(action, attempts = 4) {
@@ -666,10 +682,13 @@ async function ensureProfile() {
       .single();
     if (error) throw error;
     appData.profile = data;
-    await supabaseClient.rpc("apply_pending_invite", {
+    const { error: inviteError } = await supabaseClient.rpc("apply_pending_invite", {
       user_id: user.id,
       user_email: user.email || ""
     });
+    if (inviteError && !inviteError.message.includes("does not exist")) {
+      console.warn("apply_pending_invite:", inviteError.message);
+    }
   });
 }
 
@@ -678,13 +697,17 @@ async function refreshAppData() {
 
   const userId = session.user.id;
   await withSupabaseRetry(async () => {
-    const [punchesRes, leaveRes, attestationRes, profilesRes, profileRes] = await Promise.all([
-      supabaseClient.from("time_punches").select("*").eq("user_id", userId).order("punched_at", { ascending: true }),
-      supabaseClient.from("leave_requests").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
-      supabaseClient.from("attestation_requests").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
-      supabaseClient.from("profiles").select("id, full_name, email, job_title, department, manager_id, role").order("full_name"),
-      supabaseClient.from("profiles").select("*").eq("id", userId).maybeSingle()
-    ]);
+    const [punchesRes, leaveRes, attestationRes, profilesRes, profileRes] = await withTimeout(
+      Promise.all([
+        supabaseClient.from("time_punches").select("*").eq("user_id", userId).order("punched_at", { ascending: true }),
+        supabaseClient.from("leave_requests").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+        supabaseClient.from("attestation_requests").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+        supabaseClient.from("profiles").select("*").order("full_name"),
+        supabaseClient.from("profiles").select("*").eq("id", userId).maybeSingle()
+      ]),
+      12000,
+      "Chargement des donnees"
+    );
 
     if (punchesRes.error) throw punchesRes.error;
     if (leaveRes.error) throw leaveRes.error;
@@ -699,36 +722,55 @@ async function refreshAppData() {
     appData.profile = profileRes.data || appData.profile;
     appData.pendingInvites = [];
 
-    if (appData.profile?.role === "admin") {
-      const invitesRes = await supabaseClient
-        .from("pending_invites")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (invitesRes.error) throw invitesRes.error;
-      appData.pendingInvites = invitesRes.data || [];
+    if ((appData.profile?.role || "employee") === "admin") {
+      const invitesRes = await withTimeout(
+        supabaseClient.from("pending_invites").select("*").order("created_at", { ascending: false }),
+        8000,
+        "Chargement des invitations"
+      );
+      if (!invitesRes.error) {
+        appData.pendingInvites = invitesRes.data || [];
+      }
     }
   });
 }
 
-async function bootstrapUser() {
+async function bootstrapUser(options = {}) {
+  const { showSpinner = true } = options;
+
   if (!usesDatabase()) {
     renderApp();
     return;
   }
 
-  appData.loading = true;
-  appData.error = "";
-  renderApp();
+  if (bootstrapInFlight) {
+    await bootstrapInFlight;
+    return;
+  }
+
+  bootstrapInFlight = (async () => {
+    if (showSpinner) {
+      appData.loading = true;
+      appData.error = "";
+      renderApp();
+    }
+
+    try {
+      await syncSessionAfterLogin();
+      await ensureProfile();
+      await refreshAppData();
+    } catch (error) {
+      appData.error = formatAppError(error);
+    } finally {
+      appData.loading = false;
+      renderApp();
+    }
+  })();
 
   try {
-    await syncSessionAfterLogin();
-    await ensureProfile();
-    await refreshAppData();
-  } catch (error) {
-    appData.error = formatAppError(error);
+    await bootstrapInFlight;
   } finally {
-    appData.loading = false;
-    renderApp();
+    bootstrapInFlight = null;
   }
 }
 
@@ -861,10 +903,10 @@ async function withAction(handler) {
   try {
     appData.loading = true;
     renderApp();
-    await handler();
+    await withTimeout(handler(), 15000, "Action");
     if (usesDatabase()) await refreshAppData();
   } catch (error) {
-    alert(error.message || "Une erreur est survenue.");
+    appData.error = formatAppError(error);
   } finally {
     appData.loading = false;
     renderApp();
@@ -1206,7 +1248,7 @@ async function initialize() {
     if (!supabaseClient) return;
 
     supabaseClient.auth.onAuthStateChange(async (event, nextSession) => {
-      if (nextSession && event !== "SIGNED_OUT") {
+      if (nextSession && event === "SIGNED_IN") {
         session = nextSession;
         demoMode = false;
         await bootstrapUser();
