@@ -70,10 +70,10 @@ function bindThemeToggle() {
 }
 
 const navigation = [
-  ["pointeuse", "P", "Pointeuse"],
-  ["leave", "C", "Conges"],
-  ["attestations", "A", "Attestations"],
-  ["hierarchy", "H", "Hierarchie"]
+  ["pointeuse", "⏱", "Pointeuse"],
+  ["leave", "🏖", "Conges"],
+  ["attestations", "📄", "Attestations"],
+  ["hierarchy", "👥", "Hierarchie"]
 ];
 
 const leaveTypes = ["Conges payes", "RTT", "Conge maladie", "Conge sans solde"];
@@ -131,7 +131,7 @@ function escapeHtml(value) {
 
 function getNavigationItems() {
   const items = [...navigation];
-  if (isAdmin()) items.push(["admin", "!", "Administration"]);
+  if (isAdmin()) items.push(["admin", "⚙", "Administration"]);
   return items;
 }
 
@@ -359,9 +359,18 @@ function balanceCard(balance) {
 }
 
 function hoursCard(label, value) {
+  const meta = {
+    "Aujourd'hui": { icon: "☀", accent: "accent-today" },
+    "Cette semaine": { icon: "📅", accent: "accent-week" },
+    "Ce mois": { icon: "📊", accent: "accent-month" }
+  };
+  const item = meta[label] || { icon: "⏱", accent: "" };
   return `
-    <article class="hours-card">
-      <span>${label}</span>
+    <article class="hours-card ${item.accent}">
+      <div class="hours-card-top">
+        <span class="hours-icon" aria-hidden="true">${item.icon}</span>
+        <span>${label}</span>
+      </div>
       <strong>${formatDuration(value)}</strong>
     </article>`;
 }
@@ -761,7 +770,7 @@ function adminPage() {
 
 function pageContent() {
   if (appData.loading) {
-    return `<div class="boot-message">Chargement des donnees...</div>`;
+    return `<div class="boot-message"><span class="loader" aria-hidden="true"></span>Chargement des donnees...</div>`;
   }
   if (appData.error) {
     return `
@@ -1040,7 +1049,7 @@ function renderApp() {
             <span class="nav-icon">${item[1]}</span>${item[2]}${navBadge(item[0])}
           </button>`).join("")}</nav>
         <div class="sidebar-bottom">
-          <div class="user-card">${avatar(initials)}<div><strong>${name}</strong><span>${email}</span>${isAdmin() ? `<span class="admin-pill">Admin</span>` : ""}</div><button type="button" id="logout" aria-label="Se deconnecter"></button></div>
+          <div class="user-card">${avatar(initials)}<div><strong>${name}</strong><span>${email}</span>${isAdmin() ? `<span class="admin-pill">Admin</span>` : ""}</div><button type="button" id="logout" class="logout-btn" aria-label="Se deconnecter" title="Se deconnecter">⎋</button></div>
         </div>
       </aside>
       <button class="backdrop" type="button" aria-label="Fermer le menu"></button>
@@ -1058,7 +1067,7 @@ function renderApp() {
             </div>
             ${demoMode ? `<span class="demo-pill">Mode demo</span>` : ""}
           </div>
-          <div id="page-content">${pageContent()}</div>
+          <div id="page-content" class="page-enter">${pageContent()}</div>
         </div>
       </main>
     </div>`;
