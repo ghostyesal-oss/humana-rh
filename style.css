@@ -502,20 +502,42 @@ small { font-size: 12px; color: var(--text-tertiary); }
   content: "";
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.92), rgba(245, 247, 251, 0.95)),
-    var(--bg-image-main);
+  background-image: var(--bg-image-main);
   background-size: cover;
   background-position: center;
-  opacity: 0.55;
+  background-repeat: no-repeat;
+  opacity: 1;
   animation: softDrift 34s ease-in-out infinite alternate;
 }
 
 [data-theme="dark"] .main-bg::before {
-  background-image:
-    linear-gradient(160deg, rgba(11, 18, 32, 0.9), rgba(11, 18, 32, 0.94)),
-    var(--bg-image-main);
-  opacity: 0.35;
+  opacity: 0.85;
+}
+
+.main-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.72), rgba(245, 247, 251, 0.78));
+}
+
+[data-theme="dark"] .main-bg::after {
+  background: linear-gradient(160deg, rgba(11, 18, 32, 0.72), rgba(11, 18, 32, 0.8));
+}
+
+.app-shell[data-current-page="home"] .main-bg::before { background-image: var(--bg-image-main); }
+.app-shell[data-current-page="pointeuse"] .main-bg::before { background-image: var(--bg-image-alt-1); }
+.app-shell[data-current-page="leave"] .main-bg::before { background-image: var(--bg-image-alt-2); }
+.app-shell[data-current-page="attestations"] .main-bg::before { background-image: var(--bg-image-alt-3); }
+.app-shell[data-current-page="hierarchy"] .main-bg::before { background-image: var(--bg-image-card); }
+.app-shell[data-current-page="admin"] .main-bg::before { background-image: var(--bg-image-main); }
+
+[data-theme="dark"] .app-shell[data-current-page="home"] .main-bg::before { background-image: var(--bg-image-main); }
+[data-theme="dark"] .app-shell[data-current-page="pointeuse"] .main-bg::before { background-image: var(--bg-image-alt-1); }
+[data-theme="dark"] .app-shell[data-current-page="leave"] .main-bg::before { background-image: var(--bg-image-alt-2); }
+[data-theme="dark"] .app-shell[data-current-page="attestations"] .main-bg::before { background-image: var(--bg-image-alt-3); }
+[data-theme="dark"] .app-shell[data-current-page="hierarchy"] .main-bg::before { background-image: var(--bg-image-card); }
+[data-theme="dark"] .app-shell[data-current-page="admin"] .main-bg::before { background-image: var(--bg-image-main); }
 }
 
 .main-blob {
@@ -771,79 +793,6 @@ small { font-size: 12px; color: var(--text-tertiary); }
 
 .page-content {
   position: relative;
-  isolation: isolate;
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  padding: 2px;
-}
-
-.page-content::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background-image:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(245, 247, 251, 0.9)),
-    var(--bg-image-main);
-  background-size: cover;
-  background-position: center;
-  opacity: 0.85;
-  animation: softDrift 34s ease-in-out infinite alternate;
-}
-
-[data-theme="dark"] .page-content::before {
-  background-image:
-    linear-gradient(145deg, rgba(11, 18, 32, 0.78), rgba(11, 18, 32, 0.82)),
-    var(--bg-image-main);
-  opacity: 0.65;
-}
-
-.app-shell[data-current-page="home"] .page-content::before {
-  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(245, 247, 251, 0.9)), var(--bg-image-main);
-}
-
-.app-shell[data-current-page="pointeuse"] .page-content::before {
-  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(245, 247, 251, 0.9)), var(--bg-image-alt-1);
-}
-
-.app-shell[data-current-page="leave"] .page-content::before {
-  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(245, 247, 251, 0.9)), var(--bg-image-alt-2);
-}
-
-.app-shell[data-current-page="attestations"] .page-content::before {
-  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(245, 247, 251, 0.9)), var(--bg-image-alt-3);
-}
-
-.app-shell[data-current-page="hierarchy"] .page-content::before {
-  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(245, 247, 251, 0.9)), var(--bg-image-card);
-}
-
-.app-shell[data-current-page="admin"] .page-content::before {
-  background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(245, 247, 251, 0.9)), var(--bg-image-main);
-}
-
-[data-theme="dark"] .app-shell[data-current-page="home"] .page-content::before {
-  background-image: linear-gradient(145deg, rgba(11, 18, 32, 0.78), rgba(11, 18, 32, 0.82)), var(--bg-image-main);
-}
-
-[data-theme="dark"] .app-shell[data-current-page="pointeuse"] .page-content::before {
-  background-image: linear-gradient(145deg, rgba(11, 18, 32, 0.78), rgba(11, 18, 32, 0.82)), var(--bg-image-alt-1);
-}
-
-[data-theme="dark"] .app-shell[data-current-page="leave"] .page-content::before {
-  background-image: linear-gradient(145deg, rgba(11, 18, 32, 0.78), rgba(11, 18, 32, 0.82)), var(--bg-image-alt-2);
-}
-
-[data-theme="dark"] .app-shell[data-current-page="attestations"] .page-content::before {
-  background-image: linear-gradient(145deg, rgba(11, 18, 32, 0.78), rgba(11, 18, 32, 0.82)), var(--bg-image-alt-3);
-}
-
-[data-theme="dark"] .app-shell[data-current-page="hierarchy"] .page-content::before {
-  background-image: linear-gradient(145deg, rgba(11, 18, 32, 0.78), rgba(11, 18, 32, 0.82)), var(--bg-image-card);
-}
-
-[data-theme="dark"] .app-shell[data-current-page="admin"] .page-content::before {
-  background-image: linear-gradient(145deg, rgba(11, 18, 32, 0.78), rgba(11, 18, 32, 0.82)), var(--bg-image-main);
 }
 
 .page-heading { margin-bottom: var(--s5); }
