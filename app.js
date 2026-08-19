@@ -1264,7 +1264,10 @@ function renderLogin(error = "") {
           <div class="login-card">
             <h2>Connexion</h2>
             <p>Utilisez votre compte Microsoft professionnel.</p>
-            <button id="microsoft-login" type="button" class="microsoft-button" disabled>Continuer avec Microsoft</button>
+            <button id="microsoft-login" type="button" class="microsoft-button" disabled>
+              <span class="microsoft-logo"><i></i><i></i><i></i><i></i></span>
+              Continuer avec Microsoft
+            </button>
             <div id="config-note" class="config-note">Connexion en cours de preparation...</div>
             <p id="login-error" class="error-message" hidden></p>
             <button id="demo-login" type="button" class="demo-button">Voir l'apercu de demonstration</button>
