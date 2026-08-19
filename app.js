@@ -15,14 +15,24 @@ let appData = {
   punches: [],
   leaveRequests: [],
   attestationRequests: [],
-  orgProfiles: []
+  orgProfiles: [],
+  pendingInvites: [],
+  adminEditingId: "",
+  adminEditingInviteId: ""
+};
+
+const roleLabels = {
+  admin: "Administrateur",
+  manager: "Manager",
+  employee: "Collaborateur"
 };
 
 const pages = {
   pointeuse: ["Pointeuse", "Enregistrez vos arrivees et departs du jour."],
   leave: ["Demandes de conges", "Deposez et suivez vos demandes d'absence."],
   attestations: ["Demandes d'attestations", "Demandez vos documents RH en quelques clics."],
-  hierarchy: ["Hierarchie", "Visualisez l'organigramme et votre ligne hierarchique."]
+  hierarchy: ["Hierarchie", "Visualisez l'organigramme et votre ligne hierarchique."],
+  admin: ["Administration", "Gerez les utilisateurs, les roles et la hierarchie."]
 };
 
 const navigation = [
@@ -71,6 +81,48 @@ const cardHeading = (title, action = "") =>
 
 function usesDatabase() {
   return Boolean(supabaseClient && session?.user?.id && !demoMode);
+}
+
+function isAdmin() {
+  return appData.profile?.role === "admin";
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function getNavigationItems() {
+  const items = [...navigation];
+  if (isAdmin()) items.push(["admin", "!", "Administration"]);
+  return items;
+}
+
+function managerName(managerId) {
+  if (!managerId) return "—";
+  const manager = appData.orgProfiles.find((profile) => profile.id === managerId);
+  return manager?.full_name || "—";
+}
+
+function managerOptions(selectedId = "", excludeId = "") {
+  const options = [`<option value="">Aucun manager</option>`];
+  appData.orgProfiles
+    .filter((profile) => profile.id !== excludeId)
+    .forEach((profile) => {
+      const selected = profile.id === selectedId ? " selected" : "";
+      options.push(`<option value="${profile.id}"${selected}>${escapeHtml(profile.full_name)}</option>`);
+    });
+  return options.join("");
+}
+
+function roleOptions(selectedRole = "employee") {
+  return ["employee", "manager", "admin"].map((role) => {
+    const selected = role === selectedRole ? " selected" : "";
+    return `<option value="${role}"${selected}>${roleLabels[role]}</option>`;
+  }).join("");
 }
 
 function storagePrefix() {
@@ -371,7 +423,7 @@ function renderOrgNode(node) {
         <div>
           <strong>${node.full_name || "Sans nom"}</strong>
           <span>${node.job_title || "Collaborateur"}</span>
-          <small>${node.department || ""}</small>
+          <small>${node.department || ""}${node.role === "admin" ? " · Admin" : node.role === "manager" ? " · Manager" : ""}</small>
         </div>
       </div>
       ${node.children.length
@@ -432,7 +484,107 @@ function hierarchyPage() {
           ? tree.map((node) => renderOrgNode(node)).join("")
           : `<p class="empty-state">Aucun profil dans l'organigramme.</p>`}
       </div>
-      <p class="hierarchy-meta">Pour modifier la hierarchie : Supabase → Table Editor → profiles → colonne manager_id.</p>
+      <p class="hierarchy-meta">${isAdmin() ? "Les administrateurs peuvent modifier la hierarchie dans Administration." : "Contactez un administrateur pour modifier la hierarchie."}</p>
+    </article>`;
+}
+
+function adminPage() {
+  if (!isAdmin()) {
+    return `<article class="card"><p class="empty-state">Acces reserve aux administrateurs.</p></article>`;
+  }
+
+  const editingId = appData.adminEditingId || "";
+  const editingInviteId = appData.adminEditingInviteId || "";
+  const editingProfile = appData.orgProfiles.find((profile) => profile.id === editingId);
+  const editingInvite = appData.pendingInvites.find((invite) => invite.id === editingInviteId);
+  const editing = editingProfile || editingInvite;
+  const isInvite = Boolean(editingInvite && !editingProfile);
+
+  return `
+    <div class="feature-grid">
+      <article class="card form-card">
+        ${cardHeading(isInvite ? "Invitation en attente" : editing ? "Modifier un utilisateur" : "Ajouter un utilisateur")}
+        <form id="admin-user-form" class="feature-form">
+          <input type="hidden" name="profile_id" value="${editingProfile?.id || ""}">
+          <input type="hidden" name="invite_id" value="${editingInvite?.id || ""}">
+          <label>
+            Adresse e-mail
+            <input type="email" name="email" required value="${escapeHtml(editing?.email || "")}" ${editingProfile ? "readonly" : ""}>
+          </label>
+          <label>
+            Nom complet
+            <input type="text" name="full_name" required value="${escapeHtml(editing?.full_name || "")}">
+          </label>
+          <div class="form-row">
+            <label>
+              Poste
+              <input type="text" name="job_title" value="${escapeHtml(editing?.job_title || "Collaborateur")}">
+            </label>
+            <label>
+              Equipe
+              <input type="text" name="department" value="${escapeHtml(editing?.department || "General")}">
+            </label>
+          </div>
+          <div class="form-row">
+            <label>
+              Role
+              <select name="role" required>${roleOptions(editing?.role || "employee")}</select>
+            </label>
+            <label>
+              Manager
+              <select name="manager_id">${managerOptions(editing?.manager_id || "", editingProfile?.id || "")}</select>
+            </label>
+          </div>
+          <div class="admin-form-actions">
+            <button type="submit" class="primary">${editing ? "Enregistrer" : "Ajouter"}</button>
+            ${editing ? `<button type="button" id="admin-cancel-edit" class="outline-button">Annuler</button>` : ""}
+          </div>
+        </form>
+        <p class="hierarchy-meta">Si la personne n'a jamais connecte Humana, elle sera invitee par e-mail. A la premiere connexion Microsoft, son compte sera cree automatiquement.</p>
+      </article>
+      <article class="card table-card">
+        <div class="toolbar"><h3>Utilisateurs actifs</h3></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Nom</th><th>Email</th><th>Role</th><th>Manager</th><th></th></tr></thead>
+            <tbody>
+              ${appData.orgProfiles.length
+                ? appData.orgProfiles.map((profile) => `
+                  <tr>
+                    <td><strong>${escapeHtml(profile.full_name)}</strong><br><small>${escapeHtml(profile.job_title || "")}</small></td>
+                    <td>${escapeHtml(profile.email)}</td>
+                    <td>${badge(roleLabels[profile.role] || profile.role)}</td>
+                    <td>${escapeHtml(managerName(profile.manager_id))}</td>
+                    <td><button type="button" class="outline-button admin-edit-profile" data-profile-id="${profile.id}">Gerer</button></td>
+                  </tr>`).join("")
+                : `<tr><td colspan="5" class="empty-cell">Aucun utilisateur actif.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </div>
+    <article class="card table-card page-spacer">
+      <div class="toolbar"><h3>Invitations en attente</h3></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Email</th><th>Nom</th><th>Role</th><th>Manager</th><th></th></tr></thead>
+          <tbody>
+            ${appData.pendingInvites.length
+              ? appData.pendingInvites.map((invite) => `
+                <tr>
+                  <td>${escapeHtml(invite.email)}</td>
+                  <td>${escapeHtml(invite.full_name)}</td>
+                  <td>${badge(roleLabels[invite.role] || invite.role)}</td>
+                  <td>${escapeHtml(managerName(invite.manager_id))}</td>
+                  <td class="admin-row-actions">
+                    <button type="button" class="outline-button admin-edit-invite" data-invite-id="${invite.id}">Gerer</button>
+                    <button type="button" class="outline-button admin-delete-invite" data-invite-id="${invite.id}">Supprimer</button>
+                  </td>
+                </tr>`).join("")
+              : `<tr><td colspan="5" class="empty-cell">Aucune invitation en attente.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
     </article>`;
 }
 
@@ -451,7 +603,8 @@ function pageContent() {
     pointeuse: pointeusePage,
     leave: leavePage,
     attestations: attestationsPage,
-    hierarchy: hierarchyPage
+    hierarchy: hierarchyPage,
+    admin: adminPage
   }[currentPage]();
 }
 
@@ -513,6 +666,10 @@ async function ensureProfile() {
       .single();
     if (error) throw error;
     appData.profile = data;
+    await supabaseClient.rpc("apply_pending_invite", {
+      user_id: user.id,
+      user_email: user.email || ""
+    });
   });
 }
 
@@ -525,7 +682,7 @@ async function refreshAppData() {
       supabaseClient.from("time_punches").select("*").eq("user_id", userId).order("punched_at", { ascending: true }),
       supabaseClient.from("leave_requests").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
       supabaseClient.from("attestation_requests").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
-      supabaseClient.from("profiles").select("id, full_name, email, job_title, department, manager_id").order("full_name"),
+      supabaseClient.from("profiles").select("id, full_name, email, job_title, department, manager_id, role").order("full_name"),
       supabaseClient.from("profiles").select("*").eq("id", userId).maybeSingle()
     ]);
 
@@ -540,6 +697,16 @@ async function refreshAppData() {
     appData.attestationRequests = attestationRes.data || [];
     appData.orgProfiles = profilesRes.data || [];
     appData.profile = profileRes.data || appData.profile;
+    appData.pendingInvites = [];
+
+    if (appData.profile?.role === "admin") {
+      const invitesRes = await supabaseClient
+        .from("pending_invites")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (invitesRes.error) throw invitesRes.error;
+      appData.pendingInvites = invitesRes.data || [];
+    }
   });
 }
 
@@ -654,12 +821,12 @@ function renderApp() {
       <aside class="sidebar">
         <div class="brand"><span>H</span> Humana</div>
         <button class="close-menu" type="button" aria-label="Fermer">x</button>
-        <nav><p>ESPACE RH</p>${navigation.map((item) => `
+        <nav><p>ESPACE RH</p>${getNavigationItems().map((item) => `
           <button type="button" data-page="${item[0]}" class="${currentPage === item[0] ? "active" : ""}">
             <span class="nav-icon">${item[1]}</span>${item[2]}${navBadge(item[0])}
           </button>`).join("")}</nav>
         <div class="sidebar-bottom">
-          <div class="user-card">${avatar(initials)}<div><strong>${name}</strong><span>${email}</span></div><button type="button" id="logout" aria-label="Se deconnecter"></button></div>
+          <div class="user-card">${avatar(initials)}<div><strong>${name}</strong><span>${email}</span>${isAdmin() ? `<span class="admin-pill">Admin</span>` : ""}</div><button type="button" id="logout" aria-label="Se deconnecter"></button></div>
         </div>
       </aside>
       <button class="backdrop" type="button" aria-label="Fermer le menu"></button>
@@ -797,6 +964,101 @@ function bindPageEvents() {
       currentPage = "attestations";
     });
   });
+
+  document.querySelector("#admin-cancel-edit")?.addEventListener("click", () => {
+    appData.adminEditingId = "";
+    appData.adminEditingInviteId = "";
+    renderApp();
+  });
+
+  document.querySelectorAll(".admin-edit-profile").forEach((button) => {
+    button.addEventListener("click", () => {
+      appData.adminEditingId = button.dataset.profileId;
+      appData.adminEditingInviteId = "";
+      renderApp();
+    });
+  });
+
+  document.querySelectorAll(".admin-edit-invite").forEach((button) => {
+    button.addEventListener("click", () => {
+      appData.adminEditingInviteId = button.dataset.inviteId;
+      appData.adminEditingId = "";
+      renderApp();
+    });
+  });
+
+  document.querySelectorAll(".admin-delete-invite").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!confirm("Supprimer cette invitation ?")) return;
+      withAction(async () => {
+        const { error } = await supabaseClient
+          .from("pending_invites")
+          .delete()
+          .eq("id", button.dataset.inviteId);
+        if (error) throw error;
+        appData.adminEditingInviteId = "";
+      });
+    });
+  });
+
+  document.querySelector("#admin-user-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const email = String(data.get("email") || "").trim().toLowerCase();
+    const profileId = String(data.get("profile_id") || "");
+    const inviteId = String(data.get("invite_id") || "");
+    const payload = {
+      full_name: String(data.get("full_name") || "").trim(),
+      job_title: String(data.get("job_title") || "Collaborateur").trim(),
+      department: String(data.get("department") || "General").trim(),
+      role: String(data.get("role") || "employee"),
+      manager_id: String(data.get("manager_id") || "") || null
+    };
+
+    if (!email) {
+      alert("L'adresse e-mail est obligatoire.");
+      return;
+    }
+
+    withAction(async () => {
+      if (profileId) {
+        if (profileId === session.user.id && payload.role !== "admin" && appData.profile?.role === "admin") {
+          const adminCount = appData.orgProfiles.filter((profile) => profile.role === "admin").length;
+          if (adminCount <= 1) {
+            throw new Error("Vous etes le dernier administrateur. Ajoutez un autre admin avant de modifier votre role.");
+          }
+        }
+        const { error } = await supabaseClient.from("profiles").update(payload).eq("id", profileId);
+        if (error) throw error;
+      } else if (inviteId) {
+        const { error } = await supabaseClient.from("pending_invites").update({
+          email,
+          ...payload,
+          created_by: session.user.id
+        }).eq("id", inviteId);
+        if (error) throw error;
+      } else {
+        const existing = appData.orgProfiles.find((profile) => profile.email?.toLowerCase() === email);
+        if (existing) {
+          const { error } = await supabaseClient.from("profiles").update(payload).eq("id", existing.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabaseClient.from("pending_invites").upsert({
+            email,
+            ...payload,
+            created_by: session.user.id
+          }, { onConflict: "email" });
+          if (error) throw error;
+        }
+      }
+
+      appData.adminEditingId = "";
+      appData.adminEditingInviteId = "";
+      form.reset();
+      currentPage = "admin";
+    });
+  });
 }
 
 function bindAppEvents() {
@@ -829,7 +1091,10 @@ function bindAppEvents() {
       punches: [],
       leaveRequests: [],
       attestationRequests: [],
-      orgProfiles: []
+      orgProfiles: [],
+      pendingInvites: [],
+      adminEditingId: "",
+      adminEditingInviteId: ""
     };
     renderLogin();
   });
