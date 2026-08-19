@@ -450,9 +450,100 @@ tbody tr:hover td { background: var(--surface-hover); }
 .balance-meta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; color: var(--muted); font-size: 11px; }
 .balance-meta b { color: var(--ink); }
 
+/* Page d'accueil */
+.home-welcome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px 26px;
+  background: linear-gradient(135deg, var(--purple-soft), var(--surface));
+}
+.home-eyebrow {
+  margin: 0 0 6px;
+  color: var(--purple);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.home-title { margin: 0 0 8px; font-size: 28px; letter-spacing: -.03em; color: var(--heading); }
+.home-subtitle { margin: 0; color: var(--muted); font-size: 14px; }
+.home-date-badge {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 17px;
+}
+.home-widget { min-height: 260px; display: flex; flex-direction: column; }
+.home-link {
+  border: 0;
+  color: var(--purple);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 700;
+}
+.home-link:hover { text-decoration: underline; }
+.home-clock { display: grid; gap: 12px; }
+.home-clock-status { margin-bottom: 0; padding: 16px; }
+.home-hours-today { margin: 0; color: var(--muted); font-size: 13px; }
+.home-hours-today b { color: var(--heading); font-size: 16px; }
+.home-balance-list { display: grid; gap: 14px; }
+.home-balance-item { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
+.home-balance-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+.home-balance-head strong { color: var(--heading); font-size: 18px; }
+.home-balance-item small { display: block; margin-top: 8px; color: var(--muted); font-size: 11px; }
+.home-doc-list, .home-payslip-list { display: grid; gap: 8px; }
+.home-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: inherit;
+  text-decoration: none;
+  background: var(--surface-2);
+  transition: border-color 0.2s ease, transform 0.15s ease;
+}
+.home-doc-item:hover { border-color: var(--purple); transform: translateX(3px); }
+.home-doc-icon, .home-payslip-icon { font-size: 20px; }
+.home-doc-item strong, .home-payslip-item strong { display: block; font-size: 13px; color: var(--heading); }
+.home-doc-item span, .home-payslip-item span { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+.home-payslip-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.home-payslip-btn {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--purple);
+  background: var(--surface);
+  font-size: 10px;
+  font-weight: 800;
+  text-decoration: none;
+}
+.home-payslip-btn:hover { border-color: var(--purple); background: var(--purple-soft); }
+
 @media (max-width: 1050px) {
   .clock-grid, .feature-grid, .hierarchy-grid { grid-template-columns: 1fr; }
-  .hours-grid, .balance-grid { grid-template-columns: 1fr; }
+  .hours-grid, .balance-grid, .home-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 780px) {
@@ -479,6 +570,8 @@ tbody tr:hover td { background: var(--surface-hover); }
   .page { padding-inline: 16px; }
   .page-heading { align-items: flex-start; }
   .page-heading h1 { font-size: 23px; }
+  .home-welcome { flex-direction: column; align-items: flex-start; }
+  .home-title { font-size: 24px; }
   .stats-grid { grid-template-columns: 1fr; }
   .team-chart, .toolbar { align-items: stretch; flex-direction: column; }
   .toolbar .primary { width: 100%; }
