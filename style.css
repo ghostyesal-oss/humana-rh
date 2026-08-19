@@ -225,6 +225,10 @@ td { padding: 14px 20px; border-top: 1px solid #f0eff3; color: #6e6c7a; font-siz
 .org-branch { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
 .org-card { display: flex; align-items: center; gap: 12px; min-width: 240px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: #fafafd; }
 .org-children { display: flex; flex-wrap: wrap; gap: 14px; margin-left: 28px; padding-left: 18px; border-left: 2px solid #e7e4f4; }
+.admin-pill { display: inline-block; margin-top: 4px; padding: 2px 7px; border-radius: 999px; color: #7356d5; background: #ece8ff; font-size: 9px; font-weight: 800; }
+.admin-form-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.admin-row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.admin-row-actions .outline-button { width: auto; min-width: 88px; }
 
 @media (max-width: 1050px) {
   .clock-grid, .feature-grid, .hierarchy-grid { grid-template-columns: 1fr; }
