@@ -139,7 +139,7 @@
 html, body { min-width: 320px; min-height: 100%; margin: 0; }
 
 :root {
-  --logo-image: url("file:///C:/Users/LASRY/.cursor/projects/c-Users-LASRY-Projects-rh2-demo/assets/c__Users_LASRY_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-f9425388-5b7c-4cfc-b7fd-47337cf4b6ea.png");
+  --logo-image: url("file:///C:/Users/LASRY/.cursor/projects/c-Users-LASRY-Projects-rh2-demo/assets/c__Users_LASRY_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-81ef32c4-d615-4221-8d55-8f50ac54f6e0.png");
   --menu-texture-image: url("file:///C:/Users/LASRY/.cursor/projects/c-Users-LASRY-Projects-rh2-demo/assets/c__Users_LASRY_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-a7345f22-0a52-413c-9ee8-94392e87c7e3.png");
 }
 
@@ -746,6 +746,17 @@ small { font-size: 12px; color: var(--text-tertiary); }
 .avatar.orange { color: #7c2d12; background: #fed7aa; }
 .avatar.green { color: var(--forest); background: #bbf7d0; }
 .avatar.pink { color: #831843; background: #fbcfe8; }
+
+.avatar-user-photo {
+  color: transparent;
+  font-size: 0;
+  background-color: #ffffff;
+  background-image: var(--logo-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+}
 
 .admin-pill {
   display: inline-block;
