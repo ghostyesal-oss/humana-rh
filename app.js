@@ -216,6 +216,123 @@ function navBadge(page) {
   return "";
 }
 
+function formatDuration(ms) {
+  const totalMinutes = Math.max(0, Math.round(ms / 60000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}h${String(minutes).padStart(2, "0")}`;
+}
+
+function computeWorkedHours(punches) {
+  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const now = Date.now();
+  const sessions = [];
+
+  for (let index = 0; index < sorted.length; index += 1) {
+    if (sorted[index].type !== "in") continue;
+    const next = sorted[index + 1];
+    const end = next?.type === "out"
+      ? new Date(next.time).getTime()
+      : (index === sorted.length - 1 ? now : null);
+    if (end) {
+      sessions.push({
+        start: new Date(sorted[index].time).getTime(),
+        end
+      });
+    }
+  }
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const weekStart = new Date(todayStart);
+  const day = weekStart.getDay() || 7;
+  weekStart.setDate(weekStart.getDate() - (day - 1));
+  const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
+
+  const sumFrom = (fromTime) => sessions
+    .filter((session) => session.start >= fromTime.getTime())
+    .reduce((total, session) => total + (session.end - session.start), 0);
+
+  return {
+    today: sumFrom(todayStart),
+    week: sumFrom(weekStart),
+    month: sumFrom(monthStart)
+  };
+}
+
+function leaveTypeKey(type) {
+  const normalized = (type || "").toLowerCase();
+  if (normalized.includes("rtt")) return "rtt";
+  if (normalized.includes("maladie")) return "maladie";
+  if (normalized.includes("sans solde")) return null;
+  if (normalized.includes("conge")) return "cp";
+  return null;
+}
+
+function getLeaveBalances() {
+  const requests = getLeaveRequests();
+  const totals = usesDatabase()
+    ? {
+        cp: Number(appData.profile?.leave_balance_cp ?? 25),
+        rtt: Number(appData.profile?.leave_balance_rtt ?? 8)
+      }
+    : loadStore("leaveBalances", { cp: 25, rtt: 8 });
+
+  const used = { cp: 0, rtt: 0 };
+  const pending = { cp: 0, rtt: 0 };
+
+  requests.forEach((request) => {
+    const key = leaveTypeKey(request.type);
+    if (!key || key === "maladie") return;
+    const bucket = request.status === "A valider" ? pending : used;
+    if (request.status === "A valider" || request.status.toLowerCase().includes("approuv")) {
+      bucket[key] += Number(request.days) || 0;
+    }
+  });
+
+  return [
+    {
+      label: "Conges payes",
+      total: totals.cp,
+      used: used.cp,
+      pending: pending.cp,
+      remaining: Math.max(0, totals.cp - used.cp - pending.cp)
+    },
+    {
+      label: "RTT",
+      total: totals.rtt,
+      used: used.rtt,
+      pending: pending.rtt,
+      remaining: Math.max(0, totals.rtt - used.rtt - pending.rtt)
+    }
+  ];
+}
+
+function balanceCard(balance) {
+  const usedPercent = balance.total ? Math.min(100, Math.round((balance.used / balance.total) * 100)) : 0;
+  return `
+    <article class="balance-card">
+      <div class="balance-head">
+        <strong>${balance.label}</strong>
+        <span>${balance.remaining} j restants</span>
+      </div>
+      <div class="balance-track"><i style="width:${usedPercent}%"></i></div>
+      <div class="balance-meta">
+        <span>Alloue : <b>${balance.total} j</b></span>
+        <span>Utilise : <b>${balance.used} j</b></span>
+        <span>En attente : <b>${balance.pending} j</b></span>
+      </div>
+    </article>`;
+}
+
+function hoursCard(label, value) {
+  return `
+    <article class="hours-card">
+      <span>${label}</span>
+      <strong>${formatDuration(value)}</strong>
+    </article>`;
+}
+
 function getClockState() {
   const punches = getPunches();
   const last = punches[punches.length - 1];
@@ -224,6 +341,7 @@ function getClockState() {
 
 function pointeusePage() {
   const { punches, isIn } = getClockState();
+  const hours = computeWorkedHours(punches);
   const today = new Date().toDateString();
   const todayPunches = punches.filter((p) => new Date(p.time).toDateString() === today);
   const dbNote = usesDatabase()
@@ -232,7 +350,12 @@ function pointeusePage() {
 
   return `
     ${dbNote}
-    <section class="clock-grid">
+    <section class="hours-grid">
+      ${hoursCard("Aujourd'hui", hours.today)}
+      ${hoursCard("Cette semaine", hours.week)}
+      ${hoursCard("Ce mois", hours.month)}
+    </section>
+    <section class="clock-grid page-spacer">
       <article class="card clock-card">
         <p class="clock-label">Statut actuel</p>
         <div class="clock-status ${isIn ? "in" : "out"}">
@@ -279,9 +402,13 @@ function pointeusePage() {
 
 function leavePage() {
   const requests = getLeaveRequests();
+  const balances = getLeaveBalances();
 
   return `
-    <div class="feature-grid">
+    <section class="balance-grid">
+      ${balances.map((balance) => balanceCard(balance)).join("")}
+    </section>
+    <div class="feature-grid page-spacer">
       <article class="card form-card">
         ${cardHeading("Nouvelle demande")}
         <form id="leave-form" class="feature-form">
@@ -534,6 +661,16 @@ function adminPage() {
             <label>
               Manager
               <select name="manager_id">${managerOptions(editing?.manager_id || "", editingProfile?.id || "")}</select>
+            </label>
+          </div>
+          <div class="form-row">
+            <label>
+              Solde conges payes (jours)
+              <input type="number" min="0" step="0.5" name="leave_balance_cp" value="${escapeHtml(editing?.leave_balance_cp ?? 25)}">
+            </label>
+            <label>
+              Solde RTT (jours)
+              <input type="number" min="0" step="0.5" name="leave_balance_rtt" value="${escapeHtml(editing?.leave_balance_rtt ?? 8)}">
             </label>
           </div>
           <div class="admin-form-actions">
@@ -1055,7 +1192,9 @@ function bindPageEvents() {
       job_title: String(data.get("job_title") || "Collaborateur").trim(),
       department: String(data.get("department") || "General").trim(),
       role: String(data.get("role") || "employee"),
-      manager_id: String(data.get("manager_id") || "") || null
+      manager_id: String(data.get("manager_id") || "") || null,
+      leave_balance_cp: Number(data.get("leave_balance_cp") || 25),
+      leave_balance_rtt: Number(data.get("leave_balance_rtt") || 8)
     };
 
     if (!email) {
