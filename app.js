@@ -8,17 +8,28 @@ let session = null;
 let demoMode = false;
 let portalMode = false;
 let currentPage = "pointeuse";
+let appData = {
+  loading: false,
+  error: "",
+  profile: null,
+  punches: [],
+  leaveRequests: [],
+  attestationRequests: [],
+  orgProfiles: []
+};
 
 const pages = {
   pointeuse: ["Pointeuse", "Enregistrez vos arrivees et departs du jour."],
   leave: ["Demandes de conges", "Deposez et suivez vos demandes d'absence."],
-  attestations: ["Demandes d'attestations", "Demandez vos documents RH en quelques clics."]
+  attestations: ["Demandes d'attestations", "Demandez vos documents RH en quelques clics."],
+  hierarchy: ["Hierarchie", "Visualisez l'organigramme et votre ligne hierarchique."]
 };
 
 const navigation = [
   ["pointeuse", "P", "Pointeuse"],
   ["leave", "C", "Conges"],
-  ["attestations", "A", "Attestations"]
+  ["attestations", "A", "Attestations"],
+  ["hierarchy", "H", "Hierarchie"]
 ];
 
 const leaveTypes = ["Conges payes", "RTT", "Conge maladie", "Conge sans solde"];
@@ -29,11 +40,22 @@ const attestationTypes = [
   "Attestation de conges"
 ];
 
-const avatar = (initials, color = "violet") =>
-  `<span class="avatar ${color}">${initials}</span>`;
+const avatarColors = ["violet", "blue", "orange", "green", "pink"];
+
+function avatar(initials, color = "violet") {
+  return `<span class="avatar ${color}">${initials}</span>`;
+}
+
+function profileInitials(name) {
+  return (name || "CO").split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase();
+}
+
+function avatarForProfile(profile, index = 0) {
+  return avatar(profileInitials(profile.full_name), avatarColors[index % avatarColors.length]);
+}
 
 function badge(value) {
-  const normalized = value.toLowerCase();
+  const normalized = (value || "").toLowerCase();
   const tone = normalized.includes("approuv") || normalized.includes("pret") || normalized.includes("termine")
     ? "success"
     : normalized.includes("valid") || normalized.includes("cours") || normalized.includes("attente")
@@ -47,9 +69,12 @@ const cardHeading = (title, action = "") =>
     ? `<div class="card-heading"><h3>${title}</h3><button type="button">${action}</button></div>`
     : `<div class="card-heading"><h3>${title}</h3></div>`;
 
+function usesDatabase() {
+  return Boolean(supabaseClient && session?.user?.id && !demoMode);
+}
+
 function storagePrefix() {
-  const email = session?.user?.email || "demo";
-  return `humana_${email}_`;
+  return `humana_${session?.user?.email || "demo"}_`;
 }
 
 function loadStore(key, fallback) {
@@ -67,7 +92,7 @@ function saveStore(key, value) {
 
 function getUserName() {
   const metadata = session?.user?.user_metadata || {};
-  return metadata.full_name || metadata.name || session?.user?.email?.split("@")[0] || "Collaborateur";
+  return appData.profile?.full_name || metadata.full_name || metadata.name || session?.user?.email?.split("@")[0] || "Collaborateur";
 }
 
 function formatDate(value) {
@@ -85,16 +110,51 @@ function formatTime(value) {
   });
 }
 
-function formatDateTime(value) {
-  return `${formatDate(value)} a ${formatTime(value)}`;
+function getPunches() {
+  if (usesDatabase()) {
+    return appData.punches.map((punch) => ({
+      type: punch.punch_type,
+      time: punch.punched_at
+    }));
+  }
+  return loadStore("punches", []);
+}
+
+function getLeaveRequests() {
+  if (usesDatabase()) {
+    return appData.leaveRequests.map((request) => ({
+      id: request.id,
+      type: request.leave_type,
+      start: request.start_date,
+      end: request.end_date,
+      days: request.days,
+      comment: request.comment,
+      status: request.status,
+      created: request.created_at
+    }));
+  }
+  return loadStore("leaveRequests", []);
+}
+
+function getAttestationRequests() {
+  if (usesDatabase()) {
+    return appData.attestationRequests.map((request) => ({
+      id: request.id,
+      type: request.document_type,
+      reason: request.reason,
+      status: request.status,
+      created: request.created_at
+    }));
+  }
+  return loadStore("attestationRequests", []);
 }
 
 function countPendingLeave() {
-  return loadStore("leaveRequests", []).filter((item) => item.status === "A valider").length;
+  return getLeaveRequests().filter((item) => item.status === "A valider").length;
 }
 
 function countPendingAttestations() {
-  return loadStore("attestationRequests", []).filter((item) => item.status === "En attente").length;
+  return getAttestationRequests().filter((item) => item.status === "En attente").length;
 }
 
 function navBadge(page) {
@@ -104,7 +164,7 @@ function navBadge(page) {
 }
 
 function getClockState() {
-  const punches = loadStore("punches", []);
+  const punches = getPunches();
   const last = punches[punches.length - 1];
   return { punches, isIn: last?.type === "in" };
 }
@@ -113,8 +173,12 @@ function pointeusePage() {
   const { punches, isIn } = getClockState();
   const today = new Date().toDateString();
   const todayPunches = punches.filter((p) => new Date(p.time).toDateString() === today);
+  const dbNote = usesDatabase()
+    ? `<p class="data-note">Donnees enregistrees dans Supabase.</p>`
+    : `<p class="data-note demo">Mode demo : donnees locales uniquement. Connectez-vous avec Microsoft pour sauvegarder.</p>`;
 
   return `
+    ${dbNote}
     <section class="clock-grid">
       <article class="card clock-card">
         <p class="clock-label">Statut actuel</p>
@@ -129,7 +193,7 @@ function pointeusePage() {
       </article>
       <article class="card">
         ${cardHeading("Pointages du jour")}
-        <div class="punch-list" id="punch-list">
+        <div class="punch-list">
           ${todayPunches.length
             ? todayPunches.map((punch) => `
               <div class="punch-item">
@@ -140,7 +204,7 @@ function pointeusePage() {
         </div>
       </article>
     </section>
-    <article class="card table-card" style="margin-top:17px">
+    <article class="card table-card page-spacer">
       ${cardHeading("Historique recent")}
       <div class="table-wrap">
         <table>
@@ -161,7 +225,7 @@ function pointeusePage() {
 }
 
 function leavePage() {
-  const requests = loadStore("leaveRequests", []);
+  const requests = getLeaveRequests();
 
   return `
     <div class="feature-grid">
@@ -196,9 +260,7 @@ function leavePage() {
         <div class="table-wrap">
           <table>
             <thead><tr><th>Type</th><th>Periode</th><th>Duree</th><th>Statut</th></tr></thead>
-            <tbody id="leave-rows">
-              ${leaveRows(requests)}
-            </tbody>
+            <tbody>${leaveRows(requests)}</tbody>
           </table>
         </div>
       </article>
@@ -219,7 +281,7 @@ function leaveRows(requests) {
 }
 
 function attestationsPage() {
-  const requests = loadStore("attestationRequests", []);
+  const requests = getAttestationRequests();
 
   return `
     <div class="feature-grid">
@@ -244,9 +306,7 @@ function attestationsPage() {
         <div class="table-wrap">
           <table>
             <thead><tr><th>Document</th><th>Date</th><th>Statut</th></tr></thead>
-            <tbody id="attestation-rows">
-              ${attestationRows(requests)}
-            </tbody>
+            <tbody>${attestationRows(requests)}</tbody>
           </table>
         </div>
       </article>
@@ -265,12 +325,197 @@ function attestationRows(requests) {
     </tr>`).join("");
 }
 
+function buildOrgTree(profiles) {
+  const nodes = new Map(profiles.map((profile, index) => [
+    profile.id,
+    { ...profile, children: [], index }
+  ]));
+  const roots = [];
+
+  nodes.forEach((node) => {
+    if (node.manager_id && nodes.has(node.manager_id) && node.manager_id !== node.id) {
+      nodes.get(node.manager_id).children.push(node);
+    } else {
+      roots.push(node);
+    }
+  });
+
+  const sortNodes = (list) => {
+    list.sort((a, b) => a.full_name.localeCompare(b.full_name, "fr"));
+    list.forEach((node) => sortNodes(node.children));
+  };
+  sortNodes(roots);
+  return roots;
+}
+
+function getManagerChain(profiles, userId) {
+  const byId = new Map(profiles.map((profile) => [profile.id, profile]));
+  const chain = [];
+  let current = byId.get(userId);
+  const guard = new Set();
+
+  while (current && !guard.has(current.id)) {
+    chain.unshift(current);
+    guard.add(current.id);
+    current = current.manager_id ? byId.get(current.manager_id) : null;
+  }
+  return chain;
+}
+
+function renderOrgNode(node) {
+  const isMe = node.id === session?.user?.id;
+  return `
+    <div class="org-branch">
+      <div class="org-card ${isMe ? "is-me" : ""}">
+        ${avatarForProfile(node, node.index)}
+        <div>
+          <strong>${node.full_name || "Sans nom"}</strong>
+          <span>${node.job_title || "Collaborateur"}</span>
+          <small>${node.department || ""}</small>
+        </div>
+      </div>
+      ${node.children.length
+        ? `<div class="org-children">${node.children.map((child) => renderOrgNode(child)).join("")}</div>`
+        : ""}
+    </div>`;
+}
+
+function hierarchyPage() {
+  if (!usesDatabase()) {
+    return `<article class="card"><p class="empty-state">Connectez-vous avec Microsoft pour afficher l'organigramme de l'entreprise.</p></article>`;
+  }
+
+  const profiles = appData.orgProfiles;
+  const chain = getManagerChain(profiles, session.user.id);
+  const tree = buildOrgTree(profiles);
+  const manager = chain.length > 1 ? chain[chain.length - 2] : null;
+  const directReports = profiles.filter((profile) => profile.manager_id === session.user.id);
+
+  return `
+    <section class="hierarchy-grid">
+      <article class="card">
+        ${cardHeading("Ma ligne hierarchique")}
+        <div class="chain-list">
+          ${chain.map((profile, index) => `
+            <div class="chain-item ${profile.id === session.user.id ? "is-me" : ""}">
+              ${avatarForProfile(profile, index)}
+              <div>
+                <strong>${profile.full_name}</strong>
+                <span>${profile.job_title || "Collaborateur"}</span>
+              </div>
+            </div>`).join("")}
+        </div>
+        ${manager
+          ? `<p class="hierarchy-meta">Votre manager : <strong>${manager.full_name}</strong></p>`
+          : `<p class="hierarchy-meta">Vous n'avez pas de manager assigne.</p>`}
+      </article>
+      <article class="card">
+        ${cardHeading("Mon equipe directe")}
+        <div class="team-list">
+          ${directReports.length
+            ? directReports.map((profile, index) => `
+              <div class="team-item">
+                ${avatarForProfile(profile, index)}
+                <div>
+                  <strong>${profile.full_name}</strong>
+                  <span>${profile.job_title || "Collaborateur"}</span>
+                </div>
+              </div>`).join("")
+            : `<p class="empty-state">Aucun collaborateur rattache pour le moment.</p>`}
+        </div>
+      </article>
+    </section>
+    <article class="card page-spacer">
+      ${cardHeading("Organigramme")}
+      <div class="org-tree">
+        ${tree.length
+          ? tree.map((node) => renderOrgNode(node)).join("")
+          : `<p class="empty-state">Aucun profil dans l'organigramme.</p>`}
+      </div>
+      <p class="hierarchy-meta">Pour modifier la hierarchie : Supabase → Table Editor → profiles → colonne manager_id.</p>
+    </article>`;
+}
+
 function pageContent() {
+  if (appData.loading) {
+    return `<div class="boot-message">Chargement des donnees...</div>`;
+  }
+  if (appData.error) {
+    return `<article class="card"><p class="error-message">${appData.error}</p></article>`;
+  }
   return {
     pointeuse: pointeusePage,
     leave: leavePage,
-    attestations: attestationsPage
+    attestations: attestationsPage,
+    hierarchy: hierarchyPage
   }[currentPage]();
+}
+
+async function ensureProfile() {
+  if (!usesDatabase()) return;
+
+  const user = session.user;
+  const metadata = user.user_metadata || {};
+  const payload = {
+    id: user.id,
+    email: user.email || "",
+    full_name: metadata.full_name || metadata.name || user.email?.split("@")[0] || "Collaborateur"
+  };
+
+  const { data, error } = await supabaseClient
+    .from("profiles")
+    .upsert(payload, { onConflict: "id" })
+    .select()
+    .single();
+
+  if (error) throw error;
+  appData.profile = data;
+}
+
+async function refreshAppData() {
+  if (!usesDatabase()) return;
+
+  const userId = session.user.id;
+  const [punchesRes, leaveRes, attestationRes, profilesRes, profileRes] = await Promise.all([
+    supabaseClient.from("time_punches").select("*").eq("user_id", userId).order("punched_at", { ascending: true }),
+    supabaseClient.from("leave_requests").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+    supabaseClient.from("attestation_requests").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+    supabaseClient.from("profiles").select("id, full_name, email, job_title, department, manager_id").order("full_name"),
+    supabaseClient.from("profiles").select("*").eq("id", userId).maybeSingle()
+  ]);
+
+  if (punchesRes.error) throw punchesRes.error;
+  if (leaveRes.error) throw leaveRes.error;
+  if (attestationRes.error) throw attestationRes.error;
+  if (profilesRes.error) throw profilesRes.error;
+  if (profileRes.error) throw profileRes.error;
+
+  appData.punches = punchesRes.data || [];
+  appData.leaveRequests = leaveRes.data || [];
+  appData.attestationRequests = attestationRes.data || [];
+  appData.orgProfiles = profilesRes.data || [];
+  appData.profile = profileRes.data || appData.profile;
+}
+
+async function bootstrapUser() {
+  if (!usesDatabase()) {
+    renderApp();
+    return;
+  }
+
+  appData.loading = true;
+  appData.error = "";
+  renderApp();
+
+  try {
+    await ensureProfile();
+    await refreshAppData();
+  } catch (error) {
+    appData.error = error.message || "Impossible de charger les donnees Supabase.";
+  } finally {
+    appData.loading = false;
+    renderApp();
+  }
 }
 
 function bindLoginEvents() {
@@ -353,10 +598,9 @@ async function signInWithMicrosoft() {
 }
 
 function renderApp() {
-  const metadata = session?.user?.user_metadata || {};
-  const name = metadata.full_name || metadata.name || getUserName();
+  const name = getUserName();
   const email = session?.user?.email || "collaborateur@entreprise.fr";
-  const initials = name.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase() || "CO";
+  const initials = profileInitials(name);
 
   app.innerHTML = `
     <div class="app-shell">
@@ -396,17 +640,41 @@ function renderApp() {
 function daysBetween(start, end) {
   const startDate = new Date(start);
   const endDate = new Date(end);
-  const diff = endDate - startDate;
-  return Math.max(1, Math.floor(diff / (1000 * 60 * 60 * 24)) + 1);
+  return Math.max(1, Math.floor((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1);
+}
+
+async function withAction(handler) {
+  try {
+    appData.loading = true;
+    renderApp();
+    await handler();
+    if (usesDatabase()) await refreshAppData();
+  } catch (error) {
+    alert(error.message || "Une erreur est survenue.");
+  } finally {
+    appData.loading = false;
+    renderApp();
+  }
 }
 
 function bindPageEvents() {
   document.querySelector("#clock-toggle")?.addEventListener("click", () => {
-    const { punches, isIn } = getClockState();
-    punches.push({ type: isIn ? "out" : "in", time: new Date().toISOString() });
-    saveStore("punches", punches);
-    currentPage = "pointeuse";
-    renderApp();
+    withAction(async () => {
+      const { isIn } = getClockState();
+      if (usesDatabase()) {
+        const { error } = await supabaseClient.from("time_punches").insert({
+          user_id: session.user.id,
+          punch_type: isIn ? "out" : "in",
+          punched_at: new Date().toISOString()
+        });
+        if (error) throw error;
+      } else {
+        const punches = loadStore("punches", []);
+        punches.push({ type: isIn ? "out" : "in", time: new Date().toISOString() });
+        saveStore("punches", punches);
+      }
+      currentPage = "pointeuse";
+    });
   });
 
   document.querySelector("#leave-form")?.addEventListener("submit", (event) => {
@@ -419,39 +687,68 @@ function bindPageEvents() {
       alert("La date de fin doit etre apres la date de debut.");
       return;
     }
-    const requests = loadStore("leaveRequests", []);
-    requests.unshift({
-      id: Date.now(),
-      type: data.get("type"),
-      start,
-      end,
-      days: daysBetween(start, end),
-      comment: data.get("comment") || "",
-      status: "A valider",
-      created: new Date().toISOString()
+
+    withAction(async () => {
+      const payload = {
+        type: data.get("type"),
+        start,
+        end,
+        days: daysBetween(start, end),
+        comment: data.get("comment") || "",
+        status: "A valider"
+      };
+
+      if (usesDatabase()) {
+        const { error } = await supabaseClient.from("leave_requests").insert({
+          user_id: session.user.id,
+          leave_type: payload.type,
+          start_date: payload.start,
+          end_date: payload.end,
+          days: payload.days,
+          comment: payload.comment,
+          status: payload.status
+        });
+        if (error) throw error;
+      } else {
+        const requests = loadStore("leaveRequests", []);
+        requests.unshift({ id: Date.now(), ...payload, created: new Date().toISOString() });
+        saveStore("leaveRequests", requests);
+      }
+
+      form.reset();
+      currentPage = "leave";
     });
-    saveStore("leaveRequests", requests);
-    form.reset();
-    currentPage = "leave";
-    renderApp();
   });
 
   document.querySelector("#attestation-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
-    const requests = loadStore("attestationRequests", []);
-    requests.unshift({
-      id: Date.now(),
-      type: data.get("type"),
-      reason: data.get("reason"),
-      status: "En attente",
-      created: new Date().toISOString()
+
+    withAction(async () => {
+      const payload = {
+        type: data.get("type"),
+        reason: data.get("reason"),
+        status: "En attente"
+      };
+
+      if (usesDatabase()) {
+        const { error } = await supabaseClient.from("attestation_requests").insert({
+          user_id: session.user.id,
+          document_type: payload.type,
+          reason: payload.reason,
+          status: payload.status
+        });
+        if (error) throw error;
+      } else {
+        const requests = loadStore("attestationRequests", []);
+        requests.unshift({ id: Date.now(), ...payload, created: new Date().toISOString() });
+        saveStore("attestationRequests", requests);
+      }
+
+      form.reset();
+      currentPage = "attestations";
     });
-    saveStore("attestationRequests", requests);
-    form.reset();
-    currentPage = "attestations";
-    renderApp();
   });
 }
 
@@ -478,6 +775,15 @@ function bindAppEvents() {
     session = null;
     demoMode = false;
     currentPage = "pointeuse";
+    appData = {
+      loading: false,
+      error: "",
+      profile: null,
+      punches: [],
+      leaveRequests: [],
+      attestationRequests: [],
+      orgProfiles: []
+    };
     renderLogin();
   });
 
@@ -564,7 +870,7 @@ async function initialize() {
     setLoginState({ ready: Boolean(supabaseClient) });
 
     if (window.__pendingAuthSession) {
-      window.humanaRender(window.__pendingAuthSession);
+      await window.humanaRender(window.__pendingAuthSession);
       return;
     }
 
@@ -583,11 +889,11 @@ async function initialize() {
 
     if (!supabaseClient) return;
 
-    supabaseClient.auth.onAuthStateChange((event, nextSession) => {
+    supabaseClient.auth.onAuthStateChange(async (event, nextSession) => {
       if (nextSession && event !== "SIGNED_OUT") {
         session = nextSession;
         demoMode = false;
-        renderApp();
+        await bootstrapUser();
         clearAuthParamsFromUrl();
         return;
       }
@@ -599,7 +905,7 @@ async function initialize() {
     if (data.session) {
       session = data.session;
       demoMode = false;
-      renderApp();
+      await bootstrapUser();
       clearAuthParamsFromUrl();
     }
   } catch (error) {
@@ -607,11 +913,11 @@ async function initialize() {
   }
 }
 
-window.humanaRender = function (authSession) {
+window.humanaRender = async function (authSession) {
   session = authSession;
   demoMode = false;
   ensureAppContainer();
-  renderApp();
+  await bootstrapUser();
   clearAuthParamsFromUrl();
 };
 
