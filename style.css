@@ -180,10 +180,39 @@ td { padding: 14px 20px; border-top: 1px solid #f0eff3; color: #6e6c7a; font-siz
 .progress i { display: block; height: 100%; border-radius: inherit; background: var(--purple); }
 .backdrop { display: none; }
 
+.topbar-title { color: var(--ink); font-size: 15px; font-weight: 750; letter-spacing: -.02em; }
+.clock-grid, .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 17px; }
+.clock-card { text-align: center; }
+.clock-label { margin: 0 0 14px; color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.clock-status { margin-bottom: 22px; padding: 18px; border-radius: 12px; background: #fafafd; }
+.clock-status.in { background: #e8f7ef; }
+.clock-status.out { background: #fff4e8; }
+.clock-status strong { display: block; margin-bottom: 6px; font-size: 24px; }
+.clock-status span { color: var(--muted); font-size: 13px; }
+.clock-button { width: 100%; min-height: 54px; border: 0; border-radius: 12px; color: white; font-size: 15px; font-weight: 800; }
+.clock-button.in { background: #2f9d68; }
+.clock-button.out { background: #d96b45; }
+.clock-hint { margin: 16px 0 0; color: var(--muted); font-size: 12px; }
+.punch-list { display: grid; gap: 10px; }
+.punch-item { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
+.punch-type { padding: 5px 8px; border-radius: 999px; font-size: 10px; font-weight: 800; }
+.punch-type.in { color: #25805e; background: #e2f6ec; }
+.punch-type.out { color: #9b4d22; background: #fff0e4; }
+.form-card { padding: 22px; }
+.feature-form { display: grid; gap: 14px; }
+.feature-form label { display: grid; gap: 7px; color: #5f5d6d; font-size: 12px; font-weight: 700; }
+.feature-form input, .feature-form select, .feature-form textarea {
+  width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px;
+  color: var(--ink); background: white; font-size: 13px;
+}
+.feature-form textarea { resize: vertical; min-height: 88px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.empty-state, .empty-cell { color: var(--muted); font-size: 13px; text-align: center; }
+.empty-cell { padding: 24px !important; }
+.toolbar h3 { margin: 0; font-size: 14px; }
+
 @media (max-width: 1050px) {
-  .stats-grid { grid-template-columns: repeat(2, 1fr); }
-  .dashboard-grid { grid-template-columns: 1fr; }
-  .jobs-grid { grid-template-columns: repeat(2, 1fr); }
+  .clock-grid, .feature-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 780px) {
