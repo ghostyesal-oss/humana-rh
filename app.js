@@ -7,57 +7,26 @@ let app = null;
 let session = null;
 let demoMode = false;
 let portalMode = false;
-let currentPage = "dashboard";
+let currentPage = "pointeuse";
 
 const pages = {
-  dashboard: ["Bonjour Sophie ", "Voici ce qui se passe dans votre entreprise aujourd'hui."],
-  employees: ["Collaborateurs", "Gerez les profils, les equipes et les informations RH."],
-  leave: ["Conges & absences", "Suivez les demandes et les soldes de conges."],
-  documents: ["Documents", "Centralisez et partagez les documents de l'entreprise."],
-  recruitment: ["Recrutement", "Pilotez vos offres et votre vivier de candidats."],
-  reviews: ["Evaluations", "Preparez et suivez les campagnes d'entretien."]
+  pointeuse: ["Pointeuse", "Enregistrez vos arrivees et departs du jour."],
+  leave: ["Demandes de conges", "Deposez et suivez vos demandes d'absence."],
+  attestations: ["Demandes d'attestations", "Demandez vos documents RH en quelques clics."]
 };
 
 const navigation = [
-  ["dashboard", "#", "Tableau de bord"],
-  ["employees", "@", "Collaborateurs"],
-  ["leave", "%", "Conges & absences"],
-  ["documents", "&", "Documents"],
-  ["recruitment", "*", "Recrutement"],
-  ["reviews", "+", "Evaluations"]
+  ["pointeuse", "P", "Pointeuse"],
+  ["leave", "C", "Conges"],
+  ["attestations", "A", "Attestations"]
 ];
 
-const employees = [
-  ["Sophie Martin", "Responsable RH", "Ressources humaines", "Actif", "SM", "violet"],
-  ["Thomas Bernard", "Lead developpeur", "Produit & Tech", "Actif", "TB", "blue"],
-  ["Lina Benali", "Product designer", "Produit & Tech", "En conge", "LB", "orange"],
-  ["Hugo Leroy", "Commercial grands comptes", "Ventes", "Actif", "HL", "green"],
-  ["Emma Petit", "Controleuse de gestion", "Finance", "Actif", "EP", "pink"]
-];
-
-const leaveRequests = [
-  ["Lina Benali", "Conges payes", "19  30 aout 2026", "10 jours", "Approuvee", "LB"],
-  ["Hugo Leroy", "RTT", "21 aout 2026", "1 jour", "A valider", "HL"],
-  ["Thomas Bernard", "Conges payes", "7  11 septembre 2026", "5 jours", "A valider", "TB"]
-];
-
-const documents = [
-  ["Politique de teletravail", "Politiques RH", "12 aout 2026", "PDF"],
-  ["Guide d'integration", "Onboarding", "8 aout 2026", "PDF"],
-  ["Modele d'entretien annuel", "Evaluations", "2 aout 2026", "DOCX"],
-  ["Charte informatique", "Conformite", "28 juillet 2026", "PDF"]
-];
-
-const jobs = [
-  ["Developpeur-se full-stack", "Produit & Tech", 12, "Entretiens", "blue"],
-  ["Account executive", "Ventes", 8, "Selection", "green"],
-  ["Office manager", "Operations", 5, "Publiee", "orange"]
-];
-
-const reviews = [
-  ["Thomas Bernard", "S1 2026", 100, "Terminee", "4,6 / 5"],
-  ["Emma Petit", "S1 2026", 70, "En cours", "-"],
-  ["Hugo Leroy", "S1 2026", 30, "A completer", "-"]
+const leaveTypes = ["Conges payes", "RTT", "Conge maladie", "Conge sans solde"];
+const attestationTypes = [
+  "Attestation employeur",
+  "Certificat de travail",
+  "Attestation de salaire",
+  "Attestation de conges"
 ];
 
 const avatar = (initials, color = "violet") =>
@@ -65,12 +34,243 @@ const avatar = (initials, color = "violet") =>
 
 function badge(value) {
   const normalized = value.toLowerCase();
-  const tone = normalized.includes("actif") || normalized.includes("approuv") || normalized.includes("termin")
+  const tone = normalized.includes("approuv") || normalized.includes("pret") || normalized.includes("termine")
     ? "success"
-    : normalized.includes("valid") || normalized.includes("cours") || normalized.includes("completer")
+    : normalized.includes("valid") || normalized.includes("cours") || normalized.includes("attente")
       ? "warning"
       : "neutral";
   return `<span class="badge ${tone}">${value}</span>`;
+}
+
+const cardHeading = (title, action = "") =>
+  action
+    ? `<div class="card-heading"><h3>${title}</h3><button type="button">${action}</button></div>`
+    : `<div class="card-heading"><h3>${title}</h3></div>`;
+
+function storagePrefix() {
+  const email = session?.user?.email || "demo";
+  return `humana_${email}_`;
+}
+
+function loadStore(key, fallback) {
+  try {
+    const raw = localStorage.getItem(storagePrefix() + key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveStore(key, value) {
+  localStorage.setItem(storagePrefix() + key, JSON.stringify(value));
+}
+
+function getUserName() {
+  const metadata = session?.user?.user_metadata || {};
+  return metadata.full_name || metadata.name || session?.user?.email?.split("@")[0] || "Collaborateur";
+}
+
+function formatDate(value) {
+  return new Date(value).toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+}
+
+function formatTime(value) {
+  return new Date(value).toLocaleTimeString("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function formatDateTime(value) {
+  return `${formatDate(value)} a ${formatTime(value)}`;
+}
+
+function countPendingLeave() {
+  return loadStore("leaveRequests", []).filter((item) => item.status === "A valider").length;
+}
+
+function countPendingAttestations() {
+  return loadStore("attestationRequests", []).filter((item) => item.status === "En attente").length;
+}
+
+function navBadge(page) {
+  if (page === "leave" && countPendingLeave()) return `<i>${countPendingLeave()}</i>`;
+  if (page === "attestations" && countPendingAttestations()) return `<i>${countPendingAttestations()}</i>`;
+  return "";
+}
+
+function getClockState() {
+  const punches = loadStore("punches", []);
+  const last = punches[punches.length - 1];
+  return { punches, isIn: last?.type === "in" };
+}
+
+function pointeusePage() {
+  const { punches, isIn } = getClockState();
+  const today = new Date().toDateString();
+  const todayPunches = punches.filter((p) => new Date(p.time).toDateString() === today);
+
+  return `
+    <section class="clock-grid">
+      <article class="card clock-card">
+        <p class="clock-label">Statut actuel</p>
+        <div class="clock-status ${isIn ? "in" : "out"}">
+          <strong>${isIn ? "En poste" : "Hors poste"}</strong>
+          <span>${isIn ? "Vous etes pointe en entree." : "Pointez votre arrivee pour commencer."}</span>
+        </div>
+        <button type="button" id="clock-toggle" class="clock-button ${isIn ? "out" : "in"}">
+          ${isIn ? "Pointer la sortie" : "Pointer l'arrivee"}
+        </button>
+        <p class="clock-hint">${new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
+      </article>
+      <article class="card">
+        ${cardHeading("Pointages du jour")}
+        <div class="punch-list" id="punch-list">
+          ${todayPunches.length
+            ? todayPunches.map((punch) => `
+              <div class="punch-item">
+                <span class="punch-type ${punch.type}">${punch.type === "in" ? "Entree" : "Sortie"}</span>
+                <strong>${formatTime(punch.time)}</strong>
+              </div>`).join("")
+            : `<p class="empty-state">Aucun pointage aujourd'hui.</p>`}
+        </div>
+      </article>
+    </section>
+    <article class="card table-card" style="margin-top:17px">
+      ${cardHeading("Historique recent")}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Date</th><th>Type</th><th>Heure</th></tr></thead>
+          <tbody>
+            ${punches.length
+              ? [...punches].reverse().slice(0, 10).map((punch) => `
+                <tr>
+                  <td>${formatDate(punch.time)}</td>
+                  <td>${punch.type === "in" ? "Entree" : "Sortie"}</td>
+                  <td>${formatTime(punch.time)}</td>
+                </tr>`).join("")
+              : `<tr><td colspan="3" class="empty-cell">Aucun historique pour le moment.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </article>`;
+}
+
+function leavePage() {
+  const requests = loadStore("leaveRequests", []);
+
+  return `
+    <div class="feature-grid">
+      <article class="card form-card">
+        ${cardHeading("Nouvelle demande")}
+        <form id="leave-form" class="feature-form">
+          <label>
+            Type de conge
+            <select name="type" required>
+              ${leaveTypes.map((type) => `<option value="${type}">${type}</option>`).join("")}
+            </select>
+          </label>
+          <div class="form-row">
+            <label>
+              Date de debut
+              <input type="date" name="start" required>
+            </label>
+            <label>
+              Date de fin
+              <input type="date" name="end" required>
+            </label>
+          </div>
+          <label>
+            Commentaire (optionnel)
+            <textarea name="comment" rows="3" placeholder="Precisez le contexte si besoin..."></textarea>
+          </label>
+          <button type="submit" class="primary">Envoyer la demande</button>
+        </form>
+      </article>
+      <article class="card table-card">
+        <div class="toolbar"><h3>Mes demandes</h3></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Type</th><th>Periode</th><th>Duree</th><th>Statut</th></tr></thead>
+            <tbody id="leave-rows">
+              ${leaveRows(requests)}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </div>`;
+}
+
+function leaveRows(requests) {
+  if (!requests.length) {
+    return `<tr><td colspan="4" class="empty-cell">Aucune demande de conge pour le moment.</td></tr>`;
+  }
+  return requests.map((request) => `
+    <tr>
+      <td>${request.type}</td>
+      <td>${formatDate(request.start)} - ${formatDate(request.end)}</td>
+      <td>${request.days} jour${request.days > 1 ? "s" : ""}</td>
+      <td>${badge(request.status)}</td>
+    </tr>`).join("");
+}
+
+function attestationsPage() {
+  const requests = loadStore("attestationRequests", []);
+
+  return `
+    <div class="feature-grid">
+      <article class="card form-card">
+        ${cardHeading("Nouvelle attestation")}
+        <form id="attestation-form" class="feature-form">
+          <label>
+            Type de document
+            <select name="type" required>
+              ${attestationTypes.map((type) => `<option value="${type}">${type}</option>`).join("")}
+            </select>
+          </label>
+          <label>
+            Motif / precision
+            <textarea name="reason" rows="4" placeholder="Ex. dossier de location, banque, administration..." required></textarea>
+          </label>
+          <button type="submit" class="primary">Envoyer la demande</button>
+        </form>
+      </article>
+      <article class="card table-card">
+        <div class="toolbar"><h3>Mes attestations</h3></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Document</th><th>Date</th><th>Statut</th></tr></thead>
+            <tbody id="attestation-rows">
+              ${attestationRows(requests)}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </div>`;
+}
+
+function attestationRows(requests) {
+  if (!requests.length) {
+    return `<tr><td colspan="3" class="empty-cell">Aucune demande d'attestation pour le moment.</td></tr>`;
+  }
+  return requests.map((request) => `
+    <tr>
+      <td><strong>${request.type}</strong><br><small>${request.reason}</small></td>
+      <td>${formatDate(request.created)}</td>
+      <td>${badge(request.status)}</td>
+    </tr>`).join("");
+}
+
+function pageContent() {
+  return {
+    pointeuse: pointeusePage,
+    leave: leavePage,
+    attestations: attestationsPage
+  }[currentPage]();
 }
 
 function bindLoginEvents() {
@@ -121,10 +321,10 @@ function renderLogin(error = "") {
         <section class="login-panel">
           <div class="login-card">
             <h2>Bienvenue</h2>
-            <button id="microsoft-login" class="microsoft-button" disabled>Continuer avec Microsoft</button>
+            <button id="microsoft-login" type="button" class="microsoft-button" disabled>Continuer avec Microsoft</button>
             <div id="config-note" class="config-note">Connexion en cours de preparation...</div>
             <p id="login-error" class="error-message" hidden></p>
-            <button id="demo-login" class="demo-button">Voir l'apercu de demonstration</button>
+            <button id="demo-login" type="button" class="demo-button">Voir l'apercu de demonstration</button>
           </div>
         </section>
       </main>`;
@@ -142,7 +342,6 @@ async function signInWithMicrosoft() {
   }
   const button = document.querySelector("#microsoft-login");
   button.disabled = true;
-  button.lastChild.textContent = " Redirection...";
   const { error } = await supabaseClient.auth.signInWithOAuth({
     provider: "azure",
     options: {
@@ -153,118 +352,39 @@ async function signInWithMicrosoft() {
   if (error) renderLogin(error.message);
 }
 
-function dashboardPage() {
-  return `
-    <section class="stats-grid">
-      ${statCard("@", "Collaborateurs", "48", "+3 ce mois", "purple")}
-      ${statCard("%", "Absents aujourd'hui", "4", "Voir le planning", "orange")}
-      ${statCard("*", "Postes ouverts", "3", "25 candidats", "blue")}
-      ${statCard("+", "Entretiens a faire", "7", "Avant le 31 aout", "green")}
-    </section>
-    <section class="dashboard-grid">
-      <div class="card">
-        ${cardHeading("Demandes a valider", "Tout voir")}
-        ${leaveRequests.slice(1).map(request => `
-          <div class="request-item">${avatar(request[5])}
-            <div><strong>${request[0]}</strong><span>${request[1]} - ${request[2]}</span></div>
-            <div class="quick-actions"><button aria-label="Refuser">x</button><button class="approve" aria-label="Approuver">ok</button></div>
-          </div>`).join("")}
-      </div>
-      <div class="card">
-        ${cardHeading("Equipe en un coup d'oeil", "Organigramme")}
-        <div class="team-chart">
-          <div class="donut"><div><strong>48</strong><span>personnes</span></div></div>
-          <div class="legend">
-            <span><i class="dot purple"></i>Produit & Tech <b>18</b></span>
-            <span><i class="dot blue"></i>Ventes <b>12</b></span>
-            <span><i class="dot orange"></i>Operations <b>10</b></span>
-            <span><i class="dot green"></i>Autres <b>8</b></span>
-          </div>
-        </div>
-      </div>
-    </section>`;
-}
-
-const statCard = (icon, label, value, detail, tone) => `
-  <article class="stat-card"><div class="stat-icon ${tone}">${icon}</div><span>${label}</span><strong>${value}</strong><small>${detail} </small></article>`;
-
-const cardHeading = (title, action) => `
-  <div class="card-heading"><h3>${title}</h3><button>${action} ></button></div>`;
-
-function employeesPage() {
-  return `
-    <div class="card table-card">
-      <div class="toolbar"><label class="search-box">? <input id="employee-search" placeholder="Rechercher un collaborateur..."></label><button class="primary">+ Ajouter</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Collaborateur</th><th>Equipe</th><th>Statut</th><th></th></tr></thead>
-      <tbody id="employee-rows">${employeeRows(employees)}</tbody></table></div>
-    </div>`;
-}
-
-function employeeRows(list) {
-  return list.map(employee => `
-    <tr><td><div class="person">${avatar(employee[4], employee[5])}<div><strong>${employee[0]}</strong><span>${employee[1]}</span></div></div></td>
-    <td>${employee[2]}</td><td>${badge(employee[3])}</td><td><button class="icon-button"></button></td></tr>`).join("");
-}
-
-function leavePage() {
-  return `
-    <div class="card table-card">
-      <div class="toolbar"><div class="tabs"><button class="active">Demandes</button><button>Calendrier</button><button>Soldes</button></div><button class="primary">+ Nouvelle demande</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Collaborateur</th><th>Type</th><th>Dates</th><th>Duree</th><th>Statut</th></tr></thead><tbody>
-      ${leaveRequests.map(request => `<tr><td><div class="person">${avatar(request[5])}<strong>${request[0]}</strong></div></td><td>${request[1]}</td><td>${request[2]}</td><td>${request[3]}</td><td>${badge(request[4])}</td></tr>`).join("")}
-      </tbody></table></div>
-    </div>`;
-}
-
-function documentsPage() {
-  return `<section class="document-grid">${documents.map(document => `
-    <article class="document-card"><div class="file-icon">&</div><div><strong>${document[0]}</strong><span>${document[1]}</span><small>Mis a jour le ${document[2]}</small></div><span class="file-type">${document[3]}</span></article>`).join("")}</section>`;
-}
-
-function recruitmentPage() {
-  return `<section class="jobs-grid">${jobs.map(job => `
-    <article class="card job-card"><div class="job-icon ${job[4]}">*</div>${badge(job[3])}<h3>${job[0]}</h3><p>${job[1]}</p><div class="candidate-count">@ <strong>${job[2]}</strong> candidats</div><button class="outline-button">Voir le poste ></button></article>`).join("")}</section>`;
-}
-
-function reviewsPage() {
-  return `<div class="card reviews-card">${cardHeading("Campagne d'entretiens - S1 2026", "Configurer")}
-    ${reviews.map(review => `<div class="review-row"><div><strong>${review[0]}</strong><span>${review[1]}</span></div><div class="progress"><i style="width:${review[2]}%"></i></div><b>${review[2]}%</b>${badge(review[3])}<strong>${review[4]}</strong></div>`).join("")}</div>`;
-}
-
-function pageContent() {
-  return {
-    dashboard: dashboardPage,
-    employees: employeesPage,
-    leave: leavePage,
-    documents: documentsPage,
-    recruitment: recruitmentPage,
-    reviews: reviewsPage
-  }[currentPage]();
-}
-
 function renderApp() {
   const metadata = session?.user?.user_metadata || {};
-  const name = metadata.full_name || metadata.name || "Sophie Martin";
-  const email = session?.user?.email || "sophie@entreprise.fr";
-  const initials = name.split(" ").map(part => part[0]).slice(0, 2).join("");
+  const name = metadata.full_name || metadata.name || getUserName();
+  const email = session?.user?.email || "collaborateur@entreprise.fr";
+  const initials = name.split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase() || "CO";
 
   app.innerHTML = `
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand"><span>H</span> Humana</div>
-        <button class="close-menu" aria-label="Fermer">x</button>
-        <nav><p>ESPACE RH</p>${navigation.map(item => `
-          <button data-page="${item[0]}" class="${currentPage === item[0] ? "active" : ""}"><span class="nav-icon">${item[1]}</span>${item[2]}${item[0] === "leave" ? "<i>2</i>" : ""}</button>`).join("")}</nav>
+        <button class="close-menu" type="button" aria-label="Fermer">x</button>
+        <nav><p>ESPACE RH</p>${navigation.map((item) => `
+          <button type="button" data-page="${item[0]}" class="${currentPage === item[0] ? "active" : ""}">
+            <span class="nav-icon">${item[1]}</span>${item[2]}${navBadge(item[0])}
+          </button>`).join("")}</nav>
         <div class="sidebar-bottom">
-          <button><span class="nav-icon">*</span> Parametres</button>
-          <div class="user-card">${avatar(initials)}<div><strong>${name}</strong><span>${email}</span></div><button id="logout" aria-label="Se deconnecter"></button></div>
+          <div class="user-card">${avatar(initials)}<div><strong>${name}</strong><span>${email}</span></div><button type="button" id="logout" aria-label="Se deconnecter"></button></div>
         </div>
       </aside>
-      <button class="backdrop" aria-label="Fermer le menu"></button>
+      <button class="backdrop" type="button" aria-label="Fermer le menu"></button>
       <main class="main-content">
-        <header class="topbar"><button class="menu-button" aria-label="Menu"></button><div class="top-search">? <span>Rechercher...</span><kbd>Ctrl K</kbd></div><button class="notification" aria-label="Notifications">*<i></i></button><button class="primary compact">+ Action rapide</button></header>
+        <header class="topbar">
+          <button class="menu-button" type="button" aria-label="Menu"></button>
+          <div class="topbar-title">${pages[currentPage][0]}</div>
+        </header>
         <div class="page">
-          <div class="page-heading"><div><h1>${pages[currentPage][0]}</h1><p>${pages[currentPage][1]}</p></div>${demoMode ? `<span class="demo-pill">Mode demo</span>` : ""}</div>
+          <div class="page-heading">
+            <div>
+              <h1>${pages[currentPage][0]}</h1>
+              <p>${pages[currentPage][1]}</p>
+            </div>
+            ${demoMode ? `<span class="demo-pill">Mode demo</span>` : ""}
+          </div>
           <div id="page-content">${pageContent()}</div>
         </div>
       </main>
@@ -273,19 +393,83 @@ function renderApp() {
   bindAppEvents();
 }
 
+function daysBetween(start, end) {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  const diff = endDate - startDate;
+  return Math.max(1, Math.floor(diff / (1000 * 60 * 60 * 24)) + 1);
+}
+
+function bindPageEvents() {
+  document.querySelector("#clock-toggle")?.addEventListener("click", () => {
+    const { punches, isIn } = getClockState();
+    punches.push({ type: isIn ? "out" : "in", time: new Date().toISOString() });
+    saveStore("punches", punches);
+    currentPage = "pointeuse";
+    renderApp();
+  });
+
+  document.querySelector("#leave-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const start = data.get("start");
+    const end = data.get("end");
+    if (new Date(end) < new Date(start)) {
+      alert("La date de fin doit etre apres la date de debut.");
+      return;
+    }
+    const requests = loadStore("leaveRequests", []);
+    requests.unshift({
+      id: Date.now(),
+      type: data.get("type"),
+      start,
+      end,
+      days: daysBetween(start, end),
+      comment: data.get("comment") || "",
+      status: "A valider",
+      created: new Date().toISOString()
+    });
+    saveStore("leaveRequests", requests);
+    form.reset();
+    currentPage = "leave";
+    renderApp();
+  });
+
+  document.querySelector("#attestation-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const requests = loadStore("attestationRequests", []);
+    requests.unshift({
+      id: Date.now(),
+      type: data.get("type"),
+      reason: data.get("reason"),
+      status: "En attente",
+      created: new Date().toISOString()
+    });
+    saveStore("attestationRequests", requests);
+    form.reset();
+    currentPage = "attestations";
+    renderApp();
+  });
+}
+
 function bindAppEvents() {
-  document.querySelectorAll("[data-page]").forEach(button => {
+  document.querySelectorAll("[data-page]").forEach((button) => {
     button.addEventListener("click", () => {
       currentPage = button.dataset.page;
       renderApp();
     });
   });
+
   const sidebar = document.querySelector(".sidebar");
   const backdrop = document.querySelector(".backdrop");
-  document.querySelector(".menu-button").addEventListener("click", () => sidebar.classList.add("open"));
-  document.querySelector(".close-menu").addEventListener("click", () => sidebar.classList.remove("open"));
-  backdrop.addEventListener("click", () => sidebar.classList.remove("open"));
-  document.querySelector("#logout").addEventListener("click", async () => {
+  document.querySelector(".menu-button")?.addEventListener("click", () => sidebar.classList.add("open"));
+  document.querySelector(".close-menu")?.addEventListener("click", () => sidebar.classList.remove("open"));
+  backdrop?.addEventListener("click", () => sidebar.classList.remove("open"));
+
+  document.querySelector("#logout")?.addEventListener("click", async () => {
     if (portalMode) {
       window.location.href = "/_services/auth/logout";
       return;
@@ -293,13 +477,11 @@ function bindAppEvents() {
     if (session && supabaseClient) await supabaseClient.auth.signOut();
     session = null;
     demoMode = false;
+    currentPage = "pointeuse";
     renderLogin();
   });
-  document.querySelector("#employee-search")?.addEventListener("input", event => {
-    const query = event.target.value.toLowerCase();
-    const filtered = employees.filter(employee => employee.join(" ").toLowerCase().includes(query));
-    document.querySelector("#employee-rows").innerHTML = employeeRows(filtered);
-  });
+
+  bindPageEvents();
 }
 
 function ensureAppContainer() {
@@ -371,35 +553,6 @@ function isOAuthReturn() {
 function clearAuthParamsFromUrl() {
   if (!isOAuthReturn()) return;
   window.history.replaceState({}, document.title, window.location.pathname);
-}
-
-async function restoreSession() {
-  if (!supabaseClient) return null;
-  if (isOAuthReturn()) {
-    const { data, error } = await supabaseClient.auth.getSession();
-    if (error) throw error;
-    return data.session;
-  }
-  const result = await withTimeout(supabaseClient.auth.getSession(), 4000);
-  return result?.data?.session ?? null;
-}
-
-function withTimeout(promise, ms) {
-  return Promise.race([
-    promise,
-    new Promise((resolve) => setTimeout(() => resolve(null), ms))
-  ]);
-}
-
-async function waitForAuthSession(client, maxMs = 8000) {
-  const started = Date.now();
-  while (Date.now() - started < maxMs) {
-    const { data, error } = await client.auth.getSession();
-    if (error) throw error;
-    if (data.session) return data.session;
-    await new Promise((resolve) => setTimeout(resolve, 150));
-  }
-  return null;
 }
 
 async function initialize() {
