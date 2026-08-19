@@ -329,7 +329,13 @@ small { font-size: 12px; color: var(--text-tertiary); }
 }
 
 .brand-large { color: #fff; }
-.brand-large > span { background: var(--lime); color: var(--forest); }
+.brand-large > span {
+  background-color: transparent;
+  background-image: var(--logo-image);
+  background-size: cover;
+  background-position: center;
+  color: transparent;
+}
 
 .login-message { max-width: 420px; }
 
@@ -421,7 +427,12 @@ small { font-size: 12px; color: var(--text-tertiary); }
 .microsoft-button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .microsoft-logo { display: grid; grid-template-columns: repeat(2, 6px); gap: 2px; }
-.microsoft-logo i { width: 6px; height: 6px; }
+.microsoft-logo i {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+}
 .microsoft-logo i:nth-child(1) { background: #f35325; }
 .microsoft-logo i:nth-child(2) { background: #81bc06; }
 .microsoft-logo i:nth-child(3) { background: #05a6f0; }
@@ -617,8 +628,11 @@ small { font-size: 12px; color: var(--text-tertiary); }
 }
 
 .sidebar > .brand > span {
-  background: var(--lime);
-  color: var(--forest);
+  background-color: transparent;
+  background-image: var(--logo-image);
+  background-size: cover;
+  background-position: center;
+  color: transparent;
 }
 
 .close-menu { display: none; }
@@ -750,12 +764,12 @@ small { font-size: 12px; color: var(--text-tertiary); }
 .avatar-user-photo {
   color: transparent;
   font-size: 0;
-  background-color: #ffffff;
+  background-color: transparent;
   background-image: var(--logo-image);
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  border: 1px solid rgba(255, 255, 255, 0.24);
+  border: none;
 }
 
 .admin-pill {
