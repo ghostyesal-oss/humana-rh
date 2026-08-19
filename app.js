@@ -50,7 +50,7 @@ function applyTheme(theme) {
   document.documentElement.setAttribute("data-theme", next);
   localStorage.setItem(THEME_KEY, next);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = next === "dark" ? "#141615" : "#f3f4f2";
+  if (meta) meta.content = next === "dark" ? "#111318" : "#eef0f3";
 }
 
 function toggleTheme() {
@@ -1296,7 +1296,7 @@ function renderApp() {
   const initials = profileInitials(name);
 
   app.innerHTML = `
-    <div class="app-shell" data-page="${currentPage}">
+    <div class="app-shell" data-current-page="${currentPage}">
       <aside class="sidebar">
         <div class="brand"><span>H</span> Humana</div>
         <button class="close-menu" type="button" aria-label="Fermer"></button>
@@ -1650,9 +1650,11 @@ function bindPageEvents() {
 
 function bindAppEvents() {
   bindThemeToggle();
-  document.querySelectorAll("[data-page]").forEach((button) => {
+
+  document.querySelectorAll(".sidebar nav [data-page]").forEach((button) => {
     button.addEventListener("click", () => {
       currentPage = button.dataset.page;
+      document.querySelector(".sidebar")?.classList.remove("open");
       renderApp();
     });
   });
