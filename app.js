@@ -7,7 +7,7 @@ let app = null;
 let session = null;
 let demoMode = false;
 let portalMode = false;
-let currentPage = "pointeuse";
+let currentPage = "home";
 let bootstrapInFlight = null;
 let appData = {
   loading: false,
@@ -18,6 +18,8 @@ let appData = {
   attestationRequests: [],
   orgProfiles: [],
   pendingInvites: [],
+  hrDocuments: [],
+  payslips: [],
   adminEditingId: "",
   adminEditingInviteId: ""
 };
@@ -29,6 +31,7 @@ const roleLabels = {
 };
 
 const pages = {
+  home: ["Accueil", "Votre espace RH en un coup d'oeil."],
   pointeuse: ["Pointeuse", "Enregistrez vos arrivees et departs du jour."],
   leave: ["Demandes de conges", "Deposez et suivez vos demandes d'absence."],
   attestations: ["Demandes d'attestations", "Demandez vos documents RH en quelques clics."],
@@ -70,6 +73,7 @@ function bindThemeToggle() {
 }
 
 const navigation = [
+  ["home", "🏠", "Accueil"],
   ["pointeuse", "⏱", "Pointeuse"],
   ["leave", "🏖", "Conges"],
   ["attestations", "📄", "Attestations"],
@@ -381,13 +385,151 @@ function getClockState() {
   return { punches, isIn: last?.type === "in" };
 }
 
+function buildDemoPayslips() {
+  const items = [];
+  const now = new Date();
+  for (let index = 1; index <= 6; index += 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() - index, 1);
+    items.push({
+      id: `demo-${index}`,
+      period_label: date.toLocaleDateString("fr-FR", { month: "long", year: "numeric" }),
+      period_year: date.getFullYear(),
+      period_month: date.getMonth() + 1,
+      file_url: "#",
+      published_at: date.toISOString()
+    });
+  }
+  return items;
+}
+
+const demoHrDocuments = [
+  { id: "d1", title: "Reglement interieur", description: "Version 2026", category: "Politique", file_url: "#", published_at: "2026-01-15" },
+  { id: "d2", title: "Charte du teletravail", description: "Politique hybride", category: "Politique", file_url: "#", published_at: "2026-02-01" },
+  { id: "d3", title: "Guide des conges", description: "CP, RTT et absences", category: "Conges", file_url: "#", published_at: "2026-02-10" },
+  { id: "d4", title: "Note service Q1", description: "Actualites RH", category: "Communication", file_url: "#", published_at: "2026-03-01" }
+];
+
+function getHrDocuments() {
+  if (usesDatabase()) return appData.hrDocuments || [];
+  return loadStore("hrDocuments", demoHrDocuments);
+}
+
+function getPayslips() {
+  if (usesDatabase()) return appData.payslips || [];
+  return loadStore("payslips", buildDemoPayslips());
+}
+
+function homeBalanceSummary(balance) {
+  const usedPercent = balance.total ? Math.min(100, Math.round(((balance.used + balance.pending) / balance.total) * 100)) : 0;
+  return `
+    <div class="home-balance-item">
+      <div class="home-balance-head">
+        <span>${balance.label}</span>
+        <strong>${balance.remaining} j</strong>
+      </div>
+      <div class="balance-track"><i style="width:${usedPercent}%"></i></div>
+      <small>${balance.used} j utilises · ${balance.pending} j en attente</small>
+    </div>`;
+}
+
+function homePage() {
+  const firstName = escapeHtml(getUserName().split(" ")[0] || "Collaborateur");
+  const { isIn } = getClockState();
+  const hours = computeWorkedHours(getPunches());
+  const balances = getLeaveBalances();
+  const documents = getHrDocuments().slice(0, 4);
+  const payslips = getPayslips().slice(0, 6);
+  const todayLabel = new Date().toLocaleDateString("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric"
+  });
+
+  return `
+    <section class="home-welcome card">
+      <div>
+        <p class="home-eyebrow">Bonjour</p>
+        <h2 class="home-title">Bienvenue, ${firstName}</h2>
+        <p class="home-subtitle">Retrouvez ici vos actions et informations RH essentielles.</p>
+      </div>
+      <div class="home-date-badge">${todayLabel}</div>
+    </section>
+
+    <section class="home-grid page-spacer">
+      <article class="card home-widget">
+        <div class="card-heading">
+          <h3>Pointeuse</h3>
+          <button type="button" class="home-link" data-goto-page="pointeuse">Voir tout</button>
+        </div>
+        <div class="home-clock">
+          <div class="clock-status ${isIn ? "in" : "out"} home-clock-status">
+            <strong>${isIn ? "En poste" : "Hors poste"}</strong>
+            <span>${isIn ? "Pointage actif" : "Aucun pointage en cours"}</span>
+          </div>
+          <p class="home-hours-today">Aujourd'hui : <b>${formatDuration(hours.today)}</b></p>
+          <button type="button" id="clock-toggle" class="clock-button ${isIn ? "out" : "in"}">
+            ${isIn ? "Pointer la sortie" : "Pointer l'arrivee"}
+          </button>
+        </div>
+      </article>
+
+      <article class="card home-widget">
+        <div class="card-heading">
+          <h3>Soldes de conges</h3>
+          <button type="button" class="home-link" data-goto-page="leave">Gerer</button>
+        </div>
+        <div class="home-balance-list">
+          ${balances.map((balance) => homeBalanceSummary(balance)).join("")}
+        </div>
+      </article>
+
+      <article class="card home-widget">
+        <div class="card-heading">
+          <h3>Documents RH</h3>
+        </div>
+        <div class="home-doc-list">
+          ${documents.length
+            ? documents.map((doc) => `
+              <a class="home-doc-item" href="${escapeHtml(doc.file_url || "#")}" target="_blank" rel="noopener noreferrer">
+                <span class="home-doc-icon" aria-hidden="true">📄</span>
+                <div>
+                  <strong>${escapeHtml(doc.title)}</strong>
+                  <span>${escapeHtml(doc.description || doc.category || "")} · ${formatDate(doc.published_at)}</span>
+                </div>
+              </a>`).join("")
+            : `<p class="empty-state">Aucun document partage pour le moment.</p>`}
+        </div>
+      </article>
+
+      <article class="card home-widget">
+        <div class="card-heading">
+          <h3>Bulletins de paie</h3>
+        </div>
+        <div class="home-payslip-list">
+          ${payslips.length
+            ? payslips.map((slip) => `
+              <div class="home-payslip-item">
+                <span class="home-payslip-icon" aria-hidden="true">💶</span>
+                <div>
+                  <strong>${escapeHtml(slip.period_label)}</strong>
+                  <span>Bulletin mensuel</span>
+                </div>
+                <a class="home-payslip-btn" href="${escapeHtml(slip.file_url || "#")}" target="_blank" rel="noopener noreferrer">PDF</a>
+              </div>`).join("")
+            : `<p class="empty-state">Aucun bulletin disponible. Contactez les RH.</p>`}
+        </div>
+      </article>
+    </section>`;
+}
+
 function pointeusePage() {
   const { punches, isIn } = getClockState();
   const hours = computeWorkedHours(punches);
   const today = new Date().toDateString();
   const todayPunches = punches.filter((p) => new Date(p.time).toDateString() === today);
   const dbNote = usesDatabase()
-    ? `<p class="data-note">Bonjour</p>`
+    ? `<p class="data-note">Donnees enregistrees dans Supabase.</p>`
     : `<p class="data-note demo">Mode demo : donnees locales uniquement. Connectez-vous avec Microsoft pour sauvegarder.</p>`;
 
   return `
@@ -765,7 +907,65 @@ function adminPage() {
           </tbody>
         </table>
       </div>
-    </article>`;
+    </article>
+    <div class="feature-grid page-spacer">
+      <article class="card form-card">
+        ${cardHeading("Publier un document RH")}
+        <form id="admin-hr-doc-form" class="feature-form">
+          <label>
+            Titre
+            <input type="text" name="title" required placeholder="Ex. Reglement interieur">
+          </label>
+          <label>
+            Description
+            <input type="text" name="description" placeholder="Courte description">
+          </label>
+          <label>
+            Lien du fichier (URL)
+            <input type="url" name="file_url" required placeholder="https://...">
+          </label>
+          <label>
+            Categorie
+            <input type="text" name="category" value="General">
+          </label>
+          <button type="submit" class="primary">Publier le document</button>
+        </form>
+      </article>
+      <article class="card form-card">
+        ${cardHeading("Ajouter un bulletin de paie")}
+        <form id="admin-payslip-form" class="feature-form">
+          <label>
+            Collaborateur
+            <select name="user_id" required>
+              <option value="">Selectionner...</option>
+              ${appData.orgProfiles.map((profile) => `
+                <option value="${profile.id}">${escapeHtml(profile.full_name)} (${escapeHtml(profile.email)})</option>`).join("")}
+            </select>
+          </label>
+          <div class="form-row">
+            <label>
+              Mois
+              <select name="period_month" required>
+                ${Array.from({ length: 12 }, (_, index) => {
+                  const month = index + 1;
+                  const label = new Date(2026, index, 1).toLocaleDateString("fr-FR", { month: "long" });
+                  return `<option value="${month}">${label}</option>`;
+                }).join("")}
+              </select>
+            </label>
+            <label>
+              Annee
+              <input type="number" name="period_year" min="2020" max="2099" value="${new Date().getFullYear()}" required>
+            </label>
+          </div>
+          <label>
+            Lien du PDF (URL)
+            <input type="url" name="file_url" required placeholder="https://...">
+          </label>
+          <button type="submit" class="primary">Ajouter le bulletin</button>
+        </form>
+      </article>
+    </div>`;
 }
 
 function pageContent() {
@@ -780,6 +980,7 @@ function pageContent() {
       </article>`;
   }
   return {
+    home: homePage,
     pointeuse: pointeusePage,
     leave: leavePage,
     attestations: attestationsPage,
@@ -911,6 +1112,15 @@ async function refreshAppData() {
         appData.pendingInvites = invitesRes.data || [];
       }
     }
+
+    const [docsRes, payslipsRes] = await Promise.all([
+      supabaseClient.from("hr_documents").select("*").order("published_at", { ascending: false }),
+      supabaseClient.from("payslips").select("*").eq("user_id", userId)
+        .order("period_year", { ascending: false })
+        .order("period_month", { ascending: false })
+    ]);
+    if (!docsRes.error) appData.hrDocuments = docsRes.data || [];
+    if (!payslipsRes.error) appData.payslips = payslipsRes.data || [];
   });
 }
 
@@ -1096,6 +1306,13 @@ async function withAction(handler) {
 }
 
 function bindPageEvents() {
+  document.querySelectorAll("[data-goto-page]").forEach((button) => {
+    button.addEventListener("click", () => {
+      currentPage = button.dataset.gotoPage;
+      renderApp();
+    });
+  });
+
   document.querySelector("#clock-toggle")?.addEventListener("click", () => {
     withAction(async () => {
       const { isIn } = getClockState();
@@ -1111,7 +1328,6 @@ function bindPageEvents() {
         punches.push({ type: isIn ? "out" : "in", time: new Date().toISOString() });
         saveStore("punches", punches);
       }
-      currentPage = "pointeuse";
     });
   });
 
@@ -1285,6 +1501,64 @@ function bindPageEvents() {
       currentPage = "admin";
     });
   });
+
+  document.querySelector("#admin-hr-doc-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    withAction(async () => {
+      const payload = {
+        title: String(data.get("title") || "").trim(),
+        description: String(data.get("description") || "").trim(),
+        file_url: String(data.get("file_url") || "").trim(),
+        category: String(data.get("category") || "General").trim(),
+        published_at: new Date().toISOString().slice(0, 10),
+        created_by: session.user.id
+      };
+      if (usesDatabase()) {
+        const { error } = await supabaseClient.from("hr_documents").insert(payload);
+        if (error) throw error;
+      } else {
+        const docs = loadStore("hrDocuments", demoHrDocuments);
+        docs.unshift({ id: `local-${Date.now()}`, ...payload });
+        saveStore("hrDocuments", docs);
+      }
+      form.reset();
+      currentPage = "admin";
+    });
+  });
+
+  document.querySelector("#admin-payslip-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const month = Number(data.get("period_month"));
+    const year = Number(data.get("period_year"));
+    const userId = String(data.get("user_id") || "");
+    const periodLabel = new Date(year, month - 1, 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+
+    withAction(async () => {
+      const payload = {
+        user_id: userId,
+        period_month: month,
+        period_year: year,
+        period_label: periodLabel,
+        file_url: String(data.get("file_url") || "").trim()
+      };
+      if (usesDatabase()) {
+        const { error } = await supabaseClient.from("payslips").upsert(payload, {
+          onConflict: "user_id,period_year,period_month"
+        });
+        if (error) throw error;
+      } else if (userId === session?.user?.id || demoMode) {
+        const slips = loadStore("payslips", buildDemoPayslips());
+        slips.unshift({ id: `local-${Date.now()}`, ...payload });
+        saveStore("payslips", slips.slice(0, 12));
+      }
+      form.reset();
+      currentPage = "admin";
+    });
+  });
 }
 
 function bindAppEvents() {
@@ -1310,7 +1584,7 @@ function bindAppEvents() {
     if (session && supabaseClient) await supabaseClient.auth.signOut();
     session = null;
     demoMode = false;
-    currentPage = "pointeuse";
+    currentPage = "home";
     appData = {
       loading: false,
       error: "",
@@ -1320,6 +1594,8 @@ function bindAppEvents() {
       attestationRequests: [],
       orgProfiles: [],
       pendingInvites: [],
+      hrDocuments: [],
+      payslips: [],
       adminEditingId: "",
       adminEditingInviteId: ""
     };
