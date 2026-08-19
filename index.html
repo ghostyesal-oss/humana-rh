@@ -6,10 +6,20 @@
   <meta name="theme-color" content="#7158e8">
   <meta name="description" content="Humana, votre espace de gestion des ressources humaines.">
   <title>Humana — Espace RH</title>
+  <script>
+    (function () {
+      var stored = localStorage.getItem("humana-theme");
+      var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      var theme = stored === "dark" || stored === "light" ? stored : (prefersDark ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.content = theme === "dark" ? "#0f0d14" : "#7158e8";
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
   <div id="app" aria-live="polite">
@@ -24,6 +34,12 @@
         </div>
       </section>
       <section class="login-panel">
+        <div class="login-theme-wrap">
+          <button type="button" class="theme-toggle" data-theme-toggle aria-label="Changer le theme">
+            <span class="theme-toggle-track"><span class="theme-toggle-thumb"></span></span>
+            <span class="theme-toggle-label" aria-hidden="true"></span>
+          </button>
+        </div>
         <div class="login-card">
           <div class="mobile-brand brand"><span>H</span> Humana</div>
           <div class="login-icon">&#9670;</div>
@@ -229,6 +245,6 @@
       }
     }, true);
   </script>
-  <script src="app.js?v=18" charset="UTF-8"></script>
+  <script src="app.js?v=19" charset="UTF-8"></script>
 </body>
 </html>
