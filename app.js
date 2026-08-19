@@ -345,7 +345,7 @@ function pointeusePage() {
   const today = new Date().toDateString();
   const todayPunches = punches.filter((p) => new Date(p.time).toDateString() === today);
   const dbNote = usesDatabase()
-    ? `<p class="data-note">Donnees enregistrees dans Supabase.</p>`
+    ? `<p class="data-note"> </p>`
     : `<p class="data-note demo">Mode demo : donnees locales uniquement. Connectez-vous avec Microsoft pour sauvegarder.</p>`;
 
   return `
