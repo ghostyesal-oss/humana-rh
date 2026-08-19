@@ -138,6 +138,11 @@
 
 html, body { min-width: 320px; min-height: 100%; margin: 0; }
 
+:root {
+  --logo-image: url("file:///C:/Users/LASRY/.cursor/projects/c-Users-LASRY-Projects-rh2-demo/assets/c__Users_LASRY_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-f9425388-5b7c-4cfc-b7fd-47337cf4b6ea.png");
+  --menu-texture-image: url("file:///C:/Users/LASRY/.cursor/projects/c-Users-LASRY-Projects-rh2-demo/assets/c__Users_LASRY_AppData_Roaming_Cursor_User_workspaceStorage_empty-window_images_image-a7345f22-0a52-413c-9ee8-94392e87c7e3.png");
+}
+
 button, input, select, textarea { font: inherit; color: inherit; }
 
 button {
@@ -220,13 +225,17 @@ small { font-size: 12px; color: var(--text-tertiary); }
 
 .brand > span {
   display: grid;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   place-items: center;
-  border-radius: var(--radius);
-  background: var(--lime);
-  color: var(--forest);
-  font-size: 14px;
+  border-radius: 8px;
+  background-color: transparent;
+  background-image: var(--logo-image);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  color: transparent;
+  font-size: 0;
   font-weight: 800;
 }
 
@@ -518,11 +527,11 @@ small { font-size: 12px; color: var(--text-tertiary); }
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.72), rgba(245, 247, 251, 0.78));
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.52), rgba(245, 247, 251, 0.58));
 }
 
 [data-theme="dark"] .main-bg::after {
-  background: linear-gradient(160deg, rgba(11, 18, 32, 0.72), rgba(11, 18, 32, 0.8));
+  background: linear-gradient(160deg, rgba(11, 18, 32, 0.56), rgba(11, 18, 32, 0.64));
 }
 
 .app-shell[data-current-page="home"] .main-bg::before { background-image: var(--bg-image-main); }
@@ -583,6 +592,22 @@ small { font-size: 12px; color: var(--text-tertiary); }
   width: var(--sidebar-width);
   background: var(--sidebar-bg);
   border-right: 1px solid var(--sidebar-border);
+}
+
+.sidebar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(180deg, rgba(2, 35, 65, 0.8), rgba(2, 35, 65, 0.9)), var(--menu-texture-image);
+  background-size: cover;
+  background-position: center;
+  opacity: 0.55;
+}
+
+.sidebar > * {
+  position: relative;
+  z-index: 1;
 }
 
 .sidebar > .brand {
