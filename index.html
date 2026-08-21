@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=32">
+  <link rel="stylesheet" href="style.css?v=34">
   <style>
     /* Surcharge mode sombre — priorite maximale sur l'ancien template Figma */
     html[data-theme="dark"] {
@@ -28,6 +28,8 @@
       --login-panel-bg: #121c2f;
       --login-brand-bg: #01162c;
       color-scheme: dark;
+      background: #0b1220;
+      color: #e6eefc;
     }
 
     html[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="hidden"]),
@@ -81,6 +83,38 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    html[data-theme="dark"] .sidebar > .brand > span,
+    html[data-theme="dark"] .sidebar > .brand .brand-mark {
+      display: flex !important;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(145deg, #3b7bff, #0046fe) !important;
+      color: #fff !important;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    html[data-theme="dark"] .home-payslip-btn {
+      background: rgba(59, 123, 255, 0.16) !important;
+      border: 1px solid rgba(59, 123, 255, 0.35) !important;
+      color: #cfe0ff !important;
+    }
+
+    html[data-theme="dark"] .primary,
+    html[data-theme="dark"] .clock-button.in {
+      background: #3b7bff !important;
+      color: #fff !important;
+    }
+
+    html[data-theme="dark"] .home-doc-item span,
+    html[data-theme="dark"] .home-payslip-item span {
+      color: #b8c8e4 !important;
+    }
+
+    html[data-theme="dark"] .home-link {
+      color: #9ebeff !important;
     }
   </style>
 </head>
