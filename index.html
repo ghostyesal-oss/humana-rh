@@ -19,34 +19,68 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=31">
+  <link rel="stylesheet" href="style.css?v=32">
   <style>
-    /* Surcharge des anciennes couleurs vertes du template Figma */
-    [data-theme="dark"] {
+    /* Surcharge mode sombre — priorite maximale sur l'ancien template Figma */
+    html[data-theme="dark"] {
       --input-bg: #1a2740;
       --topbar-bg: #121c2f;
       --login-panel-bg: #121c2f;
       --login-brand-bg: #01162c;
+      color-scheme: dark;
     }
 
-    [data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="hidden"]),
-    [data-theme="dark"] select,
-    [data-theme="dark"] textarea {
-      background-color: #1a2740;
-      border-color: #36507c;
-      color: #e6eefc;
-    }
-
-    [data-theme="dark"] select {
+    html[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="hidden"]),
+    html[data-theme="dark"] select,
+    html[data-theme="dark"] textarea {
       appearance: none;
-      background-color: #1a2740;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%238ea2c6' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 12px center;
+      -webkit-appearance: none;
+      background-color: #1a2740 !important;
+      border: 1px solid #36507c !important;
+      color: #e6eefc !important;
+      box-shadow: none !important;
     }
 
-    [data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator {
+    html[data-theme="dark"] select {
+      background-color: #1a2740 !important;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%238ea2c6' d='M1 1l5 5 5-5'/%3E%3C/svg%3E") !important;
+      background-repeat: no-repeat !important;
+      background-position: right 12px center !important;
+      padding-right: 36px;
+    }
+
+    html[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator {
       filter: invert(0.75);
+      cursor: pointer;
+    }
+
+    html[data-theme="dark"] input:-webkit-autofill,
+    html[data-theme="dark"] select:-webkit-autofill,
+    html[data-theme="dark"] textarea:-webkit-autofill {
+      -webkit-box-shadow: 0 0 0 1000px #1a2740 inset !important;
+      -webkit-text-fill-color: #e6eefc !important;
+      caret-color: #e6eefc !important;
+    }
+
+    html[data-theme="dark"] .sidebar .avatar.avatar-user {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      background: linear-gradient(145deg, #0046fe, #3b7bff) !important;
+      color: #fff !important;
+    }
+
+    html[data-theme="dark"] .sidebar .avatar-user-initials {
+      display: block;
+      line-height: 1;
+      text-align: center;
+      color: #fff !important;
+    }
+
+    html[data-theme="dark"] .sidebar .user-card-email {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
   </style>
 </head>
