@@ -101,16 +101,6 @@ function profileInitials(name) {
   return (name || "CO").split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase();
 }
 
-function avatarColorForName(name) {
-  const value = (name || "CO").split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  return avatarColors[value % avatarColors.length];
-}
-
-function userCardAvatar(name) {
-  const initials = profileInitials(name);
-  return `<span class="avatar avatar-user" aria-hidden="true"><span class="avatar-user-initials">${initials}</span></span>`;
-}
-
 function avatarForProfile(profile, index = 0) {
   return avatar(profileInitials(profile.full_name), avatarColors[index % avatarColors.length]);
 }
@@ -560,7 +550,8 @@ function pointeusePage() {
   const today = new Date().toDateString();
   const todayPunches = punches.filter((p) => new Date(p.time).toDateString() === today);
   const dbNote = usesDatabase()
-    ? `<p class="data-note">Donnees enregistrees dans Supabase.</p>`
+    ? `<p class="data-note">Bonjour
+  </p>`
     : `<p class="data-note demo">Mode demo : donnees locales uniquement. Connectez-vous avec Microsoft pour sauvegarder.</p>`;
 
   return `
@@ -1331,24 +1322,14 @@ function renderApp() {
   app.innerHTML = `
     <div class="app-shell" data-current-page="${currentPage}">
       <aside class="sidebar">
-        <div class="brand"><span class="brand-mark" aria-hidden="true">C</span> Humana</div>
+        <div class="brand"><span>H</span> Humana</div>
         <button class="close-menu" type="button" aria-label="Fermer"></button>
         <nav>${getNavigationItems().map((item) => `
           <button type="button" data-page="${item[0]}" class="${currentPage === item[0] ? "active" : ""}">
             ${item[1]}${navBadge(item[0])}
           </button>`).join("")}</nav>
         <div class="sidebar-bottom">
-          <div class="user-card">
-            ${userCardAvatar(name)}
-            <div class="user-card-info">
-              <div class="user-card-head">
-                <strong class="user-card-name">${escapeHtml(name)}</strong>
-                ${isAdmin() ? `<span class="admin-pill">Admin</span>` : ""}
-              </div>
-              <span class="user-card-email" title="${escapeHtml(email)}">${escapeHtml(email)}</span>
-            </div>
-            <button type="button" id="logout" class="logout-btn" aria-label="Se deconnecter">Sortir</button>
-          </div>
+          <div class="user-card"><span class="avatar avatar-user-photo" aria-hidden="true"></span><div><strong>${name}</strong><span>${email}</span>${isAdmin() ? `<span class="admin-pill">Admin</span>` : ""}</div><button type="button" id="logout" class="logout-btn" aria-label="Se deconnecter">Sortir</button></div>
         </div>
       </aside>
       <button class="backdrop" type="button" aria-label="Fermer le menu"></button>
