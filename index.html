@@ -19,7 +19,36 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=29">
+  <link rel="stylesheet" href="style.css?v=30">
+  <style>
+    /* Surcharge des anciennes couleurs vertes du template Figma */
+    [data-theme="dark"] {
+      --input-bg: #1a2740;
+      --topbar-bg: #121c2f;
+      --login-panel-bg: #121c2f;
+      --login-brand-bg: #01162c;
+    }
+
+    [data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="hidden"]),
+    [data-theme="dark"] select,
+    [data-theme="dark"] textarea {
+      background-color: #1a2740;
+      border-color: #36507c;
+      color: #e6eefc;
+    }
+
+    [data-theme="dark"] select {
+      appearance: none;
+      background-color: #1a2740;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%238ea2c6' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+    }
+
+    [data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator {
+      filter: invert(0.75);
+    }
+  </style>
 </head>
 <body>
   <div id="app" aria-live="polite">
