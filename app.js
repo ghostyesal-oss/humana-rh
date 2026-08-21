@@ -108,8 +108,7 @@ function avatarColorForName(name) {
 
 function userCardAvatar(name) {
   const initials = profileInitials(name);
-  const color = avatarColorForName(name);
-  return `<span class="avatar avatar-user ${color}" aria-hidden="true">${initials}</span>`;
+  return `<span class="avatar avatar-user" aria-hidden="true"><span class="avatar-user-initials">${initials}</span></span>`;
 }
 
 function avatarForProfile(profile, index = 0) {
@@ -1332,7 +1331,7 @@ function renderApp() {
   app.innerHTML = `
     <div class="app-shell" data-current-page="${currentPage}">
       <aside class="sidebar">
-        <div class="brand"><span>H</span> Humana</div>
+        <div class="brand"><span class="brand-mark" aria-hidden="true">C</span> Humana</div>
         <button class="close-menu" type="button" aria-label="Fermer"></button>
         <nav>${getNavigationItems().map((item) => `
           <button type="button" data-page="${item[0]}" class="${currentPage === item[0] ? "active" : ""}">
