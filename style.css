@@ -95,6 +95,9 @@
 
 [data-theme="dark"] {
   color-scheme: dark;
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--bg);
 
   --forest: #01162c;
   --forest-mid: #3b7bff;
@@ -629,15 +632,17 @@ small { font-size: 12px; color: var(--text-tertiary); }
   border-bottom: 1px solid var(--sidebar-border);
 }
 
-.sidebar > .brand > span {
+.sidebar > .brand > span,
+.sidebar > .brand .brand-mark {
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background-color: transparent;
-  background-image: var(--logo-image);
-  background-size: 125%;
-  background-position: center;
-  color: transparent;
+  background: linear-gradient(145deg, #3b7bff, #0046fe);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 2px 12px rgba(0, 70, 254, 0.35);
 }
 
 .close-menu { display: none; }
@@ -2040,3 +2045,133 @@ html[data-theme="dark"] textarea:-webkit-autofill {
   .stats-grid { grid-template-columns: 1fr; }
 }
 
+/* Dark mode — coherence visuelle globale */
+
+[data-theme="dark"] .card,
+[data-theme="dark"] .stat-card,
+[data-theme="dark"] .document-card,
+[data-theme="dark"] .hours-card,
+[data-theme="dark"] .balance-card,
+[data-theme="dark"] .home-widget {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
+[data-theme="dark"] .card:hover,
+[data-theme="dark"] .home-widget:hover,
+[data-theme="dark"] .stat-card:hover,
+[data-theme="dark"] .balance-card:hover {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .home-widget > .card-heading,
+[data-theme="dark"] .page-spacer.card > .card-heading,
+[data-theme="dark"] .hierarchy-grid .card > .card-heading {
+  background: var(--surface-2);
+  border-bottom-color: var(--border);
+}
+
+[data-theme="dark"] .primary,
+[data-theme="dark"] .clock-button.in {
+  background: var(--forest-mid);
+  color: #fff;
+}
+
+[data-theme="dark"] .primary:hover,
+[data-theme="dark"] .clock-button.in:hover {
+  background: #5a93ff;
+  color: #fff;
+}
+
+[data-theme="dark"] .clock-button.out:hover {
+  background: #2563eb;
+}
+
+[data-theme="dark"] .outline-button {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+[data-theme="dark"] .outline-button:hover {
+  background: rgba(59, 123, 255, 0.14);
+  border-color: var(--forest-mid);
+  color: #e6eefc;
+}
+
+[data-theme="dark"] .home-link,
+[data-theme="dark"] .card-heading button {
+  color: #9ebeff;
+}
+
+[data-theme="dark"] .home-status-line.is-in {
+  color: #78d9a2;
+}
+
+[data-theme="dark"] .home-doc-item span,
+[data-theme="dark"] .home-payslip-item span,
+[data-theme="dark"] .home-balance-head,
+[data-theme="dark"] .home-hours-today,
+[data-theme="dark"] .clock-hint {
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .home-doc-item:hover {
+  background: rgba(59, 123, 255, 0.12);
+}
+
+[data-theme="dark"] .payslip-month {
+  background: rgba(59, 123, 255, 0.18);
+  color: #cfe0ff;
+}
+
+[data-theme="dark"] .home-payslip-btn {
+  background: rgba(59, 123, 255, 0.16);
+  border: 1px solid rgba(59, 123, 255, 0.35);
+  color: #cfe0ff;
+}
+
+[data-theme="dark"] .home-payslip-btn:hover {
+  background: rgba(59, 123, 255, 0.28);
+  color: #fff;
+}
+
+[data-theme="dark"] .demo-pill {
+  background: rgba(59, 123, 255, 0.18);
+  color: #cfe0ff;
+}
+
+[data-theme="dark"] .badge.success {
+  background: rgba(56, 189, 120, 0.16);
+  color: #78d9a2;
+}
+
+[data-theme="dark"] .badge.neutral {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] table a {
+  color: #9ebeff;
+  font-weight: 600;
+}
+
+[data-theme="dark"] .microsoft-button {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+[data-theme="dark"] .microsoft-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+[data-theme="dark"] .main-bg::after {
+  background: linear-gradient(160deg, rgba(11, 18, 32, 0.72), rgba(11, 18, 32, 0.82));
+}
+
+[data-theme="dark"] .home-widget:nth-child(3),
+[data-theme="dark"] .home-widget:nth-child(4) {
+  background-image: linear-gradient(rgba(18, 28, 47, 0.96), rgba(18, 28, 47, 0.96)), var(--bg-image-card);
+}
