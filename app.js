@@ -1387,16 +1387,18 @@ async function signInWithMicrosoft() {
 }
 
 function playViewAnimations() {
+  const shell = document.querySelector(".app-shell");
   const content = document.querySelector("#page-content");
   const topbar = document.querySelector(".topbar-page");
   const heading = document.querySelector(".page-heading");
 
-  [content, topbar, heading].forEach((el) => {
+  [shell, content, topbar, heading].forEach((el) => {
     if (!el) return;
     el.classList.remove("is-animating");
   });
 
   requestAnimationFrame(() => {
+    shell?.classList.add("is-animating");
     [content, topbar, heading].forEach((el) => el?.classList.add("is-animating"));
   });
 }
