@@ -1900,6 +1900,201 @@ tbody tr:hover td { background: var(--surface-2); }
   transform: translateX(4px);
 }
 
+/* Welcome popup (Microsoft login) */
+
+.welcome-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: var(--s5);
+  background: var(--backdrop);
+  opacity: 0;
+  transition: opacity 0.45s ease;
+  backdrop-filter: blur(6px);
+}
+
+.welcome-overlay.is-visible {
+  opacity: 1;
+}
+
+.welcome-overlay.is-closing {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.welcome-scene {
+  position: relative;
+  width: min(100%, 420px);
+  perspective: 1200px;
+  transform-style: preserve-3d;
+}
+
+.welcome-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(48px);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.welcome-orb-1 {
+  width: 180px;
+  height: 180px;
+  top: -40px;
+  right: -20px;
+  background: var(--forest-mid);
+  animation: welcomeOrbFloat1 8s ease-in-out infinite;
+}
+
+.welcome-orb-2 {
+  width: 140px;
+  height: 140px;
+  bottom: -30px;
+  left: -10px;
+  background: var(--lime);
+  animation: welcomeOrbFloat2 10s ease-in-out infinite;
+}
+
+.welcome-card {
+  position: relative;
+  transform-style: preserve-3d;
+  animation: welcomeCardIn 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.welcome-overlay.is-visible .welcome-card {
+  animation: welcomeCardIn 0.85s cubic-bezier(0.22, 1, 0.36, 1) both,
+    welcomeCardFloat 5s ease-in-out 0.85s infinite;
+}
+
+.welcome-card-face {
+  position: relative;
+  padding: clamp(var(--s5), 4vw, 36px);
+  border-radius: 20px;
+  text-align: center;
+  background: linear-gradient(155deg, var(--surface) 0%, var(--lime-muted) 100%);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 28px 60px rgba(2, 35, 65, 0.28),
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+  overflow: hidden;
+  transform: translateZ(0);
+}
+
+.welcome-card-face::before {
+  content: "";
+  position: absolute;
+  inset: -40% -60%;
+  background: linear-gradient(
+    115deg,
+    transparent 38%,
+    rgba(255, 255, 255, 0.42) 50%,
+    transparent 62%
+  );
+  transform: translateX(-120%) rotate(12deg);
+  animation: welcomeShine 2.8s ease-in-out 0.4s 1;
+  pointer-events: none;
+}
+
+.welcome-logo {
+  display: grid;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto var(--s4);
+  place-items: center;
+  border-radius: 16px;
+  background-image: var(--logo-image);
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 12px 28px rgba(0, 70, 254, 0.28);
+  animation: welcomeLogoPop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s both;
+}
+
+.welcome-eyebrow {
+  margin: 0 0 var(--s2);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--forest-mid);
+}
+
+.welcome-card h2 {
+  margin: 0;
+  font-size: clamp(22px, 4vw, 28px);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+
+.welcome-card h2 b {
+  font-weight: 800;
+  color: var(--forest-mid);
+}
+
+.welcome-text {
+  margin: var(--s3) 0 var(--s5);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.welcome-cta {
+  min-width: 160px;
+  animation: welcomeCtaIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.45s both;
+}
+
+[data-theme="dark"] .welcome-card-face {
+  background: linear-gradient(155deg, var(--surface) 0%, #1a2740 100%);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 28px 60px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+}
+
+@keyframes welcomeCardIn {
+  from {
+    opacity: 0;
+    transform: rotateX(28deg) rotateY(-12deg) translateY(40px) scale(0.88);
+  }
+  to {
+    opacity: 1;
+    transform: rotateX(0deg) rotateY(0deg) translateY(0) scale(1);
+  }
+}
+
+@keyframes welcomeCardFloat {
+  0%, 100% { transform: rotateX(0deg) rotateY(0deg) translateY(0); }
+  50% { transform: rotateX(2deg) rotateY(-2deg) translateY(-6px); }
+}
+
+@keyframes welcomeLogoPop {
+  from { opacity: 0; transform: scale(0.4) translateZ(-40px); }
+  to { opacity: 1; transform: scale(1) translateZ(0); }
+}
+
+@keyframes welcomeCtaIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes welcomeShine {
+  from { transform: translateX(-120%) rotate(12deg); }
+  to { transform: translateX(120%) rotate(12deg); }
+}
+
+@keyframes welcomeOrbFloat1 {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(-12px, 10px); }
+}
+
+@keyframes welcomeOrbFloat2 {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(10px, -8px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
