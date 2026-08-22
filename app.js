@@ -436,6 +436,21 @@ async function uploadHrDocumentFile(file) {
   return { publicUrl: data.publicUrl, storagePath };
 }
 
+async function uploadPayslipFile(file, userId) {
+  const safeName = sanitizeFileName(file.name);
+  const storagePath = `payslips/${userId}/${Date.now()}-${safeName}`;
+  const { error } = await supabaseClient.storage
+    .from(HR_DOCUMENTS_BUCKET)
+    .upload(storagePath, file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: file.type || "application/pdf"
+    });
+  if (error) throw error;
+  const { data } = supabaseClient.storage.from(HR_DOCUMENTS_BUCKET).getPublicUrl(storagePath);
+  return { publicUrl: data.publicUrl, storagePath };
+}
+
 function getPayslips() {
   if (usesDatabase()) return appData.payslips || [];
   return loadStore("payslips", buildDemoPayslips());
@@ -956,7 +971,7 @@ function adminPage() {
       </article>
       <article class="card form-card">
         ${cardHeading("Ajouter un bulletin de paie")}
-        <form id="admin-payslip-form" class="feature-form">
+        <form id="admin-payslip-form" class="feature-form" enctype="multipart/form-data">
           <label>
             Collaborateur
             <select name="user_id" required>
@@ -981,12 +996,14 @@ function adminPage() {
               <input type="number" name="period_year" min="2020" max="2099" value="${new Date().getFullYear()}" required>
             </label>
           </div>
-          <label>
-            Lien du PDF (URL)
-            <input type="url" name="file_url" required placeholder="https://...">
+          <label class="file-upload">
+            Fichier bulletin (PDF)
+            <input type="file" name="file" accept=".pdf,application/pdf" ${usesDatabase() ? "required" : ""}>
+            <span class="file-upload-hint">PDF uniquement — maximum 10 Mo</span>
           </label>
-          <button type="submit" class="primary">Ajouter le bulletin</button>
+          <button type="submit" class="primary">Televerser le bulletin</button>
         </form>
+        ${usesDatabase() ? "" : `<p class="hierarchy-meta">Le televersement de fichiers est disponible apres connexion Microsoft.</p>`}
       </article>
     </div>
     <article class="card table-card page-spacer">
@@ -1646,6 +1663,8 @@ function bindPageEvents() {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
+    const file = data.get("file");
+    const fileEntry = file instanceof File && file.size > 0 ? file : null;
     const month = Number(data.get("period_month"));
     const year = Number(data.get("period_year"));
     const userId = String(data.get("user_id") || "");
@@ -1657,18 +1676,44 @@ function bindPageEvents() {
         period_month: month,
         period_year: year,
         period_label: periodLabel,
-        file_url: String(data.get("file_url") || "").trim()
+        file_url: "",
+        storage_path: null
       };
+
       if (usesDatabase()) {
+        if (!fileEntry) throw new Error("Selectionnez un fichier PDF a televerser.");
+        if (fileEntry.size > HR_DOCUMENT_MAX_BYTES) {
+          throw new Error("Fichier trop volumineux. Taille maximum : 10 Mo.");
+        }
+        const { data: existing } = await supabaseClient
+          .from("payslips")
+          .select("storage_path")
+          .eq("user_id", userId)
+          .eq("period_year", year)
+          .eq("period_month", month)
+          .maybeSingle();
+        const uploaded = await uploadPayslipFile(fileEntry, userId);
+        payload.file_url = uploaded.publicUrl;
+        payload.storage_path = uploaded.storagePath;
         const { error } = await supabaseClient.from("payslips").upsert(payload, {
           onConflict: "user_id,period_year,period_month"
         });
         if (error) throw error;
+        if (existing?.storage_path && existing.storage_path !== uploaded.storagePath) {
+          await supabaseClient.storage.from(HR_DOCUMENTS_BUCKET).remove([existing.storage_path]);
+        }
       } else if (userId === session?.user?.id || demoMode) {
+        if (!fileEntry) throw new Error("Selectionnez un fichier ou connectez-vous avec Microsoft.");
         const slips = loadStore("payslips", buildDemoPayslips());
-        slips.unshift({ id: `local-${Date.now()}`, ...payload });
+        slips.unshift({
+          id: `local-${Date.now()}`,
+          ...payload,
+          file_url: "#",
+          file_name: fileEntry.name
+        });
         saveStore("payslips", slips.slice(0, 12));
       }
+
       form.reset();
       currentPage = "admin";
     });
