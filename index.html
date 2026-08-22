@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=32">
+  <link rel="stylesheet" href="style.css?v=33">
 </head>
 <body>
   <div id="app" aria-live="polite">
@@ -137,6 +137,7 @@
           if (exchanged.error) throw exchanged.error;
           if (exchanged.data.session) {
             window.__pendingAuthSession = exchanged.data.session;
+            try { sessionStorage.setItem("humana_ms_welcome", "1"); } catch (e) {}
           }
         } catch (err) {
           showLoginError(err.message || "Impossible de finaliser la connexion Microsoft.");
@@ -184,6 +185,7 @@
         try {
           window.__oauthStarting = true;
           if (loginButton) loginButton.disabled = true;
+          try { sessionStorage.setItem("humana_ms_welcome", "1"); } catch (e) {}
           var result = await client.auth.signInWithOAuth({
             provider: "azure",
             options: {
@@ -249,6 +251,6 @@
       }
     }, true);
   </script>
-  <script src="app.js?v=35" charset="UTF-8"></script>
+  <script src="app.js?v=36" charset="UTF-8"></script>
 </body>
 </html>
