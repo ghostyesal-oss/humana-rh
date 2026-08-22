@@ -40,6 +40,74 @@ const pages = {
 };
 
 const THEME_KEY = "humana-theme";
+const MS_WELCOME_FLAG = "humana_ms_welcome";
+
+function markMicrosoftWelcomePending() {
+  try {
+    sessionStorage.setItem(MS_WELCOME_FLAG, "1");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function maybeShowMicrosoftWelcome() {
+  if (demoMode || portalMode || !session?.user || appData.error) return;
+  try {
+    if (sessionStorage.getItem(MS_WELCOME_FLAG) !== "1") return;
+    sessionStorage.removeItem(MS_WELCOME_FLAG);
+  } catch (_) {
+    return;
+  }
+  showMicrosoftWelcomePopup();
+}
+
+function showMicrosoftWelcomePopup() {
+  if (document.querySelector(".welcome-overlay")) return;
+
+  const firstName = escapeHtml(getUserName().split(" ")[0] || "vous");
+  const overlay = document.createElement("div");
+  overlay.className = "welcome-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-labelledby", "welcome-title");
+  overlay.innerHTML = `
+    <div class="welcome-scene" aria-hidden="false">
+      <div class="welcome-orb welcome-orb-1"></div>
+      <div class="welcome-orb welcome-orb-2"></div>
+      <article class="welcome-card">
+        <div class="welcome-card-face">
+          <span class="welcome-logo" aria-hidden="true"></span>
+          <p class="welcome-eyebrow">Connexion reussie</p>
+          <h2 id="welcome-title">${dayGreeting()}, <b>${firstName}</b></h2>
+          <p class="welcome-text">Bienvenue sur Humana. Votre espace RH est pret.</p>
+          <button type="button" class="welcome-cta primary">Commencer</button>
+        </div>
+      </article>
+    </div>`;
+
+  const close = () => {
+    if (overlay.classList.contains("is-closing")) return;
+    overlay.classList.remove("is-visible");
+    overlay.classList.add("is-closing");
+    window.setTimeout(() => overlay.remove(), 520);
+  };
+
+  overlay.querySelector(".welcome-cta")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+
+  const onKeyDown = (event) => {
+    if (event.key === "Escape") {
+      close();
+      document.removeEventListener("keydown", onKeyDown);
+    }
+  };
+  document.addEventListener("keydown", onKeyDown);
+
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add("is-visible"));
+}
 
 function getTheme() {
   return document.documentElement.getAttribute("data-theme") || "light";
@@ -1216,6 +1284,7 @@ async function bootstrapUser(options = {}) {
     } finally {
       appData.loading = false;
       renderApp();
+      maybeShowMicrosoftWelcome();
     }
   })();
 
@@ -1306,6 +1375,7 @@ async function signInWithMicrosoft() {
   }
   const button = document.querySelector("#microsoft-login");
   button.disabled = true;
+  markMicrosoftWelcomePending();
   const { error } = await supabaseClient.auth.signInWithOAuth({
     provider: "azure",
     options: {
