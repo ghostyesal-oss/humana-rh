@@ -9,6 +9,9 @@ let demoMode = false;
 let portalMode = false;
 let currentPage = "home";
 let bootstrapInFlight = null;
+let hierarchySearch = "";
+const collapsedOrgNodes = new Set();
+
 let appData = {
   loading: false,
   error: "",
@@ -447,6 +450,69 @@ function getClockState() {
   return { punches, isIn: last?.type === "in" };
 }
 
+function getTodayPunches(punches = getPunches()) {
+  const today = new Date().toDateString();
+  return punches.filter((punch) => new Date(punch.time).toDateString() === today);
+}
+
+function getClockStatusCopy() {
+  const { isIn } = getClockState();
+  const hasToday = getTodayPunches().length > 0;
+
+  if (isIn) {
+    return {
+      title: "Vous etes en poste",
+      hint: "Bonne journee, vous etes bien enregistre.",
+      tone: "in",
+      homeLine: "Vous etes en poste"
+    };
+  }
+
+  if (hasToday) {
+    return {
+      title: "Hors poste",
+      hint: "Votre pointage du jour est enregistre.",
+      tone: "done",
+      homeLine: "Pointage enregistre aujourd'hui"
+    };
+  }
+
+  return {
+    title: "Pas encore pointe",
+    hint: "Un clic pour signaler votre arrivee.",
+    tone: "out",
+    homeLine: "Vous n'avez pas encore pointe aujourd'hui"
+  };
+}
+
+function profileMatchesSearch(profile, query) {
+  if (!query) return true;
+  const normalize = (value) => String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const haystack = normalize(`${profile.full_name} ${profile.email} ${profile.job_title} ${profile.department} ${profile.role}`);
+  return haystack.includes(normalize(query));
+}
+
+function filterOrgTree(nodes, query) {
+  if (!query) return nodes;
+
+  const visit = (node) => {
+    const children = node.children.map(visit).filter(Boolean);
+    if (profileMatchesSearch(node, query) || children.length) {
+      return { ...node, children };
+    }
+    return null;
+  };
+
+  return nodes.map(visit).filter(Boolean);
+}
+
+function countOrgNodes(nodes) {
+  return nodes.reduce((total, node) => total + 1 + countOrgNodes(node.children), 0);
+}
+
 function buildDemoPayslips() {
   const items = [];
   const now = new Date();
@@ -547,6 +613,7 @@ function dayGreeting() {
 function homePage() {
   const firstName = escapeHtml(getUserName().split(" ")[0] || "vous");
   const { isIn } = getClockState();
+  const clockStatus = getClockStatusCopy();
   const hours = computeWorkedHours(getPunches());
   const balances = getLeaveBalances();
   const documents = getHrDocuments().slice(0, 4);
@@ -570,7 +637,7 @@ function homePage() {
           <button type="button" class="home-link" data-goto-page="pointeuse">Historique</button>
         </div>
         <div class="home-clock">
-          <p class="home-status-line ${isIn ? "is-in" : ""}">${isIn ? "Vous etes en poste" : "Vous n'avez pas encore pointe aujourd'hui"}</p>
+          <p class="home-status-line ${clockStatus.tone}">${clockStatus.homeLine}</p>
           <p class="home-hours-today">Temps aujourd'hui : <b>${formatDuration(hours.today)}</b></p>
           <button type="button" id="clock-toggle" class="clock-button ${isIn ? "out" : "in"}">
             ${isIn ? "Je pars" : "J'arrive"}
@@ -629,12 +696,11 @@ function homePage() {
 
 function pointeusePage() {
   const { punches, isIn } = getClockState();
+  const clockStatus = getClockStatusCopy();
   const hours = computeWorkedHours(punches);
-  const today = new Date().toDateString();
-  const todayPunches = punches.filter((p) => new Date(p.time).toDateString() === today);
+  const todayPunches = getTodayPunches(punches);
   const dbNote = usesDatabase()
-    ? `<p class="data-note">Bonjour
-  </p>`
+    ? ""
     : `<p class="data-note demo">Mode demo : donnees locales uniquement. Connectez-vous avec Microsoft pour sauvegarder.</p>`;
 
   return `
@@ -646,9 +712,9 @@ function pointeusePage() {
     </section>
     <section class="clock-grid page-spacer">
       <article class="card clock-card">
-        <div class="clock-status ${isIn ? "in" : "out"}">
-          <strong>${isIn ? "En poste" : "Pas encore pointe"}</strong>
-          <span>${isIn ? "Bonne journee, vous etes bien enregistre." : "Un clic pour signaler votre arrivee."}</span>
+        <div class="clock-status ${clockStatus.tone}">
+          <strong>${clockStatus.title}</strong>
+          <span>${clockStatus.hint}</span>
         </div>
         <button type="button" id="clock-toggle" class="clock-button ${isIn ? "out" : "in"}">
           ${isIn ? "Je pars" : "J'arrive"}
@@ -830,20 +896,32 @@ function getManagerChain(profiles, userId) {
   return chain;
 }
 
-function renderOrgNode(node) {
+function renderOrgNode(node, options = {}) {
+  const { forceExpand = false } = options;
   const isMe = node.id === session?.user?.id;
+  const hasChildren = node.children.length > 0;
+  const isCollapsed = !forceExpand && collapsedOrgNodes.has(node.id);
+
   return `
-    <div class="org-branch">
-      <div class="org-card ${isMe ? "is-me" : ""}">
-        ${avatarForProfile(node, node.index)}
-        <div>
-          <strong>${node.full_name || "Sans nom"}</strong>
-          <span>${node.job_title || "Collaborateur"}</span>
-          <small>${node.department || ""}${node.role === "admin" ? " · Admin" : node.role === "manager" ? " · Manager" : ""}</small>
+    <div class="org-branch ${isCollapsed ? "is-collapsed" : ""}" data-org-id="${node.id}">
+      <div class="org-node-row">
+        ${hasChildren
+          ? `<button type="button" class="org-toggle" data-org-toggle="${node.id}" aria-expanded="${!isCollapsed}" aria-label="Afficher ou masquer l'equipe de ${escapeHtml(node.full_name || "ce manager")}">
+              <span class="org-toggle-icon" aria-hidden="true"></span>
+            </button>`
+          : `<span class="org-toggle-spacer" aria-hidden="true"></span>`}
+        <div class="org-card ${isMe ? "is-me" : ""} ${hasChildren ? "has-team" : ""}">
+          ${avatarForProfile(node, node.index)}
+          <div>
+            <strong>${escapeHtml(node.full_name || "Sans nom")}</strong>
+            <span>${escapeHtml(node.job_title || "Collaborateur")}</span>
+            <small>${escapeHtml(node.department || "")}${node.role === "admin" ? " · Admin" : node.role === "manager" ? " · Manager" : ""}</small>
+          </div>
+          ${hasChildren ? `<span class="org-team-count">${node.children.length}</span>` : ""}
         </div>
       </div>
-      ${node.children.length
-        ? `<div class="org-children">${node.children.map((child) => renderOrgNode(child)).join("")}</div>`
+      ${hasChildren
+        ? `<div class="org-children">${node.children.map((child) => renderOrgNode(child, options)).join("")}</div>`
         : ""}
     </div>`;
 }
@@ -858,6 +936,10 @@ function hierarchyPage() {
   const tree = buildOrgTree(profiles);
   const manager = chain.length > 1 ? chain[chain.length - 2] : null;
   const directReports = profiles.filter((profile) => profile.manager_id === session.user.id);
+  const searchQuery = hierarchySearch.trim();
+  const searching = Boolean(searchQuery);
+  const displayTree = searching ? filterOrgTree(tree, searchQuery) : tree;
+  const visibleCount = countOrgNodes(displayTree);
 
   return `
     <section class="hierarchy-grid">
@@ -868,13 +950,13 @@ function hierarchyPage() {
             <div class="chain-item ${profile.id === session.user.id ? "is-me" : ""}">
               ${avatarForProfile(profile, index)}
               <div>
-                <strong>${profile.full_name}</strong>
-                <span>${profile.job_title || "Collaborateur"}</span>
+                <strong>${escapeHtml(profile.full_name)}</strong>
+                <span>${escapeHtml(profile.job_title || "Collaborateur")}</span>
               </div>
             </div>`).join("")}
         </div>
         ${manager
-          ? `<p class="hierarchy-meta">Votre manager : <strong>${manager.full_name}</strong></p>`
+          ? `<p class="hierarchy-meta">Votre manager : <strong>${escapeHtml(manager.full_name)}</strong></p>`
           : `<p class="hierarchy-meta">Vous n'avez pas de manager assigne.</p>`}
       </article>
       <article class="card">
@@ -885,20 +967,33 @@ function hierarchyPage() {
               <div class="team-item">
                 ${avatarForProfile(profile, index)}
                 <div>
-                  <strong>${profile.full_name}</strong>
-                  <span>${profile.job_title || "Collaborateur"}</span>
+                  <strong>${escapeHtml(profile.full_name)}</strong>
+                  <span>${escapeHtml(profile.job_title || "Collaborateur")}</span>
                 </div>
               </div>`).join("")
             : `<p class="empty-inline">Aucun collaborateur rattache pour le moment.</p>`}
         </div>
       </article>
     </section>
-    <article class="card page-spacer">
-      ${cardHeading("Organigramme")}
-      <div class="org-tree">
-        ${tree.length
-          ? tree.map((node) => renderOrgNode(node)).join("")
-          : `<p class="empty-state">Aucun profil dans l'organigramme.</p>`}
+    <article class="card page-spacer hierarchy-org-card">
+      <div class="card-heading hierarchy-org-heading">
+        <h3>Organigramme</h3>
+        <span class="hierarchy-result-count" id="hierarchy-result-count">${searching ? `${visibleCount} resultat${visibleCount > 1 ? "s" : ""}` : `${profiles.length} collaborateurs`}</span>
+      </div>
+      <label class="hierarchy-search" for="hierarchy-search">
+        <span class="hierarchy-search-icon" aria-hidden="true"></span>
+        <input
+          type="search"
+          id="hierarchy-search"
+          placeholder="Rechercher par nom, poste, service..."
+          value="${escapeHtml(searchQuery)}"
+          autocomplete="off"
+        >
+      </label>
+      <div class="org-tree" id="org-tree">
+        ${displayTree.length
+          ? displayTree.map((node) => renderOrgNode(node, { forceExpand: searching })).join("")
+          : `<p class="empty-state">Aucun collaborateur ne correspond a votre recherche.</p>`}
       </div>
       <p class="hierarchy-meta">${isAdmin() ? "Les administrateurs peuvent modifier la hierarchie dans Administration." : "Contactez un administrateur pour modifier la hierarchie."}</p>
     </article>`;
@@ -1465,6 +1560,28 @@ async function withAction(handler) {
   }
 }
 
+function bindHierarchyOrgEvents() {
+  document.querySelectorAll("[data-org-toggle]").forEach((button) => {
+    if (button.dataset.humanaBound) return;
+    button.dataset.humanaBound = "1";
+    button.addEventListener("click", () => {
+      const nodeId = button.dataset.orgToggle;
+      const branch = button.closest(".org-branch");
+      const expanded = button.getAttribute("aria-expanded") === "true";
+
+      if (expanded) {
+        collapsedOrgNodes.add(nodeId);
+        branch?.classList.add("is-collapsed");
+        button.setAttribute("aria-expanded", "false");
+      } else {
+        collapsedOrgNodes.delete(nodeId);
+        branch?.classList.remove("is-collapsed");
+        button.setAttribute("aria-expanded", "true");
+      }
+    });
+  });
+}
+
 function bindPageEvents() {
   document.querySelectorAll("[data-goto-page]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1490,6 +1607,34 @@ function bindPageEvents() {
       }
     });
   });
+
+  const hierarchySearchInput = document.querySelector("#hierarchy-search");
+  if (hierarchySearchInput && !hierarchySearchInput.dataset.humanaBound) {
+    hierarchySearchInput.dataset.humanaBound = "1";
+    hierarchySearchInput.addEventListener("input", (event) => {
+      hierarchySearch = event.currentTarget.value;
+      if (currentPage !== "hierarchy") return;
+      const tree = document.querySelector("#org-tree");
+      const count = document.querySelector("#hierarchy-result-count");
+      if (!tree || !count) return;
+
+      const profiles = appData.orgProfiles;
+      const fullTree = buildOrgTree(profiles);
+      const query = hierarchySearch.trim();
+      const displayTree = query ? filterOrgTree(fullTree, query) : fullTree;
+      const visibleCount = countOrgNodes(displayTree);
+
+      count.textContent = query
+        ? `${visibleCount} resultat${visibleCount > 1 ? "s" : ""}`
+        : `${profiles.length} collaborateurs`;
+      tree.innerHTML = displayTree.length
+        ? displayTree.map((node) => renderOrgNode(node, { forceExpand: Boolean(query) })).join("")
+        : `<p class="empty-state">Aucun collaborateur ne correspond a votre recherche.</p>`;
+      bindHierarchyOrgEvents();
+    });
+  }
+
+  bindHierarchyOrgEvents();
 
   document.querySelector("#leave-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
