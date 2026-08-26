@@ -12,6 +12,7 @@ let bootstrapInFlight = null;
 let hierarchySearch = "";
 const collapsedOrgNodes = new Set();
 let teamPunchFilters = { start: "", end: "", userId: "", scope: "all" };
+let teamPunchesInitialLoadDone = false;
 
 let appData = {
   loading: false,
@@ -397,13 +398,12 @@ async function loadTeamPunches(filters = teamPunchFilters) {
   if (filters.start) query = query.gte("punched_at", `${filters.start}T00:00:00`);
   if (filters.end) query = query.lte("punched_at", `${filters.end}T23:59:59`);
 
-  const { data, error } = await withSupabaseRetry(async () => {
-    const result = await query;
-    if (result.error) throw result.error;
-    return result;
+  const result = await withSupabaseRetry(async () => {
+    const response = await query;
+    if (response.error) throw response.error;
+    return response.data;
   });
-  if (error) throw error;
-  appData.teamPunches = data || [];
+  appData.teamPunches = result || [];
   return appData.teamPunches;
 }
 
@@ -1951,10 +1951,13 @@ function bindPageEvents() {
   bindHierarchyOrgEvents();
 
   const teamPunchesFilter = document.querySelector("#team-punches-filter");
-  if (teamPunchesFilter && !teamPunchesFilter.dataset.humanaBound) {
-    teamPunchesFilter.dataset.humanaBound = "1";
+  if (teamPunchesFilter) {
     if (!teamPunchFilters.start || !teamPunchFilters.end) {
-      teamPunchFilters = { ...getDefaultTeamPunchRange(), userId: teamPunchFilters.userId || "", scope: teamPunchFilters.scope || "all" };
+      teamPunchFilters = {
+        ...getDefaultTeamPunchRange(),
+        userId: teamPunchFilters.userId || "",
+        scope: teamPunchFilters.scope || "all"
+      };
     }
     teamPunchesFilter.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -1971,10 +1974,23 @@ function bindPageEvents() {
       }
       withAction(() => loadTeamPunches());
     });
-    if (currentPage === "team-punches" && canViewTeamPunches() && !teamPunchesFilter.dataset.initialLoad) {
-      teamPunchesFilter.dataset.initialLoad = "1";
-      withAction(() => loadTeamPunches());
-    }
+  }
+
+  if (currentPage === "team-punches" && canViewTeamPunches() && !teamPunchesInitialLoadDone) {
+    teamPunchesInitialLoadDone = true;
+    loadTeamPunches()
+      .then(() => {
+        if (currentPage !== "team-punches") return;
+        const content = document.querySelector("#page-content");
+        if (content) {
+          content.innerHTML = pageContent();
+          bindPageEvents();
+        }
+      })
+      .catch((error) => {
+        appData.error = formatAppError(error);
+        renderApp();
+      });
   }
 
   document.querySelector("#team-punches-export")?.addEventListener("click", () => {
@@ -2287,7 +2303,11 @@ function bindAppEvents() {
 
   document.querySelectorAll(".sidebar nav [data-page]").forEach((button) => {
     button.addEventListener("click", () => {
-      currentPage = button.dataset.page;
+      const nextPage = button.dataset.page;
+      if (nextPage === "team-punches") {
+        teamPunchesInitialLoadDone = false;
+      }
+      currentPage = nextPage;
       document.querySelector(".sidebar")?.classList.remove("open");
       renderApp();
     });
@@ -2308,6 +2328,7 @@ function bindAppEvents() {
     session = null;
     demoMode = false;
     currentPage = "home";
+    teamPunchesInitialLoadDone = false;
     appData = {
       loading: false,
       error: "",
