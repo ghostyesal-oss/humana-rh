@@ -461,28 +461,39 @@ function getClockStatusCopy() {
 
   if (isIn) {
     return {
-      title: "Vous etes en poste",
-      hint: "Bonne journee, vous etes bien enregistre.",
+      title: "Vous êtes en poste",
+      hint: "Bonne journée, vous êtes bien enregistré.",
       tone: "in",
-      homeLine: "Vous etes en poste"
+      homeLine: "Vous êtes en poste"
     };
   }
 
   if (hasToday) {
     return {
       title: "Hors poste",
-      hint: "Votre pointage du jour est enregistre.",
+      hint: "Votre pointage du jour est enregistré.",
       tone: "done",
-      homeLine: "Pointage enregistre aujourd'hui"
+      homeLine: "Pointage enregistré aujourd'hui"
     };
   }
 
   return {
-    title: "Pas encore pointe",
-    hint: "Un clic pour signaler votre arrivee.",
+    title: "Pas encore pointé",
+    hint: "Un clic pour signaler votre arrivée.",
     tone: "out",
-    homeLine: "Vous n'avez pas encore pointe aujourd'hui"
+    homeLine: "Vous n'avez pas encore pointé aujourd'hui"
   };
+}
+
+function renderClockStatus(clockStatus, extraClass = "") {
+  return `
+    <div class="clock-status ${extraClass} ${clockStatus.tone}" role="status" aria-live="polite">
+      <span class="clock-status-dot" aria-hidden="true"></span>
+      <div class="clock-status-body">
+        <strong>${clockStatus.title}</strong>
+        <span>${clockStatus.hint}</span>
+      </div>
+    </div>`;
 }
 
 function profileMatchesSearch(profile, query) {
@@ -637,7 +648,7 @@ function homePage() {
           <button type="button" class="home-link" data-goto-page="pointeuse">Historique</button>
         </div>
         <div class="home-clock">
-          <p class="home-status-line ${clockStatus.tone}">${clockStatus.homeLine}</p>
+          ${renderClockStatus(clockStatus, "home-clock-status")}
           <p class="home-hours-today">Temps aujourd'hui : <b>${formatDuration(hours.today)}</b></p>
           <button type="button" id="clock-toggle" class="clock-button ${isIn ? "out" : "in"}">
             ${isIn ? "Je pars" : "J'arrive"}
@@ -712,10 +723,7 @@ function pointeusePage() {
     </section>
     <section class="clock-grid page-spacer">
       <article class="card clock-card">
-        <div class="clock-status ${clockStatus.tone}">
-          <strong>${clockStatus.title}</strong>
-          <span>${clockStatus.hint}</span>
-        </div>
+        ${renderClockStatus(clockStatus)}
         <button type="button" id="clock-toggle" class="clock-button ${isIn ? "out" : "in"}">
           ${isIn ? "Je pars" : "J'arrive"}
         </button>
@@ -897,13 +905,14 @@ function getManagerChain(profiles, userId) {
 }
 
 function renderOrgNode(node, options = {}) {
-  const { forceExpand = false } = options;
+  const { forceExpand = false, depth = 0 } = options;
   const isMe = node.id === session?.user?.id;
   const hasChildren = node.children.length > 0;
   const isCollapsed = !forceExpand && collapsedOrgNodes.has(node.id);
+  const childOptions = { ...options, depth: depth + 1 };
 
   return `
-    <div class="org-branch ${isCollapsed ? "is-collapsed" : ""}" data-org-id="${node.id}">
+    <div class="org-branch ${isCollapsed ? "is-collapsed" : ""}" data-org-id="${node.id}" data-depth="${depth}">
       <div class="org-node-row">
         ${hasChildren
           ? `<button type="button" class="org-toggle" data-org-toggle="${node.id}" aria-expanded="${!isCollapsed}" aria-label="Afficher ou masquer l'equipe de ${escapeHtml(node.full_name || "ce manager")}">
@@ -921,7 +930,7 @@ function renderOrgNode(node, options = {}) {
         </div>
       </div>
       ${hasChildren
-        ? `<div class="org-children">${node.children.map((child) => renderOrgNode(child, options)).join("")}</div>`
+        ? `<div class="org-children">${node.children.map((child) => renderOrgNode(child, childOptions)).join("")}</div>`
         : ""}
     </div>`;
 }
