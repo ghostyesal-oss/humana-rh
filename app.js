@@ -11,7 +11,7 @@ let currentPage = "home";
 let bootstrapInFlight = null;
 let hierarchySearch = "";
 const collapsedOrgNodes = new Set();
-let teamPunchFilters = { start: "", end: "", userId: "" };
+let teamPunchFilters = { start: "", end: "", userId: "", scope: "all" };
 
 let appData = {
   loading: false,
@@ -41,7 +41,7 @@ const pages = {
   leave: ["Conges", "Consultez vos soldes et faites vos demandes."],
   attestations: ["Attestations", "Demandez vos documents en quelques clics."],
   hierarchy: ["Hierarchie", "Votre manager, votre equipe, l'organigramme."],
-  "team-punches": ["Pointages equipe", "Consultez et exportez les pointages de votre equipe."],
+  "team-punches": ["Pointages equipe", "Admin : tous les collaborateurs. Manager : son equipe directe."],
   admin: ["Administration", "Gestion des comptes et des acces."]
 };
 
@@ -251,10 +251,19 @@ function canViewTeamPunches() {
   return usesDatabase() && (isAdmin() || hasDirectReports());
 }
 
-function getTeamPunchProfiles() {
-  const profiles = isAdmin()
-    ? appData.orgProfiles
-    : appData.orgProfiles.filter((profile) => profile.manager_id === session.user.id);
+function getDirectReportProfiles() {
+  return appData.orgProfiles.filter((profile) => profile.manager_id === session?.user?.id);
+}
+
+function getTeamPunchScope() {
+  if (!isAdmin()) return "team";
+  return teamPunchFilters.scope === "team" ? "team" : "all";
+}
+
+function getTeamPunchProfiles(scope = getTeamPunchScope()) {
+  const profiles = scope === "team"
+    ? getDirectReportProfiles()
+    : appData.orgProfiles;
   return [...profiles].sort((a, b) => (a.full_name || "").localeCompare(b.full_name || "", "fr"));
 }
 
@@ -317,7 +326,7 @@ function summarizeTeamPunchesByUser(punches, profiles, startStr, endStr) {
       punchCount: userPunches.length,
       workedMs: computeWorkedMsInRange(userPunches, startStr, endStr)
     };
-  }).filter((item) => item.punchCount > 0 || profiles.length <= 12);
+  });
 }
 
 function downloadCsv(filename, headers, rows) {
@@ -361,21 +370,29 @@ async function loadTeamPunches(filters = teamPunchFilters) {
     return [];
   }
 
-  const profiles = getTeamPunchProfiles();
+  const scope = filters.scope === "team" ? "team" : (isAdmin() ? "all" : "team");
+  const profiles = getTeamPunchProfiles(scope);
   const userIds = filters.userId
     ? [filters.userId]
     : profiles.map((profile) => profile.id);
 
-  if (!userIds.length) {
-    appData.teamPunches = [];
-    return [];
+  if (!isAdmin() || scope === "team" || filters.userId) {
+    if (!userIds.length) {
+      appData.teamPunches = [];
+      return [];
+    }
   }
 
   let query = supabaseClient
     .from("time_punches")
     .select("id, user_id, punch_type, punched_at, profiles(full_name, email)")
-    .in("user_id", userIds)
     .order("punched_at", { ascending: false });
+
+  if (filters.userId) {
+    query = query.eq("user_id", filters.userId);
+  } else if (!isAdmin() || scope === "team") {
+    query = query.in("user_id", userIds);
+  }
 
   if (filters.start) query = query.gte("punched_at", `${filters.start}T00:00:00`);
   if (filters.end) query = query.lte("punched_at", `${filters.end}T23:59:59`);
@@ -969,19 +986,31 @@ function teamPunchesPage() {
   const range = teamPunchFilters.start && teamPunchFilters.end
     ? teamPunchFilters
     : getDefaultTeamPunchRange();
-  const profiles = getTeamPunchProfiles();
+  const scope = getTeamPunchScope();
+  const profiles = getTeamPunchProfiles(scope);
   const scopedProfiles = teamPunchFilters.userId
     ? profiles.filter((profile) => profile.id === teamPunchFilters.userId)
     : profiles;
   const summary = summarizeTeamPunchesByUser(appData.teamPunches, scopedProfiles, range.start, range.end);
   const rows = appData.teamPunches.map(normalizeTeamPunchRow);
-  const scopeLabel = isAdmin() ? "tous les collaborateurs" : "votre equipe directe";
+  const scopeLabel = isAdmin()
+    ? (scope === "team" ? "mon equipe directe" : "tous les collaborateurs")
+    : "votre equipe directe";
+  const directReports = getDirectReportProfiles();
 
   return `
     <p class="data-note">Perimetre : ${scopeLabel} · ${profiles.length} collaborateur${profiles.length > 1 ? "s" : ""}</p>
     <article class="card form-card page-spacer">
       ${cardHeading("Filtres")}
       <form id="team-punches-filter" class="feature-form team-punches-filter">
+        ${isAdmin() ? `
+        <label>
+          Perimetre
+          <select name="scope">
+            <option value="all"${scope === "all" ? " selected" : ""}>Tous les collaborateurs</option>
+            <option value="team"${scope === "team" ? " selected" : ""}>Mon equipe directe${directReports.length ? ` (${directReports.length})` : ""}</option>
+          </select>
+        </label>` : ""}
         <div class="form-row">
           <label>
             Du
@@ -1925,7 +1954,7 @@ function bindPageEvents() {
   if (teamPunchesFilter && !teamPunchesFilter.dataset.humanaBound) {
     teamPunchesFilter.dataset.humanaBound = "1";
     if (!teamPunchFilters.start || !teamPunchFilters.end) {
-      teamPunchFilters = { ...getDefaultTeamPunchRange(), userId: teamPunchFilters.userId || "" };
+      teamPunchFilters = { ...getDefaultTeamPunchRange(), userId: teamPunchFilters.userId || "", scope: teamPunchFilters.scope || "all" };
     }
     teamPunchesFilter.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -1933,7 +1962,8 @@ function bindPageEvents() {
       teamPunchFilters = {
         start: data.get("start"),
         end: data.get("end"),
-        userId: data.get("userId") || ""
+        userId: data.get("userId") || "",
+        scope: isAdmin() ? (data.get("scope") || "all") : "team"
       };
       if (new Date(teamPunchFilters.end) < new Date(teamPunchFilters.start)) {
         alert("La date de fin doit etre apres la date de debut.");
