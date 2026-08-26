@@ -2527,6 +2527,51 @@ tbody tr:hover td { background: var(--surface-2); }
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
+.team-punches-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+}
+
+.team-punches-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--s4);
+}
+
+.team-punch-summary-card {
+  display: grid;
+  gap: var(--s2);
+  padding: var(--s4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: linear-gradient(165deg, var(--surface) 0%, var(--surface-2) 100%);
+  box-shadow: 0 4px 14px rgba(0, 22, 44, 0.06);
+}
+
+.team-punch-summary-card span {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.team-punch-summary-card strong {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--forest-mid);
+  letter-spacing: -0.03em;
+}
+
+.team-punch-summary-card small {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.team-punches-filter .outline-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* Theme toggle */
 
 .theme-toggle {
