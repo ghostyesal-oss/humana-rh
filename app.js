@@ -11,12 +11,14 @@ let currentPage = "home";
 let bootstrapInFlight = null;
 let hierarchySearch = "";
 const collapsedOrgNodes = new Set();
+let teamPunchFilters = { start: "", end: "", userId: "" };
 
 let appData = {
   loading: false,
   error: "",
   profile: null,
   punches: [],
+  teamPunches: [],
   leaveRequests: [],
   attestationRequests: [],
   orgProfiles: [],
@@ -39,6 +41,7 @@ const pages = {
   leave: ["Conges", "Consultez vos soldes et faites vos demandes."],
   attestations: ["Attestations", "Demandez vos documents en quelques clics."],
   hierarchy: ["Hierarchie", "Votre manager, votre equipe, l'organigramme."],
+  "team-punches": ["Pointages equipe", "Consultez et exportez les pointages de votre equipe."],
   admin: ["Administration", "Gestion des comptes et des acces."]
 };
 
@@ -164,16 +167,57 @@ const attestationTypes = [
 
 const avatarColors = ["violet", "blue", "orange", "green", "pink"];
 
-function avatar(initials, color = "violet") {
-  return `<span class="avatar ${color}">${initials}</span>`;
+function avatar(initials, color = "violet", extraClass = "") {
+  const classes = ["avatar", color, extraClass].filter(Boolean).join(" ");
+  return `<span class="${classes}">${initials}</span>`;
 }
 
 function profileInitials(name) {
   return (name || "CO").split(" ").map((part) => part[0]).slice(0, 2).join("").toUpperCase();
 }
 
-function avatarForProfile(profile, index = 0) {
-  return avatar(profileInitials(profile.full_name), avatarColors[index % avatarColors.length]);
+function avatarForProfile(profile, index = 0, extraClass = "") {
+  return avatar(profileInitials(profile.full_name), avatarColors[index % avatarColors.length], extraClass);
+}
+
+function profileRoleLabel(profile) {
+  const parts = [];
+  if (profile.department) parts.push(profile.department);
+  if (profile.role === "admin") parts.push("Admin");
+  else if (profile.role === "manager") parts.push("Manager");
+  return parts.join(" · ");
+}
+
+function renderProfilePyramidCard(profile, index, options = {}) {
+  const {
+    isMe = false,
+    hasTeam = false,
+    teamCount = 0,
+    toggleId = "",
+    collapsed = false
+  } = options;
+  const roleLabel = profileRoleLabel(profile);
+  const expandControl = toggleId && hasTeam
+    ? `<button type="button" class="org-expand" data-org-toggle="${toggleId}" aria-expanded="${!collapsed}" aria-label="Afficher ou masquer l'equipe de ${escapeHtml(profile.full_name || "ce manager")}">
+        <span class="org-team-count">${teamCount}</span>
+        <span class="org-toggle-icon" aria-hidden="true"></span>
+      </button>`
+    : hasTeam
+      ? `<span class="org-team-count org-team-count-static">${teamCount}</span>`
+      : "";
+
+  return `
+    <article class="org-pyramid-card ${isMe ? "is-me" : ""} ${hasTeam ? "has-team" : ""}">
+      <div class="org-card-avatar">
+        ${avatarForProfile(profile, index, "org-avatar")}
+      </div>
+      <div class="org-card-info">
+        <strong>${escapeHtml(profile.full_name || "Sans nom")}</strong>
+        <span>${escapeHtml(profile.job_title || "Collaborateur")}</span>
+        ${roleLabel ? `<small>${escapeHtml(roleLabel)}</small>` : ""}
+      </div>
+      ${expandControl}
+    </article>`;
 }
 
 function badge(value) {
@@ -199,6 +243,153 @@ function isAdmin() {
   return appData.profile?.role === "admin";
 }
 
+function hasDirectReports() {
+  return appData.orgProfiles.some((profile) => profile.manager_id === session?.user?.id);
+}
+
+function canViewTeamPunches() {
+  return usesDatabase() && (isAdmin() || hasDirectReports());
+}
+
+function getTeamPunchProfiles() {
+  const profiles = isAdmin()
+    ? appData.orgProfiles
+    : appData.orgProfiles.filter((profile) => profile.manager_id === session.user.id);
+  return [...profiles].sort((a, b) => (a.full_name || "").localeCompare(b.full_name || "", "fr"));
+}
+
+function getDefaultTeamPunchRange() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10)
+  };
+}
+
+function profileById(profileId) {
+  return appData.orgProfiles.find((profile) => profile.id === profileId);
+}
+
+function normalizeTeamPunchRow(row) {
+  const profile = row.profiles || profileById(row.user_id);
+  return {
+    id: row.id,
+    userId: row.user_id,
+    type: row.punch_type,
+    time: row.punched_at,
+    name: profile?.full_name || "Collaborateur",
+    email: profile?.email || ""
+  };
+}
+
+function computeWorkedMsInRange(punches, startStr, endStr) {
+  const rangeStart = new Date(`${startStr}T00:00:00`).getTime();
+  const rangeEnd = new Date(`${endStr}T23:59:59`).getTime();
+  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+  let total = 0;
+
+  for (let index = 0; index < sorted.length; index += 1) {
+    if (sorted[index].type !== "in") continue;
+    const next = sorted[index + 1];
+    const sessionStart = Math.max(new Date(sorted[index].time).getTime(), rangeStart);
+    const sessionEnd = next?.type === "out"
+      ? Math.min(new Date(next.time).getTime(), rangeEnd)
+      : Math.min(Date.now(), rangeEnd);
+    if (sessionEnd > sessionStart) total += sessionEnd - sessionStart;
+  }
+
+  return total;
+}
+
+function summarizeTeamPunchesByUser(punches, profiles, startStr, endStr) {
+  const byUser = new Map();
+  punches.forEach((row) => {
+    if (!byUser.has(row.user_id)) byUser.set(row.user_id, []);
+    byUser.get(row.user_id).push({ type: row.punch_type, time: row.punched_at });
+  });
+
+  return profiles.map((profile) => {
+    const userPunches = byUser.get(profile.id) || [];
+    return {
+      profile,
+      punchCount: userPunches.length,
+      workedMs: computeWorkedMsInRange(userPunches, startStr, endStr)
+    };
+  }).filter((item) => item.punchCount > 0 || profiles.length <= 12);
+}
+
+function downloadCsv(filename, headers, rows) {
+  const sep = ";";
+  const escapeCell = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const lines = [
+    headers.map(escapeCell).join(sep),
+    ...rows.map((row) => row.map(escapeCell).join(sep))
+  ];
+  const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+function exportTeamPunchesCsv() {
+  const rows = appData.teamPunches.map(normalizeTeamPunchRow);
+  if (!rows.length) {
+    alert("Aucun pointage a exporter pour cette periode.");
+    return;
+  }
+
+  downloadCsv(
+    `pointages-equipe_${teamPunchFilters.start}_${teamPunchFilters.end}.csv`,
+    ["Nom", "Email", "Date", "Type", "Heure"],
+    rows.map((row) => [
+      row.name,
+      row.email,
+      formatDate(row.time),
+      row.type === "in" ? "Entree" : "Sortie",
+      formatTime(row.time)
+    ])
+  );
+}
+
+async function loadTeamPunches(filters = teamPunchFilters) {
+  if (!canViewTeamPunches()) {
+    appData.teamPunches = [];
+    return [];
+  }
+
+  const profiles = getTeamPunchProfiles();
+  const userIds = filters.userId
+    ? [filters.userId]
+    : profiles.map((profile) => profile.id);
+
+  if (!userIds.length) {
+    appData.teamPunches = [];
+    return [];
+  }
+
+  let query = supabaseClient
+    .from("time_punches")
+    .select("id, user_id, punch_type, punched_at, profiles(full_name, email)")
+    .in("user_id", userIds)
+    .order("punched_at", { ascending: false });
+
+  if (filters.start) query = query.gte("punched_at", `${filters.start}T00:00:00`);
+  if (filters.end) query = query.lte("punched_at", `${filters.end}T23:59:59`);
+
+  const { data, error } = await withSupabaseRetry(async () => {
+    const result = await query;
+    if (result.error) throw result.error;
+    return result;
+  });
+  if (error) throw error;
+  appData.teamPunches = data || [];
+  return appData.teamPunches;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -209,6 +400,10 @@ function escapeHtml(value) {
 
 function getNavigationItems() {
   const items = [...navigation];
+  if (canViewTeamPunches()) {
+    const pointeuseIndex = items.findIndex(([pageId]) => pageId === "pointeuse");
+    items.splice(pointeuseIndex + 1, 0, ["team-punches", "Pointages equipe"]);
+  }
   if (isAdmin()) items.push(["admin", "Administration"]);
   return items;
 }
@@ -762,6 +957,94 @@ function pointeusePage() {
     </article>`;
 }
 
+function teamPunchesPage() {
+  if (!usesDatabase()) {
+    return `<article class="card"><p class="empty-state">Connectez-vous avec Microsoft pour consulter les pointages de votre equipe.</p></article>`;
+  }
+
+  if (!canViewTeamPunches()) {
+    return `<article class="card"><p class="empty-state">Acces reserve aux managers et administrateurs.</p></article>`;
+  }
+
+  const range = teamPunchFilters.start && teamPunchFilters.end
+    ? teamPunchFilters
+    : getDefaultTeamPunchRange();
+  const profiles = getTeamPunchProfiles();
+  const scopedProfiles = teamPunchFilters.userId
+    ? profiles.filter((profile) => profile.id === teamPunchFilters.userId)
+    : profiles;
+  const summary = summarizeTeamPunchesByUser(appData.teamPunches, scopedProfiles, range.start, range.end);
+  const rows = appData.teamPunches.map(normalizeTeamPunchRow);
+  const scopeLabel = isAdmin() ? "tous les collaborateurs" : "votre equipe directe";
+
+  return `
+    <p class="data-note">Perimetre : ${scopeLabel} · ${profiles.length} collaborateur${profiles.length > 1 ? "s" : ""}</p>
+    <article class="card form-card page-spacer">
+      ${cardHeading("Filtres")}
+      <form id="team-punches-filter" class="feature-form team-punches-filter">
+        <div class="form-row">
+          <label>
+            Du
+            <input type="date" name="start" value="${escapeHtml(range.start)}" required>
+          </label>
+          <label>
+            Au
+            <input type="date" name="end" value="${escapeHtml(range.end)}" required>
+          </label>
+        </div>
+        <label>
+          Collaborateur
+          <select name="userId">
+            <option value="">Tous</option>
+            ${profiles.map((profile) => `
+              <option value="${profile.id}"${teamPunchFilters.userId === profile.id ? " selected" : ""}>
+                ${escapeHtml(profile.full_name)}
+              </option>`).join("")}
+          </select>
+        </label>
+        <div class="team-punches-actions">
+          <button type="submit" class="primary">Actualiser</button>
+          <button type="button" id="team-punches-export" class="outline-button"${rows.length ? "" : " disabled"}>Exporter CSV</button>
+        </div>
+      </form>
+    </article>
+    <section class="team-punches-summary page-spacer">
+      ${summary.length
+        ? summary.map((item, index) => `
+          <article class="hours-card team-punch-summary-card">
+            <span>${escapeHtml(item.profile.full_name || "Collaborateur")}</span>
+            <strong>${formatDuration(item.workedMs)}</strong>
+            <small>${item.punchCount} pointage${item.punchCount > 1 ? "s" : ""}</small>
+          </article>`).join("")
+        : `<article class="card"><p class="empty-state">Aucun collaborateur dans votre perimetre.</p></article>`}
+    </section>
+    <article class="card table-card page-spacer">
+      <div class="toolbar">
+        <h3>Detail des pointages</h3>
+        <span class="hierarchy-result-count">${rows.length} ligne${rows.length > 1 ? "s" : ""}</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Collaborateur</th><th>Email</th><th>Date</th><th>Type</th><th>Heure</th></tr>
+          </thead>
+          <tbody>
+            ${rows.length
+              ? rows.map((row) => `
+                <tr>
+                  <td><strong>${escapeHtml(row.name)}</strong></td>
+                  <td>${escapeHtml(row.email)}</td>
+                  <td>${formatDate(row.time)}</td>
+                  <td>${row.type === "in" ? "Entree" : "Sortie"}</td>
+                  <td>${formatTime(row.time)}</td>
+                </tr>`).join("")
+              : `<tr><td colspan="5" class="empty-cell">Aucun pointage pour cette periode. Ajustez les filtres puis actualisez.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </article>`;
+}
+
 function leavePage() {
   const requests = getLeaveRequests();
   const balances = getLeaveBalances();
@@ -913,21 +1196,14 @@ function renderOrgNode(node, options = {}) {
 
   return `
     <div class="org-branch ${isCollapsed ? "is-collapsed" : ""}" data-org-id="${node.id}" data-depth="${depth}">
-      <div class="org-node-row">
-        ${hasChildren
-          ? `<button type="button" class="org-toggle" data-org-toggle="${node.id}" aria-expanded="${!isCollapsed}" aria-label="Afficher ou masquer l'equipe de ${escapeHtml(node.full_name || "ce manager")}">
-              <span class="org-toggle-icon" aria-hidden="true"></span>
-            </button>`
-          : `<span class="org-toggle-spacer" aria-hidden="true"></span>`}
-        <div class="org-card ${isMe ? "is-me" : ""} ${hasChildren ? "has-team" : ""}">
-          ${avatarForProfile(node, node.index)}
-          <div>
-            <strong>${escapeHtml(node.full_name || "Sans nom")}</strong>
-            <span>${escapeHtml(node.job_title || "Collaborateur")}</span>
-            <small>${escapeHtml(node.department || "")}${node.role === "admin" ? " · Admin" : node.role === "manager" ? " · Manager" : ""}</small>
-          </div>
-          ${hasChildren ? `<span class="org-team-count">${node.children.length}</span>` : ""}
-        </div>
+      <div class="org-node">
+        ${renderProfilePyramidCard(node, node.index, {
+          isMe,
+          hasTeam: hasChildren,
+          teamCount: node.children.length,
+          toggleId: node.id,
+          collapsed: isCollapsed
+        })}
       </div>
       ${hasChildren
         ? `<div class="org-children">${node.children.map((child) => renderOrgNode(child, childOptions)).join("")}</div>`
@@ -957,7 +1233,7 @@ function hierarchyPage() {
         <div class="chain-list">
           ${chain.map((profile, index) => `
             <div class="chain-item ${profile.id === session.user.id ? "is-me" : ""}">
-              ${avatarForProfile(profile, index)}
+              ${avatarForProfile(profile, index, "org-avatar")}
               <div>
                 <strong>${escapeHtml(profile.full_name)}</strong>
                 <span>${escapeHtml(profile.job_title || "Collaborateur")}</span>
@@ -970,15 +1246,11 @@ function hierarchyPage() {
       </article>
       <article class="card">
         ${cardHeading("Mon equipe directe")}
-        <div class="team-list">
+        <div class="team-grid">
           ${directReports.length
             ? directReports.map((profile, index) => `
-              <div class="team-item">
-                ${avatarForProfile(profile, index)}
-                <div>
-                  <strong>${escapeHtml(profile.full_name)}</strong>
-                  <span>${escapeHtml(profile.job_title || "Collaborateur")}</span>
-                </div>
+              <div class="team-card-wrap">
+                ${renderProfilePyramidCard(profile, index, { isMe: profile.id === session.user.id })}
               </div>`).join("")
             : `<p class="empty-inline">Aucun collaborateur rattache pour le moment.</p>`}
         </div>
@@ -1214,6 +1486,7 @@ function pageContent() {
   return {
     home: homePage,
     pointeuse: pointeusePage,
+    "team-punches": teamPunchesPage,
     leave: leavePage,
     attestations: attestationsPage,
     hierarchy: hierarchyPage,
@@ -1236,6 +1509,9 @@ function formatAppError(error) {
   }
   if (message.includes("bucket") || message.includes("storage")) {
     return "Stockage Supabase non configure. Executez supabase/storage-hr-documents.sql dans SQL Editor.";
+  }
+  if (message.includes("permission") || message.includes("policy") || message.includes("row-level")) {
+    return "Acces refuse aux pointages equipe. Executez supabase/time-punches-access.sql dans SQL Editor.";
   }
   return error?.message || "Impossible de charger les donnees Supabase.";
 }
@@ -1645,6 +1921,36 @@ function bindPageEvents() {
 
   bindHierarchyOrgEvents();
 
+  const teamPunchesFilter = document.querySelector("#team-punches-filter");
+  if (teamPunchesFilter && !teamPunchesFilter.dataset.humanaBound) {
+    teamPunchesFilter.dataset.humanaBound = "1";
+    if (!teamPunchFilters.start || !teamPunchFilters.end) {
+      teamPunchFilters = { ...getDefaultTeamPunchRange(), userId: teamPunchFilters.userId || "" };
+    }
+    teamPunchesFilter.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      teamPunchFilters = {
+        start: data.get("start"),
+        end: data.get("end"),
+        userId: data.get("userId") || ""
+      };
+      if (new Date(teamPunchFilters.end) < new Date(teamPunchFilters.start)) {
+        alert("La date de fin doit etre apres la date de debut.");
+        return;
+      }
+      withAction(() => loadTeamPunches());
+    });
+    if (currentPage === "team-punches" && canViewTeamPunches() && !teamPunchesFilter.dataset.initialLoad) {
+      teamPunchesFilter.dataset.initialLoad = "1";
+      withAction(() => loadTeamPunches());
+    }
+  }
+
+  document.querySelector("#team-punches-export")?.addEventListener("click", () => {
+    exportTeamPunchesCsv();
+  });
+
   document.querySelector("#leave-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -1977,6 +2283,7 @@ function bindAppEvents() {
       error: "",
       profile: null,
       punches: [],
+      teamPunches: [],
       leaveRequests: [],
       attestationRequests: [],
       orgProfiles: [],
