@@ -14,6 +14,7 @@ const collapsedOrgNodes = new Set();
 let teamPunchFilters = { start: "", end: "", userId: "", scope: "all" };
 let teamPunchesInitialLoadDone = false;
 let leaveCalendarMonth = null;
+let initialAuthHandled = false;
 
 let appData = {
   loading: false,
@@ -92,6 +93,48 @@ function maybeShowMicrosoftWelcome() {
     return;
   }
   showMicrosoftWelcomePopup();
+}
+
+function showAuthBootScreen() {
+  document.documentElement.classList.add("auth-booting");
+  const bootScreen = document.getElementById("auth-boot-screen");
+  if (bootScreen) bootScreen.hidden = false;
+}
+
+function hideAuthBootScreen() {
+  document.documentElement.classList.remove("auth-booting");
+  const bootScreen = document.getElementById("auth-boot-screen");
+  if (bootScreen) bootScreen.hidden = true;
+  try {
+    sessionStorage.removeItem("humana_auth_boot");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function hasStoredSupabaseSession() {
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key || !key.includes("-auth-token")) continue;
+      const value = localStorage.getItem(key);
+      if (value && value.includes("access_token")) return true;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return false;
+}
+
+function shouldBootAuthenticatedUi() {
+  if (isOAuthReturn()) return true;
+  if (window.__pendingAuthSession) return true;
+  try {
+    if (sessionStorage.getItem("humana_auth_boot") === "1") return true;
+  } catch (_) {
+    /* ignore */
+  }
+  return hasStoredSupabaseSession();
 }
 
 function showMicrosoftWelcomePopup() {
@@ -2306,6 +2349,7 @@ async function bootstrapUser(options = {}) {
   const { showSpinner = true } = options;
 
   if (!usesDatabase()) {
+    hideAuthBootScreen();
     renderApp();
     return;
   }
@@ -2316,11 +2360,9 @@ async function bootstrapUser(options = {}) {
   }
 
   bootstrapInFlight = (async () => {
-    if (showSpinner) {
-      appData.loading = true;
-      appData.error = "";
-      renderApp();
-    }
+    appData.loading = true;
+    appData.error = "";
+    if (showSpinner) showAuthBootScreen();
 
     try {
       await syncSessionAfterLogin();
@@ -2330,6 +2372,7 @@ async function bootstrapUser(options = {}) {
       appData.error = formatAppError(error);
     } finally {
       appData.loading = false;
+      hideAuthBootScreen();
       renderApp();
       maybeShowMicrosoftWelcome();
     }
@@ -2377,6 +2420,7 @@ function setLoginState({ ready = false, error } = {}) {
 }
 
 function renderLogin(error = "") {
+  hideAuthBootScreen();
   if (!document.querySelector(".login-page")) {
     app.innerHTML = `
       <main class="login-page">
@@ -3043,6 +3087,7 @@ function bindAppEvents() {
     session = null;
     demoMode = false;
     currentPage = "home";
+    initialAuthHandled = false;
     teamPunchesInitialLoadDone = false;
     leaveCalendarMonth = null;
     appData = {
@@ -3147,12 +3192,16 @@ function clearAuthParamsFromUrl() {
 async function initialize() {
   try {
     ensureAppContainer();
+    if (shouldBootAuthenticatedUi()) showAuthBootScreen();
     bindLoginEvents();
     if (window.__authReady) await window.__authReady;
     supabaseClient = getSupabaseClient();
-    setLoginState({ ready: Boolean(supabaseClient) });
+    if (!shouldBootAuthenticatedUi()) {
+      setLoginState({ ready: Boolean(supabaseClient) });
+    }
 
     if (window.__pendingAuthSession) {
+      initialAuthHandled = true;
       await window.humanaRender(window.__pendingAuthSession);
       return;
     }
@@ -3160,38 +3209,54 @@ async function initialize() {
     const portalUser = readPortalUser();
     if (portalUser) {
       portalMode = true;
+      initialAuthHandled = true;
       session = {
         user: {
           email: portalUser.email,
           user_metadata: { full_name: portalUser.name }
         }
       };
+      hideAuthBootScreen();
       renderApp();
       return;
     }
 
-    if (!supabaseClient) return;
+    if (!supabaseClient) {
+      hideAuthBootScreen();
+      return;
+    }
 
     supabaseClient.auth.onAuthStateChange(async (event, nextSession) => {
-      if (nextSession && event === "SIGNED_IN") {
+      if (nextSession && (event === "SIGNED_IN" || event === "INITIAL_SESSION")) {
+        if (initialAuthHandled) return;
+        initialAuthHandled = true;
         session = nextSession;
         demoMode = false;
-        await bootstrapUser();
+        showAuthBootScreen();
+        await bootstrapUser({ showSpinner: false });
         clearAuthParamsFromUrl();
         return;
       }
-      if (event === "SIGNED_OUT") renderLogin();
+      if (event === "SIGNED_OUT") {
+        initialAuthHandled = false;
+        renderLogin();
+      }
     });
 
     const { data, error } = await supabaseClient.auth.getSession();
     if (error) throw error;
-    if (data.session) {
+    if (data.session && !initialAuthHandled) {
+      initialAuthHandled = true;
       session = data.session;
       demoMode = false;
-      await bootstrapUser();
+      showAuthBootScreen();
+      await bootstrapUser({ showSpinner: false });
       clearAuthParamsFromUrl();
+    } else if (!data.session) {
+      hideAuthBootScreen();
     }
   } catch (error) {
+    hideAuthBootScreen();
     setLoginState({ ready: false, error: error.message || "Impossible de demarrer l'application." });
   }
 }
@@ -3199,8 +3264,10 @@ async function initialize() {
 window.humanaRender = async function (authSession) {
   session = authSession;
   demoMode = false;
+  initialAuthHandled = true;
   ensureAppContainer();
-  await bootstrapUser();
+  showAuthBootScreen();
+  await bootstrapUser({ showSpinner: false });
   clearAuthParamsFromUrl();
 };
 
@@ -3208,12 +3275,9 @@ window.humanaStartDemo = function () {
   demoMode = true;
   supabaseClient = getSupabaseClient();
   ensureAppContainer();
+  hideAuthBootScreen();
   renderApp();
 };
-
-if (window.__pendingAuthSession) {
-  window.humanaRender(window.__pendingAuthSession);
-}
 
 initialize();
 })();
