@@ -29,6 +29,7 @@ let appData = {
   hrDocuments: [],
   payslips: [],
   hrAlerts: [],
+  navVisibility: null,
   adminEditingId: "",
   adminEditingInviteId: ""
 };
@@ -36,8 +37,29 @@ let appData = {
 const roleLabels = {
   admin: "Administrateur",
   manager: "Manager",
-  employee: "Collaborateur"
+  employee: "Collaborateur",
+  creator: "Createur"
 };
+
+const NAV_VISIBILITY_PAGES = [
+  { id: "leave", label: "Conges" },
+  { id: "attestations", label: "Attestations" },
+  { id: "hierarchy", label: "Hierarchie" }
+];
+
+const NAV_VISIBILITY_AUDIENCES = [
+  { id: "admin", label: "Administrateurs" },
+  { id: "manager", label: "Managers" },
+  { id: "employee", label: "Collaborateurs" }
+];
+
+function getDefaultNavVisibility() {
+  return {
+    leave: { admin: true, manager: true, employee: true },
+    attestations: { admin: true, manager: true, employee: true },
+    hierarchy: { admin: true, manager: true, employee: true }
+  };
+}
 
 const pages = {
   home: ["Accueil", "Tout ce dont vous avez besoin, au meme endroit."],
@@ -46,7 +68,8 @@ const pages = {
   attestations: ["Attestations", "Demandez vos documents en quelques clics."],
   hierarchy: ["Hierarchie", "Votre manager, votre equipe, l'organigramme."],
   "team-punches": ["Pointages equipe", "Admin : tous les collaborateurs. Manager : son equipe directe."],
-  admin: ["Administration", "Gestion des comptes et des acces."]
+  admin: ["Administration", "Gestion des comptes et des acces."],
+  creator: ["Studio createur", "Controlez la visibilite des onglets par profil."]
 };
 
 const THEME_KEY = "humana-theme";
@@ -188,7 +211,8 @@ function avatarForProfile(profile, index = 0, extraClass = "") {
 function profileRoleLabel(profile) {
   const parts = [];
   if (profile.department) parts.push(profile.department);
-  if (profile.role === "admin") parts.push("Admin");
+  if (profile.role === "creator") parts.push("Createur");
+  else if (profile.role === "admin") parts.push("Admin");
   else if (profile.role === "manager") parts.push("Manager");
   return parts.join(" · ");
 }
@@ -244,8 +268,88 @@ function usesDatabase() {
   return Boolean(supabaseClient && session?.user?.id && !demoMode);
 }
 
+function isCreator() {
+  return appData.profile?.role === "creator";
+}
+
 function isAdmin() {
-  return appData.profile?.role === "admin";
+  const role = appData.profile?.role;
+  return role === "admin" || role === "creator";
+}
+
+function getNavAudienceRole() {
+  const role = appData.profile?.role || "employee";
+  if (role === "admin" || role === "creator") return "admin";
+  if (role === "manager" || hasDirectReports()) return "manager";
+  return "employee";
+}
+
+function normalizeNavVisibility(raw) {
+  const base = getDefaultNavVisibility();
+  NAV_VISIBILITY_PAGES.forEach(({ id }) => {
+    base[id] = { ...base[id], ...(raw?.[id] || {}) };
+  });
+  return base;
+}
+
+function getNavVisibility() {
+  return normalizeNavVisibility(appData.navVisibility);
+}
+
+function isNavPageVisible(pageId) {
+  if (!NAV_VISIBILITY_PAGES.some((page) => page.id === pageId)) return true;
+  if (isCreator()) return true;
+  if (!usesDatabase() && !demoMode) return true;
+  const audience = getNavAudienceRole();
+  return getNavVisibility()[pageId]?.[audience] !== false;
+}
+
+async function loadNavVisibility() {
+  if (!usesDatabase()) {
+    appData.navVisibility = normalizeNavVisibility(loadStore("navVisibility", null));
+    return;
+  }
+
+  const { data, error } = await supabaseClient
+    .from("app_settings")
+    .select("value")
+    .eq("key", "nav_visibility")
+    .maybeSingle();
+
+  if (error) {
+    if (error.message.includes("does not exist") || error.message.includes("app_settings")) {
+      appData.navVisibility = getDefaultNavVisibility();
+      return;
+    }
+    throw error;
+  }
+
+  appData.navVisibility = normalizeNavVisibility(data?.value || null);
+}
+
+async function saveNavVisibility(settings) {
+  const normalized = normalizeNavVisibility(settings);
+  if (!usesDatabase()) {
+    saveStore("navVisibility", normalized);
+    appData.navVisibility = normalized;
+    return;
+  }
+
+  const { error } = await supabaseClient
+    .from("app_settings")
+    .upsert({ key: "nav_visibility", value: normalized }, { onConflict: "key" });
+  if (error) throw error;
+  appData.navVisibility = normalized;
+}
+
+function ensureAccessiblePage() {
+  if (currentPage === "creator" && !isCreator()) {
+    currentPage = "home";
+    return;
+  }
+  if (!isNavPageVisible(currentPage)) {
+    currentPage = "home";
+  }
 }
 
 function hasDirectReports() {
@@ -808,12 +912,13 @@ function escapeHtml(value) {
 }
 
 function getNavigationItems() {
-  const items = [...navigation];
+  const items = navigation.filter(([pageId]) => isNavPageVisible(pageId));
   if (canViewTeamPunches()) {
     const pointeuseIndex = items.findIndex(([pageId]) => pageId === "pointeuse");
     items.splice(pointeuseIndex + 1, 0, ["team-punches", "Pointages equipe"]);
   }
   if (isAdmin()) items.push(["admin", "Administration"]);
+  if (isCreator()) items.push(["creator", "Studio createur"]);
   return items;
 }
 
@@ -1320,6 +1425,7 @@ function homePage() {
         </div>
       </article>
 
+      ${isNavPageVisible("leave") ? `
       <article class="card home-widget">
         <div class="card-heading">
           <h3>Conges</h3>
@@ -1328,7 +1434,7 @@ function homePage() {
         <div class="home-balance-list">
           ${balances.map((balance) => homeBalanceSummary(balance)).join("")}
         </div>
-      </article>
+      </article>` : ""}
 
       <article class="card home-widget">
         <div class="card-heading">
@@ -1525,6 +1631,10 @@ function teamPunchesPage() {
 }
 
 function leavePage() {
+  if (!isNavPageVisible("leave")) {
+    return `<article class="card"><p class="empty-state">L'onglet Conges n'est pas disponible pour votre profil.</p></article>`;
+  }
+
   const requests = getLeaveRequests();
   const balances = getLeaveBalances();
 
@@ -1586,6 +1696,10 @@ function leaveRows(requests) {
 }
 
 function attestationsPage() {
+  if (!isNavPageVisible("attestations")) {
+    return `<article class="card"><p class="empty-state">L'onglet Attestations n'est pas disponible pour votre profil.</p></article>`;
+  }
+
   const requests = getAttestationRequests();
 
   return `
@@ -1692,6 +1806,10 @@ function renderOrgNode(node, options = {}) {
 }
 
 function hierarchyPage() {
+  if (!isNavPageVisible("hierarchy")) {
+    return `<article class="card"><p class="empty-state">L'onglet Hierarchie n'est pas disponible pour votre profil.</p></article>`;
+  }
+
   if (!usesDatabase()) {
     return `<article class="card"><p class="empty-state">Connectez-vous avec Microsoft pour afficher l'organigramme de l'entreprise.</p></article>`;
   }
@@ -1760,11 +1878,54 @@ function hierarchyPage() {
     </article>`;
 }
 
+function creatorPage() {
+  if (!isCreator()) {
+    return `<article class="card"><p class="empty-state">Acces reserve au createur de l'application.</p></article>`;
+  }
+
+  const visibility = getNavVisibility();
+
+  return `
+    <article class="card form-card">
+      ${cardHeading("Visibilite des onglets")}
+      <p class="creator-intro">Activez ou masquez les onglets <strong>Conges</strong>, <strong>Attestations</strong> et <strong>Hierarchie</strong> pour chaque type de profil.</p>
+      <form id="creator-nav-form" class="feature-form creator-nav-form">
+        <div class="table-wrap">
+          <table class="creator-nav-table">
+            <thead>
+              <tr>
+                <th>Onglet</th>
+                ${NAV_VISIBILITY_AUDIENCES.map((audience) => `<th>${audience.label}</th>`).join("")}
+              </tr>
+            </thead>
+            <tbody>
+              ${NAV_VISIBILITY_PAGES.map((page) => `
+                <tr>
+                  <td><strong>${page.label}</strong></td>
+                  ${NAV_VISIBILITY_AUDIENCES.map((audience) => `
+                    <td>
+                      <label class="creator-toggle">
+                        <input
+                          type="checkbox"
+                          name="${page.id}_${audience.id}"
+                          ${visibility[page.id]?.[audience.id] !== false ? "checked" : ""}
+                        >
+                        <span>Visible</span>
+                      </label>
+                    </td>`).join("")}
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+        <button type="submit" class="primary">Enregistrer les reglages</button>
+      </form>
+    </article>`;
+}
+
 function adminPage() {
   if (!isAdmin()) {
     return `<article class="card"><p class="empty-state">Acces reserve aux administrateurs.</p></article>`;
   }
-
   const editingId = appData.adminEditingId || "";
   const editingInviteId = appData.adminEditingInviteId || "";
   const editingProfile = appData.orgProfiles.find((profile) => profile.id === editingId);
@@ -1970,7 +2131,8 @@ function pageContent() {
     leave: leavePage,
     attestations: attestationsPage,
     hierarchy: hierarchyPage,
-    admin: adminPage
+    admin: adminPage,
+    creator: creatorPage
   }[currentPage]();
 }
 
@@ -1998,6 +2160,9 @@ function formatAppError(error) {
   }
   if (message.includes("hr_alerts") || message.includes("process_auto_clock_outs") || message.includes("notify_auto_clock_out")) {
     return "Sortie automatique non configuree. Executez supabase/auto-clock-out.sql dans SQL Editor.";
+  }
+  if (message.includes("app_settings")) {
+    return "Studio createur non configure. Executez supabase/creator-nav-settings.sql dans SQL Editor.";
   }
   return error?.message || "Impossible de charger les donnees Supabase.";
 }
@@ -2099,7 +2264,7 @@ async function refreshAppData() {
     appData.profile = profileRes.data || appData.profile;
     appData.pendingInvites = [];
 
-    if ((appData.profile?.role || "employee") === "admin") {
+    if (isAdmin()) {
       const invitesRes = await withTimeout(
         supabaseClient.from("pending_invites").select("*").order("created_at", { ascending: false }),
         8000,
@@ -2132,6 +2297,8 @@ async function refreshAppData() {
     } else {
       appData.teamLeaveRequests = [];
     }
+
+    await loadNavVisibility();
   });
 }
 
@@ -2284,6 +2451,7 @@ function playViewAnimations() {
 }
 
 function renderApp() {
+  ensureAccessiblePage();
   const name = getUserName();
   const email = session?.user?.email || "collaborateur@entreprise.fr";
   const initials = profileInitials(name);
@@ -2298,7 +2466,7 @@ function renderApp() {
             ${item[1]}${navBadge(item[0])}
           </button>`).join("")}</nav>
         <div class="sidebar-bottom">
-          <div class="user-card"><span class="avatar avatar-sidebar-user" aria-hidden="true">${initials}</span><div class="user-card-text"><strong title="${name}">${name}</strong><span class="user-card-email" title="${email}">${email}</span>${isAdmin() ? `<span class="admin-pill">Admin</span>` : ""}</div><button type="button" id="logout" class="logout-btn" aria-label="Se deconnecter">Sortir</button></div>
+          <div class="user-card"><span class="avatar avatar-sidebar-user" aria-hidden="true">${initials}</span><div class="user-card-text"><strong title="${name}">${name}</strong><span class="user-card-email" title="${email}">${email}</span>${isCreator() ? `<span class="creator-pill">Createur</span>` : isAdmin() ? `<span class="admin-pill">Admin</span>` : ""}</div><button type="button" id="logout" class="logout-btn" aria-label="Se deconnecter">Sortir</button></div>
         </div>
       </aside>
       <button class="backdrop" type="button" aria-label="Fermer le menu"></button>
@@ -2524,6 +2692,23 @@ function bindPageEvents() {
           .eq("recipient_id", session.user.id);
         if (error) throw error;
       });
+    });
+  });
+
+  document.querySelector("#creator-nav-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const settings = getDefaultNavVisibility();
+
+    NAV_VISIBILITY_PAGES.forEach((page) => {
+      NAV_VISIBILITY_AUDIENCES.forEach((audience) => {
+        settings[page.id][audience.id] = data.get(`${page.id}_${audience.id}`) === "on";
+      });
+    });
+
+    withAction(async () => {
+      await saveNavVisibility(settings);
+      currentPage = "creator";
     });
   });
 
@@ -2874,6 +3059,7 @@ function bindAppEvents() {
       hrDocuments: [],
       payslips: [],
       hrAlerts: [],
+      navVisibility: null,
       adminEditingId: "",
       adminEditingInviteId: ""
     };
