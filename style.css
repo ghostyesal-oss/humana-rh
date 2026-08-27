@@ -875,6 +875,56 @@ small { font-size: 12px; color: var(--text-tertiary); }
   text-transform: uppercase;
 }
 
+.sidebar .creator-pill {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: rgba(217, 119, 6, 0.22);
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #fde68a;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.creator-intro {
+  margin: 0 var(--s5) var(--s4);
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.creator-nav-form {
+  padding: 0 var(--s5) var(--s5);
+}
+
+.creator-nav-table th,
+.creator-nav-table td {
+  text-align: center;
+  vertical-align: middle;
+}
+
+.creator-nav-table th:first-child,
+.creator-nav-table td:first-child {
+  text-align: left;
+}
+
+.creator-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.creator-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--forest-mid);
+}
+
 /* Topbar */
 
 .topbar {
