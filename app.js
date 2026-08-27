@@ -13,6 +13,7 @@ let hierarchySearch = "";
 const collapsedOrgNodes = new Set();
 let teamPunchFilters = { start: "", end: "", userId: "", scope: "all" };
 let teamPunchesInitialLoadDone = false;
+let leaveCalendarMonth = null;
 
 let appData = {
   loading: false,
@@ -20,6 +21,7 @@ let appData = {
   profile: null,
   punches: [],
   teamPunches: [],
+  teamLeaveRequests: [],
   leaveRequests: [],
   attestationRequests: [],
   orgProfiles: [],
@@ -254,6 +256,10 @@ function canViewTeamPunches() {
   return usesDatabase() && (isAdmin() || hasDirectReports());
 }
 
+function canViewTeamLeaveCalendar() {
+  return usesDatabase() && (isAdmin() || hasDirectReports());
+}
+
 function getDirectReportProfiles() {
   return appData.orgProfiles.filter((profile) => profile.manager_id === session?.user?.id);
 }
@@ -425,6 +431,229 @@ async function loadTeamPunches(filters = teamPunchFilters) {
   });
   appData.teamPunches = result || [];
   return appData.teamPunches;
+}
+
+function getLeaveCalendarMonth() {
+  if (!leaveCalendarMonth) {
+    const now = new Date();
+    leaveCalendarMonth = { year: now.getFullYear(), month: now.getMonth() };
+  }
+  return leaveCalendarMonth;
+}
+
+function toDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalDate(dateStr) {
+  const [year, month, day] = String(dateStr).split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function isLeaveStatusVisible(status) {
+  const normalized = (status || "").toLowerCase();
+  return !normalized.includes("refus") && !normalized.includes("rejet");
+}
+
+function normalizeTeamLeaveRequest(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    type: row.leave_type,
+    start: row.start_date,
+    end: row.end_date,
+    days: row.days,
+    comment: row.comment || "",
+    status: row.status,
+    created: row.created_at,
+    name: row.profiles?.full_name || profileById(row.user_id)?.full_name || "Collaborateur"
+  };
+}
+
+async function loadTeamLeaveRequests(monthRef = getLeaveCalendarMonth()) {
+  if (!canViewTeamLeaveCalendar()) {
+    appData.teamLeaveRequests = [];
+    return [];
+  }
+
+  const { year, month } = monthRef;
+  const monthStart = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  const monthEnd = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+
+  const userIds = isAdmin()
+    ? appData.orgProfiles.map((profile) => profile.id)
+    : getDirectReportProfiles().map((profile) => profile.id);
+
+  if (!userIds.length) {
+    appData.teamLeaveRequests = [];
+    return [];
+  }
+
+  const result = await withSupabaseRetry(async () => {
+    const response = await supabaseClient
+      .from("leave_requests")
+      .select("id, user_id, leave_type, start_date, end_date, days, comment, status, created_at, profiles(full_name, email)")
+      .lte("start_date", monthEnd)
+      .gte("end_date", monthStart)
+      .in("user_id", userIds)
+      .order("start_date", { ascending: true });
+    if (response.error) throw response.error;
+    return response.data;
+  });
+
+  appData.teamLeaveRequests = result || [];
+  return appData.teamLeaveRequests;
+}
+
+function getCalendarLeaveRequests() {
+  const own = getLeaveRequests()
+    .filter((request) => isLeaveStatusVisible(request.status))
+    .map((request) => ({
+      ...request,
+      userId: session?.user?.id,
+      name: getUserName()
+    }));
+
+  if (!canViewTeamLeaveCalendar()) return own;
+
+  const team = (appData.teamLeaveRequests || [])
+    .map(normalizeTeamLeaveRequest)
+    .filter((request) => isLeaveStatusVisible(request.status));
+
+  const merged = new Map();
+  [...own, ...team].forEach((request) => {
+    merged.set(request.id || `${request.userId}-${request.start}-${request.end}`, request);
+  });
+  return [...merged.values()];
+}
+
+function isDateInLeaveRange(dayKey, start, end) {
+  const dayTime = parseLocalDate(dayKey).getTime();
+  return dayTime >= parseLocalDate(start).getTime() && dayTime <= parseLocalDate(end).getTime();
+}
+
+function getLeaveEventsForDay(dayKey, requests) {
+  return requests.filter((request) => isDateInLeaveRange(dayKey, request.start, request.end));
+}
+
+function leaveTypeColorClass(type) {
+  const normalized = (type || "").toLowerCase();
+  if (normalized.includes("rtt")) return "leave-type-rtt";
+  if (normalized.includes("maladie")) return "leave-type-sick";
+  if (normalized.includes("sans solde")) return "leave-type-unpaid";
+  return "leave-type-cp";
+}
+
+function buildLeaveCalendarDays(year, month) {
+  const firstDay = new Date(year, month, 1);
+  const startPad = (firstDay.getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = [];
+
+  for (let index = 0; index < startPad; index += 1) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    cells.push(new Date(year, month, day));
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+function renderLeaveCalendar() {
+  const { year, month } = getLeaveCalendarMonth();
+  const requests = getCalendarLeaveRequests();
+  const cells = buildLeaveCalendarDays(year, month);
+  const monthLabel = new Date(year, month, 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  const weekdays = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+  const todayKey = toDateKey(new Date());
+  const teamScope = canViewTeamLeaveCalendar();
+  const teamLabel = isAdmin() ? "toute l'organisation" : "votre equipe";
+
+  const dayCells = cells.map((date) => {
+    if (!date) return `<div class="leave-cal-cell leave-cal-cell--empty" aria-hidden="true"></div>`;
+
+    const key = toDateKey(date);
+    const events = getLeaveEventsForDay(key, requests);
+    const hasConflict = teamScope && events.length >= 2;
+    const isToday = key === todayKey;
+    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+
+    return `
+      <div class="leave-cal-cell${isToday ? " is-today" : ""}${hasConflict ? " has-conflict" : ""}${isWeekend ? " is-weekend" : ""}" data-date="${key}">
+        <span class="leave-cal-day">${date.getDate()}</span>
+        <div class="leave-cal-events">
+          ${events.slice(0, 3).map((event) => `
+            <span class="leave-cal-event ${leaveTypeColorClass(event.type)}${event.status === "A valider" ? " is-pending" : ""}"
+              title="${escapeHtml(event.name)} · ${escapeHtml(event.type)} · ${formatDate(event.start)} - ${formatDate(event.end)}">
+              ${escapeHtml((event.name || "Conge").split(" ")[0])}
+            </span>`).join("")}
+          ${events.length > 3 ? `<span class="leave-cal-more">+${events.length - 3}</span>` : ""}
+        </div>
+      </div>`;
+  }).join("");
+
+  return `
+    <article class="card leave-calendar-card page-spacer">
+      <div class="card-heading leave-cal-heading">
+        <h3>${teamScope ? `Calendrier des conges — ${teamLabel}` : "Calendrier des conges"}</h3>
+        <div class="leave-cal-nav">
+          <button type="button" class="outline-button leave-cal-prev" aria-label="Mois precedent">‹</button>
+          <strong class="leave-cal-month">${monthLabel}</strong>
+          <button type="button" class="outline-button leave-cal-next" aria-label="Mois suivant">›</button>
+          <button type="button" class="outline-button leave-cal-today">Aujourd'hui</button>
+        </div>
+      </div>
+      ${teamScope
+        ? `<p class="leave-cal-note">Les jours en surbrillance signalent plusieurs absences simultanees pour anticiper les conflits.</p>`
+        : ""}
+      <div class="leave-cal-grid" role="grid" aria-label="Calendrier des conges">
+        ${weekdays.map((weekday) => `<div class="leave-cal-weekday" role="columnheader">${weekday}</div>`).join("")}
+        ${dayCells}
+      </div>
+      <div class="leave-cal-legend">
+        <span class="leave-cal-legend-item"><i class="leave-type-cp"></i> Conges payes</span>
+        <span class="leave-cal-legend-item"><i class="leave-type-rtt"></i> RTT</span>
+        <span class="leave-cal-legend-item"><i class="leave-type-sick"></i> Maladie</span>
+        <span class="leave-cal-legend-item leave-cal-legend-pending"><i></i> En attente</span>
+        ${teamScope ? `<span class="leave-cal-legend-item leave-cal-legend-conflict"><i></i> Conflit equipe</span>` : ""}
+      </div>
+    </article>`;
+}
+
+async function reloadLeavePageContent() {
+  if (currentPage !== "leave") return;
+  const content = document.querySelector("#page-content");
+  if (!content) return;
+  content.innerHTML = pageContent();
+  bindPageEvents();
+}
+
+async function shiftLeaveCalendarMonth(delta) {
+  const current = getLeaveCalendarMonth();
+  const next = new Date(current.year, current.month + delta, 1);
+  leaveCalendarMonth = { year: next.getFullYear(), month: next.getMonth() };
+  try {
+    if (canViewTeamLeaveCalendar()) await loadTeamLeaveRequests(leaveCalendarMonth);
+    await reloadLeavePageContent();
+  } catch (error) {
+    appData.error = formatAppError(error);
+    renderApp();
+  }
+}
+
+async function resetLeaveCalendarToToday() {
+  const now = new Date();
+  leaveCalendarMonth = { year: now.getFullYear(), month: now.getMonth() };
+  try {
+    if (canViewTeamLeaveCalendar()) await loadTeamLeaveRequests(leaveCalendarMonth);
+    await reloadLeavePageContent();
+  } catch (error) {
+    appData.error = formatAppError(error);
+    renderApp();
+  }
 }
 
 function canViewHrAlerts() {
@@ -1303,6 +1532,7 @@ function leavePage() {
     <section class="balance-grid">
       ${balances.map((balance) => balanceCard(balance)).join("")}
     </section>
+    ${renderLeaveCalendar()}
     <div class="feature-grid page-spacer">
       <article class="card form-card">
         ${cardHeading("Nouvelle demande")}
@@ -1761,6 +1991,9 @@ function formatAppError(error) {
     return "Stockage Supabase non configure. Executez supabase/storage-hr-documents.sql dans SQL Editor.";
   }
   if (message.includes("permission") || message.includes("policy") || message.includes("row-level")) {
+    if (message.includes("leave_requests")) {
+      return "Acces au calendrier des conges equipe refuse. Executez supabase/leave-requests-access.sql dans SQL Editor.";
+    }
     return "Acces refuse aux pointages equipe. Executez supabase/time-punches-access.sql dans SQL Editor.";
   }
   if (message.includes("hr_alerts") || message.includes("process_auto_clock_outs") || message.includes("notify_auto_clock_out")) {
@@ -1892,6 +2125,12 @@ async function refreshAppData() {
       await loadHrAlerts(userId);
     } else {
       appData.hrAlerts = [];
+    }
+
+    if (canViewTeamLeaveCalendar()) {
+      await loadTeamLeaveRequests(getLeaveCalendarMonth());
+    } else {
+      appData.teamLeaveRequests = [];
     }
   });
 }
@@ -2247,6 +2486,18 @@ function bindPageEvents() {
 
   document.querySelector("#team-punches-export")?.addEventListener("click", () => {
     exportTeamPunchesCsv();
+  });
+
+  document.querySelector(".leave-cal-prev")?.addEventListener("click", () => {
+    shiftLeaveCalendarMonth(-1);
+  });
+
+  document.querySelector(".leave-cal-next")?.addEventListener("click", () => {
+    shiftLeaveCalendarMonth(1);
+  });
+
+  document.querySelector(".leave-cal-today")?.addEventListener("click", () => {
+    resetLeaveCalendarToToday();
   });
 
   document.querySelector("#mark-all-alerts-read")?.addEventListener("click", () => {
@@ -2608,12 +2859,14 @@ function bindAppEvents() {
     demoMode = false;
     currentPage = "home";
     teamPunchesInitialLoadDone = false;
+    leaveCalendarMonth = null;
     appData = {
       loading: false,
       error: "",
       profile: null,
       punches: [],
       teamPunches: [],
+      teamLeaveRequests: [],
       leaveRequests: [],
       attestationRequests: [],
       orgProfiles: [],
