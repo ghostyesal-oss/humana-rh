@@ -299,14 +299,32 @@ function computeWorkedMsInRange(punches, startStr, endStr) {
   const rangeEnd = new Date(`${endStr}T23:59:59`).getTime();
   const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
   let total = 0;
+  let workStart = null;
 
-  for (let index = 0; index < sorted.length; index += 1) {
-    if (sorted[index].type !== "in") continue;
-    const next = sorted[index + 1];
-    const sessionStart = Math.max(new Date(sorted[index].time).getTime(), rangeStart);
-    const sessionEnd = next?.type === "out"
-      ? Math.min(new Date(next.time).getTime(), rangeEnd)
-      : Math.min(Date.now(), rangeEnd);
+  sorted.forEach((punch) => {
+    const time = new Date(punch.time).getTime();
+    if (punch.type === "in" || punch.type === "break_end") {
+      workStart = time;
+      return;
+    }
+    if (punch.type === "break_start" && workStart !== null) {
+      const sessionStart = Math.max(workStart, rangeStart);
+      const sessionEnd = Math.min(time, rangeEnd);
+      if (sessionEnd > sessionStart) total += sessionEnd - sessionStart;
+      workStart = null;
+      return;
+    }
+    if (punch.type === "out" && workStart !== null) {
+      const sessionStart = Math.max(workStart, rangeStart);
+      const sessionEnd = Math.min(time, rangeEnd);
+      if (sessionEnd > sessionStart) total += sessionEnd - sessionStart;
+      workStart = null;
+    }
+  });
+
+  if (workStart !== null) {
+    const sessionStart = Math.max(workStart, rangeStart);
+    const sessionEnd = Math.min(Date.now(), rangeEnd);
     if (sessionEnd > sessionStart) total += sessionEnd - sessionStart;
   }
 
@@ -359,7 +377,7 @@ function exportTeamPunchesCsv() {
       row.name,
       row.email,
       formatDate(row.time),
-      row.type === "in" ? "Entree" : "Sortie",
+      row.type === "in" ? "Entree" : row.type === "out" ? "Sortie" : punchTypeLabel(row.type),
       formatTime(row.time)
     ])
   );
@@ -546,23 +564,41 @@ function formatDuration(ms) {
   return `${hours}h${String(minutes).padStart(2, "0")}`;
 }
 
+function punchTypeLabel(type) {
+  switch (type) {
+    case "in": return "Entree";
+    case "out": return "Sortie";
+    case "break_start": return "Pause dej";
+    case "break_end": return "Reprise dej";
+    default: return type;
+  }
+}
+
 function computeWorkedHours(punches) {
   const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
   const now = Date.now();
   const sessions = [];
+  let workStart = null;
 
-  for (let index = 0; index < sorted.length; index += 1) {
-    if (sorted[index].type !== "in") continue;
-    const next = sorted[index + 1];
-    const end = next?.type === "out"
-      ? new Date(next.time).getTime()
-      : (index === sorted.length - 1 ? now : null);
-    if (end) {
-      sessions.push({
-        start: new Date(sorted[index].time).getTime(),
-        end
-      });
+  sorted.forEach((punch) => {
+    const time = new Date(punch.time).getTime();
+    if (punch.type === "in" || punch.type === "break_end") {
+      workStart = time;
+      return;
     }
+    if (punch.type === "break_start" && workStart !== null) {
+      sessions.push({ start: workStart, end: time });
+      workStart = null;
+      return;
+    }
+    if (punch.type === "out" && workStart !== null) {
+      sessions.push({ start: workStart, end: time });
+      workStart = null;
+    }
+  });
+
+  if (workStart !== null) {
+    sessions.push({ start: workStart, end: now });
   }
 
   const todayStart = new Date();
@@ -659,7 +695,17 @@ function hoursCard(label, value) {
 function getClockState() {
   const punches = getPunches();
   const last = punches[punches.length - 1];
-  return { punches, isIn: last?.type === "in" };
+  const lastType = last?.type;
+  const onBreak = lastType === "break_start";
+  const isWorking = lastType === "in" || lastType === "break_end";
+  const isDayOpen = lastType === "in" || lastType === "break_start" || lastType === "break_end";
+  return {
+    punches,
+    isIn: isDayOpen,
+    isWorking,
+    onBreak,
+    isOut: !isDayOpen
+  };
 }
 
 function getTodayPunches(punches = getPunches()) {
@@ -668,10 +714,19 @@ function getTodayPunches(punches = getPunches()) {
 }
 
 function getClockStatusCopy() {
-  const { isIn } = getClockState();
+  const { isWorking, onBreak } = getClockState();
   const hasToday = getTodayPunches().length > 0;
 
-  if (isIn) {
+  if (onBreak) {
+    return {
+      title: "Pause dejeuner",
+      hint: "Votre pause est enregistree. Cliquez sur Reprise dej pour continuer.",
+      tone: "break",
+      homeLine: "En pause dejeuner"
+    };
+  }
+
+  if (isWorking) {
     return {
       title: "Vous êtes en poste",
       hint: "Bonne journée, vous êtes bien enregistré.",
@@ -695,6 +750,28 @@ function getClockStatusCopy() {
     tone: "out",
     homeLine: "Vous n'avez pas encore pointé aujourd'hui"
   };
+}
+
+function renderClockActions() {
+  const { isWorking, onBreak, isOut } = getClockState();
+
+  if (isOut) {
+    return `<button type="button" id="clock-toggle" class="clock-button in">J'arrive</button>`;
+  }
+
+  if (onBreak) {
+    return `
+      <div class="clock-actions">
+        <button type="button" id="break-toggle" class="clock-button break-end">Reprise dej</button>
+        <button type="button" id="clock-toggle" class="clock-button out clock-button-secondary">Je pars</button>
+      </div>`;
+  }
+
+  return `
+    <div class="clock-actions">
+      <button type="button" id="break-toggle" class="clock-button break-start">Pause dej</button>
+      <button type="button" id="clock-toggle" class="clock-button out">Je pars</button>
+    </div>`;
 }
 
 function renderClockStatus(clockStatus, extraClass = "") {
@@ -835,7 +912,6 @@ function dayGreeting() {
 
 function homePage() {
   const firstName = escapeHtml(getUserName().split(" ")[0] || "vous");
-  const { isIn } = getClockState();
   const clockStatus = getClockStatusCopy();
   const hours = computeWorkedHours(getPunches());
   const balances = getLeaveBalances();
@@ -862,9 +938,7 @@ function homePage() {
         <div class="home-clock">
           ${renderClockStatus(clockStatus, "home-clock-status")}
           <p class="home-hours-today">Temps aujourd'hui : <b>${formatDuration(hours.today)}</b></p>
-          <button type="button" id="clock-toggle" class="clock-button ${isIn ? "out" : "in"}">
-            ${isIn ? "Je pars" : "J'arrive"}
-          </button>
+          ${renderClockActions()}
         </div>
       </article>
 
@@ -918,7 +992,7 @@ function homePage() {
 }
 
 function pointeusePage() {
-  const { punches, isIn } = getClockState();
+  const { punches } = getClockState();
   const clockStatus = getClockStatusCopy();
   const hours = computeWorkedHours(punches);
   const todayPunches = getTodayPunches(punches);
@@ -936,9 +1010,7 @@ function pointeusePage() {
     <section class="clock-grid page-spacer">
       <article class="card clock-card">
         ${renderClockStatus(clockStatus)}
-        <button type="button" id="clock-toggle" class="clock-button ${isIn ? "out" : "in"}">
-          ${isIn ? "Je pars" : "J'arrive"}
-        </button>
+        ${renderClockActions()}
         <p class="clock-hint">${new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
       </article>
       <article class="card">
@@ -947,7 +1019,7 @@ function pointeusePage() {
           ${todayPunches.length
             ? todayPunches.map((punch) => `
               <div class="punch-item">
-                <span class="punch-type ${punch.type}">${punch.type === "in" ? "Entree" : "Sortie"}</span>
+                <span class="punch-type ${punch.type}">${punchTypeLabel(punch.type)}</span>
                 <strong>${formatTime(punch.time)}</strong>
               </div>`).join("")
             : `<p class="empty-state">Aucun pointage aujourd'hui.</p>`}
@@ -964,7 +1036,7 @@ function pointeusePage() {
               ? [...punches].reverse().slice(0, 10).map((punch) => `
                 <tr>
                   <td>${formatDate(punch.time)}</td>
-                  <td>${punch.type === "in" ? "Entree" : "Sortie"}</td>
+                  <td>${punchTypeLabel(punch.type)}</td>
                   <td>${formatTime(punch.time)}</td>
                 </tr>`).join("")
               : `<tr><td colspan="3" class="empty-cell">Aucun historique pour le moment.</td></tr>`}
@@ -1064,7 +1136,7 @@ function teamPunchesPage() {
                   <td><strong>${escapeHtml(row.name)}</strong></td>
                   <td>${escapeHtml(row.email)}</td>
                   <td>${formatDate(row.time)}</td>
-                  <td>${row.type === "in" ? "Entree" : "Sortie"}</td>
+                  <td>${punchTypeLabel(row.type)}</td>
                   <td>${formatTime(row.time)}</td>
                 </tr>`).join("")
               : `<tr><td colspan="5" class="empty-cell">Aucun pointage pour cette periode. Ajustez les filtres puis actualisez.</td></tr>`}
@@ -1906,17 +1978,37 @@ function bindPageEvents() {
 
   document.querySelector("#clock-toggle")?.addEventListener("click", () => {
     withAction(async () => {
-      const { isIn } = getClockState();
+      const { isOut } = getClockState();
+      const punchType = isOut ? "in" : "out";
       if (usesDatabase()) {
         const { error } = await supabaseClient.from("time_punches").insert({
           user_id: session.user.id,
-          punch_type: isIn ? "out" : "in",
+          punch_type: punchType,
           punched_at: new Date().toISOString()
         });
         if (error) throw error;
       } else {
         const punches = loadStore("punches", []);
-        punches.push({ type: isIn ? "out" : "in", time: new Date().toISOString() });
+        punches.push({ type: punchType, time: new Date().toISOString() });
+        saveStore("punches", punches);
+      }
+    });
+  });
+
+  document.querySelector("#break-toggle")?.addEventListener("click", () => {
+    withAction(async () => {
+      const { onBreak } = getClockState();
+      const punchType = onBreak ? "break_end" : "break_start";
+      if (usesDatabase()) {
+        const { error } = await supabaseClient.from("time_punches").insert({
+          user_id: session.user.id,
+          punch_type: punchType,
+          punched_at: new Date().toISOString()
+        });
+        if (error) throw error;
+      } else {
+        const punches = loadStore("punches", []);
+        punches.push({ type: punchType, time: new Date().toISOString() });
         saveStore("punches", punches);
       }
     });
