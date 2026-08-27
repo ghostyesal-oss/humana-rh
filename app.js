@@ -26,6 +26,7 @@ let appData = {
   pendingInvites: [],
   hrDocuments: [],
   payslips: [],
+  hrAlerts: [],
   adminEditingId: "",
   adminEditingInviteId: ""
 };
@@ -157,6 +158,7 @@ const navigation = [
 
 const HR_DOCUMENTS_BUCKET = "hr-documents";
 const HR_DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
+const AUTO_CLOCK_OUT_MS = 10 * 60 * 60 * 1000;
 
 const leaveTypes = ["Conges payes", "RTT", "Conge maladie", "Conge sans solde"];
 const attestationTypes = [
@@ -425,6 +427,149 @@ async function loadTeamPunches(filters = teamPunchFilters) {
   return appData.teamPunches;
 }
 
+function canViewHrAlerts() {
+  return usesDatabase() && (isAdmin() || hasDirectReports());
+}
+
+function countUnreadHrAlerts() {
+  return (appData.hrAlerts || []).filter((alert) => !alert.read_at).length;
+}
+
+function getFirstInOfOpenSession(punches) {
+  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+  let firstIn = null;
+  sorted.forEach((punch) => {
+    if (punch.type === "in") firstIn = punch;
+    if (punch.type === "out") firstIn = null;
+  });
+  return firstIn;
+}
+
+async function processAutoClockOutForUser(userId, punches) {
+  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const last = sorted[sorted.length - 1];
+  if (!last || last.type === "out") return false;
+
+  const firstIn = getFirstInOfOpenSession(sorted);
+  if (!firstIn) return false;
+
+  const autoOutTime = new Date(new Date(firstIn.time).getTime() + AUTO_CLOCK_OUT_MS);
+  if (Date.now() < autoOutTime.getTime()) return false;
+
+  if (sorted.some((punch) => punch.type === "out" && new Date(punch.time) >= new Date(firstIn.time))) {
+    return false;
+  }
+
+  if (last.type === "break_start") {
+    const { error: breakError } = await supabaseClient.from("time_punches").insert({
+      user_id: userId,
+      punch_type: "break_end",
+      punched_at: new Date(autoOutTime.getTime() - 1000).toISOString()
+    });
+    if (breakError) throw breakError;
+  }
+
+  const { error } = await supabaseClient.from("time_punches").insert({
+    user_id: userId,
+    punch_type: "out",
+    punched_at: autoOutTime.toISOString()
+  });
+  if (error) throw error;
+
+  const collaborator = profileById(userId);
+  const { error: notifyError } = await supabaseClient.rpc("notify_auto_clock_out", {
+    p_subject_user_id: userId,
+    p_collaborator_name: collaborator?.full_name || "",
+    p_auto_out_time: autoOutTime.toISOString()
+  });
+  if (notifyError) console.warn("notify_auto_clock_out:", notifyError.message);
+  return true;
+}
+
+async function runAutoClockOutChecks() {
+  if (!usesDatabase() || !session?.user?.id) return;
+
+  let usedRpc = false;
+  try {
+    const { error } = await supabaseClient.rpc("process_auto_clock_outs");
+    if (!error) {
+      usedRpc = true;
+    } else if (
+      !error.message.includes("does not exist")
+      && !error.message.includes("Could not find the function")
+    ) {
+      console.warn("process_auto_clock_outs:", error.message);
+    }
+  } catch (error) {
+    console.warn("runAutoClockOutChecks:", error.message || error);
+  }
+
+  if (!usedRpc) {
+    try {
+      await processAutoClockOutForUser(session.user.id, getPunches());
+    } catch (error) {
+      console.warn("processAutoClockOutForUser:", error.message || error);
+    }
+  }
+
+  const punchesRes = await supabaseClient
+    .from("time_punches")
+    .select("*")
+    .eq("user_id", session.user.id)
+    .order("punched_at", { ascending: true });
+  if (!punchesRes.error) appData.punches = punchesRes.data || [];
+}
+
+async function loadHrAlerts(userId) {
+  const { data, error } = await supabaseClient
+    .from("hr_alerts")
+    .select("*")
+    .eq("recipient_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(40);
+  if (error) {
+    if (error.message.includes("does not exist") || error.message.includes("hr_alerts")) {
+      appData.hrAlerts = [];
+      return;
+    }
+    throw error;
+  }
+  appData.hrAlerts = data || [];
+}
+
+function renderHrAlertsCard() {
+  if (!canViewHrAlerts()) return "";
+
+  const alerts = appData.hrAlerts || [];
+  const unread = countUnreadHrAlerts();
+
+  return `
+    <article class="card home-widget home-alerts-widget">
+      <div class="card-heading">
+        <h3>Alertes RH${unread ? ` <span class="nav-badge">${unread}</span>` : ""}</h3>
+        ${unread ? `<button type="button" class="home-link" id="mark-all-alerts-read">Tout marquer lu</button>` : ""}
+      </div>
+      <div class="hr-alert-list">
+        ${alerts.length
+          ? alerts.slice(0, 6).map((alert) => {
+            const subjectName = escapeHtml(profileById(alert.subject_user_id)?.full_name || "Collaborateur");
+            return `
+              <div class="hr-alert-item ${alert.read_at ? "is-read" : "is-unread"}">
+                <div>
+                  <strong>${subjectName}</strong>
+                  <p>${escapeHtml(alert.message)}</p>
+                  <small>${formatDate(alert.created_at)} · ${formatTime(alert.created_at)}</small>
+                </div>
+                ${alert.read_at
+                  ? ""
+                  : `<button type="button" class="outline-button" data-alert-read="${alert.id}">Lu</button>`}
+              </div>`;
+          }).join("")
+          : `<p class="empty-state">Aucune alerte pour le moment.</p>`}
+      </div>
+    </article>`;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -552,6 +697,9 @@ function countPendingAttestations() {
 }
 
 function navBadge(page) {
+  if (page === "home" && canViewHrAlerts() && countUnreadHrAlerts()) {
+    return `<span class="nav-badge">${countUnreadHrAlerts()}</span>`;
+  }
   if (page === "leave" && countPendingLeave()) return `<span class="nav-badge">${countPendingLeave()}</span>`;
   if (page === "attestations" && countPendingAttestations()) return `<span class="nav-badge">${countPendingAttestations()}</span>`;
   return "";
@@ -930,6 +1078,7 @@ function homePage() {
     </section>
 
     <section class="home-grid page-spacer">
+      ${canViewHrAlerts() ? renderHrAlertsCard() : ""}
       <article class="card home-widget">
         <div class="card-heading">
           <h3>Ma journee</h3>
@@ -1614,6 +1763,9 @@ function formatAppError(error) {
   if (message.includes("permission") || message.includes("policy") || message.includes("row-level")) {
     return "Acces refuse aux pointages equipe. Executez supabase/time-punches-access.sql dans SQL Editor.";
   }
+  if (message.includes("hr_alerts") || message.includes("process_auto_clock_outs") || message.includes("notify_auto_clock_out")) {
+    return "Sortie automatique non configuree. Executez supabase/auto-clock-out.sql dans SQL Editor.";
+  }
   return error?.message || "Impossible de charger les donnees Supabase.";
 }
 
@@ -1733,6 +1885,14 @@ async function refreshAppData() {
     ]);
     if (!docsRes.error) appData.hrDocuments = docsRes.data || [];
     if (!payslipsRes.error) appData.payslips = payslipsRes.data || [];
+
+    await runAutoClockOutChecks();
+
+    if (canViewHrAlerts()) {
+      await loadHrAlerts(userId);
+    } else {
+      appData.hrAlerts = [];
+    }
   });
 }
 
@@ -2089,6 +2249,33 @@ function bindPageEvents() {
     exportTeamPunchesCsv();
   });
 
+  document.querySelector("#mark-all-alerts-read")?.addEventListener("click", () => {
+    withAction(async () => {
+      const unreadIds = (appData.hrAlerts || []).filter((alert) => !alert.read_at).map((alert) => alert.id);
+      if (!unreadIds.length) return;
+      const { error } = await supabaseClient
+        .from("hr_alerts")
+        .update({ read_at: new Date().toISOString() })
+        .in("id", unreadIds)
+        .eq("recipient_id", session.user.id);
+      if (error) throw error;
+    });
+  });
+
+  document.querySelectorAll("[data-alert-read]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const alertId = button.dataset.alertRead;
+      withAction(async () => {
+        const { error } = await supabaseClient
+          .from("hr_alerts")
+          .update({ read_at: new Date().toISOString() })
+          .eq("id", alertId)
+          .eq("recipient_id", session.user.id);
+        if (error) throw error;
+      });
+    });
+  });
+
   document.querySelector("#leave-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -2433,6 +2620,7 @@ function bindAppEvents() {
       pendingInvites: [],
       hrDocuments: [],
       payslips: [],
+      hrAlerts: [],
       adminEditingId: "",
       adminEditingInviteId: ""
     };
