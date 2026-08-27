@@ -165,6 +165,40 @@ small { font-size: 12px; color: var(--text-tertiary); }
 
 /* Loading / empty */
 
+.auth-boot-screen {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+}
+
+html.auth-booting .auth-boot-screen {
+  display: flex !important;
+}
+
+html.auth-booting #app {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.auth-boot-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s4);
+  padding: var(--s6);
+  text-align: center;
+}
+
+.auth-boot-card p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-tertiary);
+}
+
 .boot-message {
   display: flex;
   align-items: center;
