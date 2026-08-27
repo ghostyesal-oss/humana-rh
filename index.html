@@ -15,13 +15,39 @@
       var meta = document.querySelector('meta[name="theme-color"]');
       if (meta) meta.content = theme === "dark" ? "#0b1220" : "#022341";
     })();
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var booting = params.has("code");
+      if (!booting) {
+        try { booting = sessionStorage.getItem("humana_auth_boot") === "1"; } catch (e) {}
+      }
+      if (!booting) {
+        try {
+          for (var i = 0; i < localStorage.length; i++) {
+            var key = localStorage.key(i);
+            if (key && key.indexOf("-auth-token") !== -1) {
+              var val = localStorage.getItem(key);
+              if (val && val.indexOf("access_token") !== -1) { booting = true; break; }
+            }
+          }
+        } catch (e) {}
+      }
+      if (booting) document.documentElement.classList.add("auth-booting");
+    })();
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=52">
+  <link rel="stylesheet" href="style.css?v=53">
 </head>
 <body>
+  <div id="auth-boot-screen" class="auth-boot-screen" aria-live="polite" aria-busy="true" hidden>
+    <div class="auth-boot-card">
+      <div class="brand brand-large"><span>H</span> Humana</div>
+      <span class="loader" aria-hidden="true"></span>
+      <p>Connexion en cours...</p>
+    </div>
+  </div>
   <div id="app" aria-live="polite">
     <main class="login-page">
       <section class="login-brand">
@@ -127,6 +153,9 @@
         var code = params.get("code");
         if (!code) return;
 
+        try { sessionStorage.setItem("humana_auth_boot", "1"); } catch (e) {}
+        document.documentElement.classList.add("auth-booting");
+
         var flowId = params.get("sb_flow_id") || undefined;
         try {
           var exchanged = await window.__humanaSupabase.auth.exchangeCodeForSession(
@@ -186,6 +215,8 @@
           window.__oauthStarting = true;
           if (loginButton) loginButton.disabled = true;
           try { sessionStorage.setItem("humana_ms_welcome", "1"); } catch (e) {}
+          try { sessionStorage.setItem("humana_auth_boot", "1"); } catch (e) {}
+          document.documentElement.classList.add("auth-booting");
           var result = await client.auth.signInWithOAuth({
             provider: "azure",
             options: {
@@ -251,6 +282,6 @@
       }
     }, true);
   </script>
-  <script src="app.js?v=52" charset="UTF-8"></script>
+  <script src="app.js?v=53" charset="UTF-8"></script>
 </body>
 </html>
