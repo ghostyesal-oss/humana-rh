@@ -2768,6 +2768,54 @@ tbody tr:hover td { background: var(--surface-2); }
   font-size: 11px;
 }
 
+.home-alerts-widget {
+  grid-column: 1 / -1;
+}
+
+.hr-alert-list {
+  display: grid;
+  gap: var(--s2);
+}
+
+.hr-alert-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s3);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  border-left: 3px solid transparent;
+}
+
+.hr-alert-item.is-unread {
+  border-left-color: var(--amber, #d97706);
+  background: color-mix(in srgb, var(--amber, #d97706) 8%, var(--surface-2));
+}
+
+.hr-alert-item.is-read {
+  opacity: 0.75;
+}
+
+.hr-alert-item strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.hr-alert-item p {
+  margin: var(--s1) 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.hr-alert-item small {
+  display: block;
+  margin-top: var(--s2);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .home-doc-list,
 .home-payslip-list { display: grid; gap: var(--s2); }
 
