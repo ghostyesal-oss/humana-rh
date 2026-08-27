@@ -1286,6 +1286,185 @@ tbody tr:hover td { background: var(--surface-2); }
   gap: var(--s3);
 }
 
+.leave-calendar-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.leave-cal-heading {
+  flex-wrap: wrap;
+  gap: var(--s3);
+}
+
+.leave-cal-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.leave-cal-month {
+  min-width: 9rem;
+  text-align: center;
+  text-transform: capitalize;
+  font-size: 14px;
+}
+
+.leave-cal-note {
+  margin: 0;
+  padding: var(--s3) var(--s5) 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.leave-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  margin: var(--s4) var(--s5) var(--s3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--border);
+}
+
+.leave-cal-weekday,
+.leave-cal-cell {
+  min-height: 88px;
+  background: var(--surface);
+}
+
+.leave-cal-weekday {
+  min-height: auto;
+  padding: var(--s2);
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  background: var(--surface-2);
+}
+
+.leave-cal-cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s2);
+}
+
+.leave-cal-cell--empty {
+  background: color-mix(in srgb, var(--surface-2) 70%, var(--surface));
+}
+
+.leave-cal-cell.is-weekend {
+  background: color-mix(in srgb, var(--surface-2) 55%, var(--surface));
+}
+
+.leave-cal-cell.is-today .leave-cal-day {
+  background: var(--forest-mid);
+  color: #fff;
+}
+
+.leave-cal-cell.has-conflict {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, #d97706 70%, transparent);
+  background: color-mix(in srgb, #d97706 10%, var(--surface));
+}
+
+.leave-cal-day {
+  align-self: flex-end;
+  width: 1.6rem;
+  height: 1.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.leave-cal-events {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+}
+
+.leave-cal-event {
+  display: block;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #fff;
+}
+
+.leave-cal-event.leave-type-cp { background: #2f6f4f; }
+.leave-cal-event.leave-type-rtt { background: #2563eb; }
+.leave-cal-event.leave-type-sick { background: #b45309; }
+.leave-cal-event.leave-type-unpaid { background: #6b7280; }
+
+.leave-cal-event.is-pending {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 4px,
+    rgba(255, 255, 255, 0.22) 4px,
+    rgba(255, 255, 255, 0.22) 8px
+  );
+}
+
+.leave-cal-more {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.leave-cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  padding: 0 var(--s5) var(--s5);
+}
+
+.leave-cal-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.leave-cal-legend-item i {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.leave-cal-legend-item .leave-type-cp { background: #2f6f4f; }
+.leave-cal-legend-item .leave-type-rtt { background: #2563eb; }
+.leave-cal-legend-item .leave-type-sick { background: #b45309; }
+
+.leave-cal-legend-pending i {
+  background: #2f6f4f;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 255, 255, 0.35) 2px,
+    rgba(255, 255, 255, 0.35) 4px
+  );
+}
+
+.leave-cal-legend-conflict i {
+  background: color-mix(in srgb, #d97706 35%, var(--surface));
+  box-shadow: inset 0 0 0 2px #d97706;
+}
+
 .hours-card,
 .balance-card { padding: var(--s4) var(--s5); }
 
@@ -3235,6 +3414,9 @@ tbody tr:hover td { background: var(--surface-2); }
 @media (max-width: 1050px) {
   .clock-grid, .feature-grid, .hierarchy-grid, .home-grid { grid-template-columns: 1fr; }
   .hours-grid, .balance-grid { grid-template-columns: 1fr; }
+  .leave-cal-cell { min-height: 72px; }
+  .leave-cal-heading { flex-direction: column; align-items: flex-start; }
+  .leave-cal-nav { width: 100%; justify-content: space-between; }
 }
 
 @media (max-width: 780px) {
