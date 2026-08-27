@@ -1367,6 +1367,60 @@ tbody tr:hover td { background: var(--surface-2); }
   background: var(--text-tertiary);
 }
 
+.clock-status.break {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.14), rgba(254, 243, 199, 0.42));
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.clock-status.break .clock-status-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.22);
+  animation: statusDotPulse 2s ease-in-out infinite;
+}
+
+.clock-status.break strong {
+  color: #92400e;
+}
+
+.clock-status.break span {
+  color: #b45309;
+}
+
+.clock-actions {
+  display: grid;
+  gap: var(--s3);
+}
+
+.clock-button.break-start {
+  border: none;
+  background: linear-gradient(145deg, #fbbf24, #f59e0b);
+  color: #78350f;
+}
+
+.clock-button.break-start:hover {
+  background: linear-gradient(145deg, #f59e0b, #d97706);
+}
+
+.clock-button.break-end {
+  border: none;
+  background: linear-gradient(145deg, #34d399, #10b981);
+  color: #064e3b;
+}
+
+.clock-button.break-end:hover {
+  background: linear-gradient(145deg, #10b981, #059669);
+}
+
+.clock-button-secondary {
+  background: var(--surface-2);
+  color: var(--forest-mid);
+  border: 1px solid rgba(0, 70, 254, 0.2);
+}
+
+.clock-button-secondary:hover {
+  background: var(--lime-muted);
+}
+
 .clock-status strong {
   display: block;
   margin-bottom: var(--s1);
@@ -1432,6 +1486,8 @@ tbody tr:hover td { background: var(--surface-2); }
 
 .punch-type.in { background: var(--lime-muted); color: var(--forest); }
 .punch-type.out { background: var(--surface); color: var(--text-secondary); }
+.punch-type.break_start { background: rgba(245, 158, 11, 0.16); color: #b45309; }
+.punch-type.break_end { background: rgba(16, 185, 129, 0.16); color: #047857; }
 
 /* Balances */
 
@@ -2506,6 +2562,25 @@ tbody tr:hover td { background: var(--surface-2); }
 
 [data-theme="dark"] .clock-status.out strong {
   color: var(--text);
+}
+
+[data-theme="dark"] .clock-status.break {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(26, 39, 64, 0.95));
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
+[data-theme="dark"] .clock-status.break strong {
+  color: #fde68a;
+}
+
+[data-theme="dark"] .clock-status.break span {
+  color: #fcd34d;
+}
+
+[data-theme="dark"] .clock-button-secondary {
+  background: var(--surface-2);
+  color: #cfe0ff;
+  border-color: rgba(59, 123, 255, 0.28);
 }
 
 .org-toggle {
