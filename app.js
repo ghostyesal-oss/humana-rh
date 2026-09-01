@@ -2661,7 +2661,9 @@ function renderApp() {
   app.innerHTML = `
     <div class="app-shell" data-current-page="${currentPage}">
       <aside class="sidebar">
-        <div class="brand"><span>H</span> Humana</div>
+        <button type="button" class="brand brand-home" id="brand-home" aria-label="Retour a l'accueil">
+          <span>H</span> Humana
+        </button>
         <button class="close-menu" type="button" aria-label="Fermer"></button>
         <nav>${getNavigationItems().map((item) => `
           <button type="button" data-page="${item[0]}" class="${currentPage === item[0] ? "active" : ""}">
@@ -3217,6 +3219,12 @@ function bindPageEvents() {
 
 function bindAppEvents() {
   bindThemeToggle();
+
+  document.querySelector("#brand-home")?.addEventListener("click", () => {
+    currentPage = "home";
+    document.querySelector(".sidebar")?.classList.remove("open");
+    renderApp();
+  });
 
   document.querySelectorAll(".sidebar nav [data-page]").forEach((button) => {
     button.addEventListener("click", () => {
