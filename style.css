@@ -3111,6 +3111,28 @@ tbody tr:hover td { background: var(--surface-2); }
   opacity: 0.75;
 }
 
+.hr-alert-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+
+.hr-alert-delete-all {
+  color: var(--error-text, #b42318);
+}
+
+.hr-alert-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  flex-shrink: 0;
+}
+
+.hr-alert-delete-btn {
+  color: var(--error-text, #b42318);
+  border-color: color-mix(in srgb, var(--error-text, #b42318) 35%, var(--border));
+}
+
 .hr-alert-item strong {
   display: block;
   font-size: 13px;
