@@ -503,6 +503,65 @@ function summarizeTeamPunchesByUser(punches, profiles, startStr, endStr) {
   });
 }
 
+function getDayShiftSummaryFromPunches(punches) {
+  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const startPunch = sorted.find((punch) => punch.type === "in");
+  const endPunch = [...sorted].reverse().find((punch) => punch.type === "out");
+  const lastPunch = sorted[sorted.length - 1];
+  const dayKey = sorted.length ? toDateKey(new Date(sorted[0].time)) : "";
+  const isToday = sorted.length
+    && new Date(sorted[0].time).toDateString() === new Date().toDateString();
+
+  return {
+    startTime: startPunch?.time || null,
+    endTime: endPunch?.time || null,
+    breakDurationMs: computeBreakDuration(sorted),
+    workedMs: dayKey ? computeWorkedMsInRange(sorted, dayKey, dayKey) : 0,
+    isDayClosed: lastPunch?.type === "out",
+    hasStarted: Boolean(startPunch),
+    isToday
+  };
+}
+
+function formatDayEndTime(summary) {
+  if (summary.endTime) return formatTime(summary.endTime);
+  if (summary.hasStarted && !summary.isDayClosed) return "En cours";
+  return "—";
+}
+
+function summarizeTeamPunchesByDay(teamPunchesRows, startStr, endStr) {
+  const byUserDay = new Map();
+
+  teamPunchesRows.forEach((row) => {
+    const normalized = normalizeTeamPunchRow(row);
+    const dayKey = toDateKey(new Date(normalized.time));
+    if (dayKey < startStr || dayKey > endStr) return;
+
+    const mapKey = `${normalized.userId}|${dayKey}`;
+    if (!byUserDay.has(mapKey)) {
+      byUserDay.set(mapKey, {
+        userId: normalized.userId,
+        name: normalized.name,
+        email: normalized.email,
+        dayKey,
+        punches: []
+      });
+    }
+    byUserDay.get(mapKey).punches.push({ type: normalized.type, time: normalized.time });
+  });
+
+  return [...byUserDay.values()]
+    .map((entry) => ({
+      ...entry,
+      ...getDayShiftSummaryFromPunches(entry.punches)
+    }))
+    .sort((a, b) => {
+      const dayCmp = b.dayKey.localeCompare(a.dayKey);
+      if (dayCmp !== 0) return dayCmp;
+      return (a.name || "").localeCompare(b.name || "", "fr");
+    });
+}
+
 function downloadCsv(filename, headers, rows) {
   const sep = ";";
   const escapeCell = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
@@ -519,21 +578,26 @@ function downloadCsv(filename, headers, rows) {
 }
 
 function exportTeamPunchesCsv() {
-  const rows = appData.teamPunches.map(normalizeTeamPunchRow);
-  if (!rows.length) {
+  const range = teamPunchFilters.start && teamPunchFilters.end
+    ? teamPunchFilters
+    : getDefaultTeamPunchRange();
+  const dailyRows = summarizeTeamPunchesByDay(appData.teamPunches, range.start, range.end);
+  if (!dailyRows.length) {
     alert("Aucun pointage a exporter pour cette periode.");
     return;
   }
 
   downloadCsv(
-    `pointages-equipe_${teamPunchFilters.start}_${teamPunchFilters.end}.csv`,
-    ["Nom", "Email", "Date", "Type", "Heure"],
-    rows.map((row) => [
+    `pointages-equipe_${range.start}_${range.end}.csv`,
+    ["Nom", "Email", "Date", "Debut", "Fin", "Pause dej", "Heures travaillees"],
+    dailyRows.map((row) => [
       row.name,
       row.email,
-      formatDate(row.time),
-      row.type === "in" ? "Entree" : row.type === "out" ? "Sortie" : punchTypeLabel(row.type),
-      formatTime(row.time)
+      formatDate(row.dayKey),
+      row.startTime ? formatTime(row.startTime) : "",
+      row.endTime ? formatTime(row.endTime) : (row.hasStarted && !row.isDayClosed ? "En cours" : ""),
+      formatDuration(row.breakDurationMs),
+      formatDuration(row.workedMs)
     ])
   );
 }
@@ -1677,7 +1741,7 @@ function teamPunchesPage() {
     ? profiles.filter((profile) => profile.id === teamPunchFilters.userId)
     : profiles;
   const summary = summarizeTeamPunchesByUser(appData.teamPunches, scopedProfiles, range.start, range.end);
-  const rows = appData.teamPunches.map(normalizeTeamPunchRow);
+  const dailyRows = summarizeTeamPunchesByDay(appData.teamPunches, range.start, range.end);
   const scopeLabel = isAdmin()
     ? (scope === "team" ? "mon equipe directe" : "tous les collaborateurs")
     : "votre equipe directe";
@@ -1718,7 +1782,7 @@ function teamPunchesPage() {
         </label>
         <div class="team-punches-actions">
           <button type="submit" class="primary">Actualiser</button>
-          <button type="button" id="team-punches-export" class="outline-button"${rows.length ? "" : " disabled"}>Exporter CSV</button>
+          <button type="button" id="team-punches-export" class="outline-button"${dailyRows.length ? "" : " disabled"}>Exporter CSV</button>
         </div>
       </form>
     </article>
@@ -1735,24 +1799,32 @@ function teamPunchesPage() {
     <article class="card table-card page-spacer">
       <div class="toolbar">
         <h3>Detail des pointages</h3>
-        <span class="hierarchy-result-count">${rows.length} ligne${rows.length > 1 ? "s" : ""}</span>
+        <span class="hierarchy-result-count">${dailyRows.length} jour${dailyRows.length > 1 ? "s" : ""}</span>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>Collaborateur</th><th>Email</th><th>Date</th><th>Type</th><th>Heure</th></tr>
+            <tr>
+              <th>Collaborateur</th>
+              <th>Date</th>
+              <th>Debut</th>
+              <th>Fin</th>
+              <th>Pause dej</th>
+              <th>Heures travaillees</th>
+            </tr>
           </thead>
           <tbody>
-            ${rows.length
-              ? rows.map((row) => `
+            ${dailyRows.length
+              ? dailyRows.map((row) => `
                 <tr>
                   <td><strong>${escapeHtml(row.name)}</strong></td>
-                  <td>${escapeHtml(row.email)}</td>
-                  <td>${formatDate(row.time)}</td>
-                  <td>${punchTypeLabel(row.type)}</td>
-                  <td>${formatTime(row.time)}</td>
+                  <td>${formatDate(row.dayKey)}</td>
+                  <td>${row.startTime ? formatTime(row.startTime) : "—"}</td>
+                  <td>${formatDayEndTime(row)}</td>
+                  <td>${row.breakDurationMs ? formatDuration(row.breakDurationMs) : "—"}</td>
+                  <td><strong>${formatDuration(row.workedMs)}</strong></td>
                 </tr>`).join("")
-              : `<tr><td colspan="5" class="empty-cell">Aucun pointage pour cette periode. Ajustez les filtres puis actualisez.</td></tr>`}
+              : `<tr><td colspan="6" class="empty-cell">Aucun pointage pour cette periode. Ajustez les filtres puis actualisez.</td></tr>`}
           </tbody>
         </table>
       </div>
