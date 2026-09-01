@@ -1771,6 +1771,80 @@ tbody tr:hover td { background: var(--surface-2); }
 .punch-type.break_start { background: rgba(245, 158, 11, 0.16); color: #b45309; }
 .punch-type.break_end { background: rgba(16, 185, 129, 0.16); color: #047857; }
 
+.punch-item-main {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+.work-location-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin-bottom: var(--s4);
+}
+
+.work-location-panel--readonly {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+
+.work-location-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+.work-location-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s2);
+}
+
+.work-location-option {
+  padding: var(--s3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+
+.work-location-option.is-active {
+  border-color: var(--forest-mid);
+  background: var(--lime-muted);
+  color: var(--forest);
+}
+
+.work-location-option:hover {
+  background: var(--surface-hover);
+}
+
+.work-location-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.work-location-badge--onsite {
+  background: rgba(0, 70, 254, 0.12);
+  color: #0046fe;
+}
+
+.work-location-badge--remote {
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+}
+
 /* Balances */
 
 .balance-head {
