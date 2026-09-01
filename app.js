@@ -227,6 +227,11 @@ const navigation = [
 const HR_DOCUMENTS_BUCKET = "hr-documents";
 const HR_DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
 const AUTO_CLOCK_OUT_MS = 10 * 60 * 60 * 1000;
+const WORK_LOCATION_STORE_KEY = "workLocation";
+const WORK_LOCATIONS = {
+  onsite: "Sur site",
+  remote: "Teletravail"
+};
 
 const leaveTypes = ["Conges payes", "RTT", "Conge maladie", "Conge sans solde"];
 const attestationTypes = [
@@ -444,6 +449,7 @@ function normalizeTeamPunchRow(row) {
     userId: row.user_id,
     type: row.punch_type,
     time: row.punched_at,
+    workLocation: row.work_location || null,
     name: profile?.full_name || "Collaborateur",
     email: profile?.email || ""
   };
@@ -517,6 +523,7 @@ function getDayShiftSummaryFromPunches(punches) {
     endTime: endPunch?.time || null,
     breakDurationMs: computeBreakDuration(sorted),
     workedMs: dayKey ? computeWorkedMsInRange(sorted, dayKey, dayKey) : 0,
+    workLocation: getDayWorkLocation(sorted),
     isDayClosed: lastPunch?.type === "out",
     hasStarted: Boolean(startPunch),
     isToday
@@ -547,7 +554,11 @@ function summarizeTeamPunchesByDay(teamPunchesRows, startStr, endStr) {
         punches: []
       });
     }
-    byUserDay.get(mapKey).punches.push({ type: normalized.type, time: normalized.time });
+    byUserDay.get(mapKey).punches.push({
+      type: normalized.type,
+      time: normalized.time,
+      workLocation: normalized.workLocation
+    });
   });
 
   return [...byUserDay.values()]
@@ -589,11 +600,12 @@ function exportTeamPunchesCsv() {
 
   downloadCsv(
     `pointages-equipe_${range.start}_${range.end}.csv`,
-    ["Nom", "Email", "Date", "Debut", "Fin", "Pause dej", "Heures travaillees"],
+    ["Nom", "Email", "Date", "Lieu", "Debut", "Fin", "Pause dej", "Heures travaillees"],
     dailyRows.map((row) => [
       row.name,
       row.email,
       formatDate(row.dayKey),
+      workLocationLabel(row.workLocation),
       row.startTime ? formatTime(row.startTime) : "",
       row.endTime ? formatTime(row.endTime) : (row.hasStarted && !row.isDayClosed ? "En cours" : ""),
       formatDuration(row.breakDurationMs),
@@ -623,7 +635,7 @@ async function loadTeamPunches(filters = teamPunchFilters) {
 
   let query = supabaseClient
     .from("time_punches")
-    .select("id, user_id, punch_type, punched_at, profiles(full_name, email)")
+    .select("id, user_id, punch_type, punched_at, work_location, profiles(full_name, email)")
     .order("punched_at", { ascending: false });
 
   if (filters.userId) {
@@ -1100,7 +1112,8 @@ function getPunches() {
   if (usesDatabase()) {
     return appData.punches.map((punch) => ({
       type: punch.punch_type,
-      time: punch.punched_at
+      time: punch.punched_at,
+      workLocation: punch.work_location || null
     }));
   }
   return loadStore("punches", []);
@@ -1167,6 +1180,85 @@ function punchTypeLabel(type) {
     case "break_end": return "Reprise dej";
     default: return type;
   }
+}
+
+function getPreferredWorkLocation() {
+  const stored = loadStore(WORK_LOCATION_STORE_KEY, "onsite");
+  return stored === "remote" ? "remote" : "onsite";
+}
+
+function savePreferredWorkLocation(location) {
+  saveStore(WORK_LOCATION_STORE_KEY, location === "remote" ? "remote" : "onsite");
+}
+
+function getWorkLocationFromPunch(punch) {
+  return punch?.workLocation || punch?.work_location || null;
+}
+
+function workLocationLabel(location) {
+  if (!location) return "—";
+  return WORK_LOCATIONS[location] || "—";
+}
+
+function getDayWorkLocation(punches) {
+  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const inPunch = sorted.find((punch) => punch.type === "in");
+  return getWorkLocationFromPunch(inPunch);
+}
+
+function getActiveSessionWorkLocation(punches = getPunches()) {
+  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+  let sessionIn = null;
+  sorted.forEach((punch) => {
+    if (punch.type === "in") sessionIn = punch;
+    if (punch.type === "out") sessionIn = null;
+  });
+  if (sessionIn) return getWorkLocationFromPunch(sessionIn);
+  return getDayWorkLocation(getTodayPunches(punches)) || getPreferredWorkLocation();
+}
+
+function renderWorkLocationBadge(location) {
+  if (!location) return "";
+  return `<span class="work-location-badge work-location-badge--${location}">${workLocationLabel(location)}</span>`;
+}
+
+function renderWorkLocationSelector(punches = getPunches()) {
+  const { isOut } = getClockState();
+  const currentLocation = getActiveSessionWorkLocation(punches);
+  const selected = isOut ? getPreferredWorkLocation() : currentLocation;
+
+  if (!isOut) {
+    return `
+      <div class="work-location-panel work-location-panel--readonly" aria-label="Lieu de travail">
+        <span class="work-location-label">Lieu de travail</span>
+        ${renderWorkLocationBadge(currentLocation || "onsite")}
+      </div>`;
+  }
+
+  return `
+    <div class="work-location-panel" role="group" aria-label="Choisir le lieu de travail">
+      <span class="work-location-label">Lieu de travail</span>
+      <div class="work-location-toggle">
+        <button type="button" class="work-location-option${selected === "onsite" ? " is-active" : ""}" data-work-location="onsite">Sur site</button>
+        <button type="button" class="work-location-option${selected === "remote" ? " is-active" : ""}" data-work-location="remote">Teletravail</button>
+      </div>
+    </div>`;
+}
+
+function buildClockPunchPayload(punchType) {
+  const payload = {
+    user_id: session.user.id,
+    punch_type: punchType,
+    punched_at: new Date().toISOString()
+  };
+  if (punchType === "in") payload.work_location = getPreferredWorkLocation();
+  return payload;
+}
+
+function buildDemoClockPunch(punchType) {
+  const punch = { type: punchType, time: new Date().toISOString() };
+  if (punchType === "in") punch.workLocation = getPreferredWorkLocation();
+  return punch;
 }
 
 function computeWorkedHours(punches) {
@@ -1619,6 +1711,7 @@ function homePage() {
           ${renderClockStatus(clockStatus, "home-clock-status")}
           ${renderHomeShiftSummary()}
           <p class="home-hours-today">Temps aujourd'hui : <b>${formatDuration(hours.today)}</b></p>
+          ${renderWorkLocationSelector()}
           ${renderClockActions()}
         </div>
       </article>
@@ -1693,6 +1786,7 @@ function pointeusePage() {
     <section class="clock-grid page-spacer">
       <article class="card clock-card">
         ${renderClockStatus(clockStatus)}
+        ${renderWorkLocationSelector(punches)}
         ${renderClockActions()}
         <p class="clock-hint">${new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
       </article>
@@ -1702,7 +1796,10 @@ function pointeusePage() {
           ${todayPunches.length
             ? todayPunches.map((punch) => `
               <div class="punch-item">
-                <span class="punch-type ${punch.type}">${punchTypeLabel(punch.type)}</span>
+                <div class="punch-item-main">
+                  <span class="punch-type ${punch.type}">${punchTypeLabel(punch.type)}</span>
+                  ${punch.type === "in" ? renderWorkLocationBadge(punch.workLocation) : ""}
+                </div>
                 <strong>${formatTime(punch.time)}</strong>
               </div>`).join("")
             : `<p class="empty-state">Aucun pointage aujourd'hui.</p>`}
@@ -1713,16 +1810,17 @@ function pointeusePage() {
       ${cardHeading("Historique recent")}
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Date</th><th>Type</th><th>Heure</th></tr></thead>
+          <thead><tr><th>Date</th><th>Type</th><th>Lieu</th><th>Heure</th></tr></thead>
           <tbody>
             ${punches.length
               ? [...punches].reverse().slice(0, 10).map((punch) => `
                 <tr>
                   <td>${formatDate(punch.time)}</td>
                   <td>${punchTypeLabel(punch.type)}</td>
+                  <td>${punch.type === "in" ? workLocationLabel(punch.workLocation) : "—"}</td>
                   <td>${formatTime(punch.time)}</td>
                 </tr>`).join("")
-              : `<tr><td colspan="3" class="empty-cell">Aucun historique pour le moment.</td></tr>`}
+              : `<tr><td colspan="4" class="empty-cell">Aucun historique pour le moment.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -1813,6 +1911,7 @@ function teamPunchesPage() {
             <tr>
               <th>Collaborateur</th>
               <th>Date</th>
+              <th>Lieu</th>
               <th>Debut</th>
               <th>Fin</th>
               <th>Pause dej</th>
@@ -1825,12 +1924,13 @@ function teamPunchesPage() {
                 <tr>
                   <td><strong>${escapeHtml(row.name)}</strong></td>
                   <td>${formatDate(row.dayKey)}</td>
+                  <td>${workLocationLabel(row.workLocation)}</td>
                   <td>${row.startTime ? formatTime(row.startTime) : "—"}</td>
                   <td>${formatDayEndTime(row)}</td>
                   <td>${row.breakDurationMs ? formatDuration(row.breakDurationMs) : "—"}</td>
                   <td><strong>${formatDuration(row.workedMs)}</strong></td>
                 </tr>`).join("")
-              : `<tr><td colspan="6" class="empty-cell">Aucun pointage pour cette periode. Ajustez les filtres puis actualisez.</td></tr>`}
+              : `<tr><td colspan="7" class="empty-cell">Aucun pointage pour cette periode. Ajustez les filtres puis actualisez.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -2363,6 +2463,9 @@ function formatAppError(error) {
     if (message.includes("leave_requests")) {
       return "Acces au calendrier des conges equipe refuse. Executez supabase/leave-requests-access.sql dans SQL Editor.";
     }
+    if (message.includes("work_location") || message.includes("time_punches")) {
+      return "Lieu de travail non configure. Executez supabase/time-punches-location.sql dans SQL Editor.";
+    }
     return "Acces refuse aux pointages equipe. Executez supabase/time-punches-access.sql dans SQL Editor.";
   }
   if (message.includes("hr_alerts") || message.includes("process_auto_clock_outs") || message.includes("notify_auto_clock_out")) {
@@ -2753,20 +2856,26 @@ function bindPageEvents() {
     });
   });
 
+  document.querySelectorAll("[data-work-location]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const location = button.dataset.workLocation;
+      savePreferredWorkLocation(location);
+      document.querySelectorAll("[data-work-location]").forEach((item) => {
+        item.classList.toggle("is-active", item.dataset.workLocation === location);
+      });
+    });
+  });
+
   document.querySelector("#clock-toggle")?.addEventListener("click", () => {
     withAction(async () => {
       const { isOut } = getClockState();
       const punchType = isOut ? "in" : "out";
       if (usesDatabase()) {
-        const { error } = await supabaseClient.from("time_punches").insert({
-          user_id: session.user.id,
-          punch_type: punchType,
-          punched_at: new Date().toISOString()
-        });
+        const { error } = await supabaseClient.from("time_punches").insert(buildClockPunchPayload(punchType));
         if (error) throw error;
       } else {
         const punches = loadStore("punches", []);
-        punches.push({ type: punchType, time: new Date().toISOString() });
+        punches.push(buildDemoClockPunch(punchType));
         saveStore("punches", punches);
       }
     });
