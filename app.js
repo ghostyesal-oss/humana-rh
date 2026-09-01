@@ -1144,6 +1144,90 @@ function computeWorkedHours(punches) {
   };
 }
 
+function computeBreakDuration(punches, fromTime = null) {
+  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const now = Date.now();
+  let breakStart = null;
+  let total = 0;
+
+  sorted.forEach((punch) => {
+    const time = new Date(punch.time).getTime();
+    if (fromTime && time < fromTime.getTime()) return;
+
+    if (punch.type === "break_start") {
+      breakStart = time;
+      return;
+    }
+
+    if ((punch.type === "break_end" || punch.type === "out") && breakStart !== null) {
+      total += time - breakStart;
+      breakStart = null;
+    }
+  });
+
+  if (breakStart !== null) total += now - breakStart;
+  return total;
+}
+
+function getTodayShiftSummary(punches = getPunches()) {
+  const todayPunches = getTodayPunches(punches);
+  const sorted = [...todayPunches].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const startPunch = sorted.find((punch) => punch.type === "in");
+  const breakStartPunch = sorted.find((punch) => punch.type === "break_start");
+  const breakEndPunch = sorted.find((punch) => punch.type === "break_end");
+  const endPunch = [...sorted].reverse().find((punch) => punch.type === "out");
+  const lastToday = sorted[sorted.length - 1];
+
+  return {
+    startTime: startPunch?.time || null,
+    breakStart: breakStartPunch?.time || null,
+    breakEnd: breakEndPunch?.time || null,
+    endTime: endPunch?.time || null,
+    breakDurationMs: computeBreakDuration(todayPunches),
+    onBreak: lastToday?.type === "break_start",
+    isWorking: lastToday?.type === "in" || lastToday?.type === "break_end",
+    isDayClosed: lastToday?.type === "out",
+    hasStarted: Boolean(startPunch)
+  };
+}
+
+function formatShiftTime(value) {
+  return value ? formatTime(value) : "—";
+}
+
+function formatBreakSummary(summary) {
+  if (!summary.breakStart) return "—";
+  if (summary.onBreak) return `${formatTime(summary.breakStart)} - en cours`;
+  if (summary.breakEnd) return `${formatTime(summary.breakStart)} - ${formatTime(summary.breakEnd)}`;
+  return formatTime(summary.breakStart);
+}
+
+function formatEndShiftSummary(summary) {
+  if (summary.endTime) return formatTime(summary.endTime);
+  if (summary.hasStarted && !summary.isDayClosed) return "En cours";
+  return "—";
+}
+
+function renderHomeShiftSummary(punches = getPunches()) {
+  const summary = getTodayShiftSummary(punches);
+
+  return `
+    <div class="home-shift-summary" aria-label="Resume de la journee">
+      <div class="home-shift-item">
+        <span>Debut</span>
+        <strong>${formatShiftTime(summary.startTime)}</strong>
+      </div>
+      <div class="home-shift-item">
+        <span>Pause dej</span>
+        <strong>${formatBreakSummary(summary)}</strong>
+      </div>
+      <div class="home-shift-item">
+        <span>Fin de shift</span>
+        <strong>${formatEndShiftSummary(summary)}</strong>
+      </div>
+    </div>`;
+}
+
 function leaveTypeKey(type) {
   const normalized = (type || "").toLowerCase();
   if (normalized.includes("rtt")) return "rtt";
@@ -1463,6 +1547,7 @@ function homePage() {
         </div>
         <div class="home-clock">
           ${renderClockStatus(clockStatus, "home-clock-status")}
+          ${renderHomeShiftSummary()}
           <p class="home-hours-today">Temps aujourd'hui : <b>${formatDuration(hours.today)}</b></p>
           ${renderClockActions()}
         </div>
@@ -1523,6 +1608,7 @@ function pointeusePage() {
   const clockStatus = getClockStatusCopy();
   const hours = computeWorkedHours(punches);
   const todayPunches = getTodayPunches(punches);
+  const breakDuration = computeBreakDuration(todayPunches);
   const dbNote = usesDatabase()
     ? ""
     : `<p class="data-note demo">Mode demo : donnees locales uniquement. Connectez-vous avec Microsoft pour sauvegarder.</p>`;
@@ -1532,7 +1618,7 @@ function pointeusePage() {
     <section class="hours-grid">
       ${hoursCard("Aujourd'hui", hours.today)}
       ${hoursCard("Cette semaine", hours.week)}
-      ${hoursCard("Ce mois", hours.month)}
+      ${hoursCard("Pause dej", breakDuration)}
     </section>
     <section class="clock-grid page-spacer">
       <article class="card clock-card">
