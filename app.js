@@ -987,7 +987,10 @@ function renderHrAlertsCard() {
     <article class="card home-widget home-alerts-widget">
       <div class="card-heading">
         <h3>Alertes RH${unread ? ` <span class="nav-badge">${unread}</span>` : ""}</h3>
-        ${unread ? `<button type="button" class="home-link" id="mark-all-alerts-read">Tout marquer lu</button>` : ""}
+        <div class="hr-alert-heading-actions">
+          ${unread ? `<button type="button" class="home-link" id="mark-all-alerts-read">Tout marquer lu</button>` : ""}
+          ${alerts.length ? `<button type="button" class="home-link hr-alert-delete-all" id="delete-all-alerts">Tout supprimer</button>` : ""}
+        </div>
       </div>
       <div class="hr-alert-list">
         ${alerts.length
@@ -1000,9 +1003,12 @@ function renderHrAlertsCard() {
                   <p>${escapeHtml(alert.message)}</p>
                   <small>${formatDate(alert.created_at)} · ${formatTime(alert.created_at)}</small>
                 </div>
-                ${alert.read_at
-                  ? ""
-                  : `<button type="button" class="outline-button" data-alert-read="${alert.id}">Lu</button>`}
+                <div class="hr-alert-actions">
+                  ${alert.read_at
+                    ? ""
+                    : `<button type="button" class="outline-button" data-alert-read="${alert.id}">Lu</button>`}
+                  <button type="button" class="outline-button hr-alert-delete-btn" data-alert-delete="${alert.id}" aria-label="Supprimer l'alerte">Supprimer</button>
+                </div>
               </div>`;
           }).join("")
           : `<p class="empty-state">Aucune alerte pour le moment.</p>`}
@@ -2360,7 +2366,7 @@ function formatAppError(error) {
     return "Acces refuse aux pointages equipe. Executez supabase/time-punches-access.sql dans SQL Editor.";
   }
   if (message.includes("hr_alerts") || message.includes("process_auto_clock_outs") || message.includes("notify_auto_clock_out")) {
-    return "Sortie automatique non configuree. Executez supabase/auto-clock-out.sql dans SQL Editor.";
+    return "Alertes RH non configurees. Executez supabase/auto-clock-out.sql puis supabase/hr-alerts-delete.sql dans SQL Editor.";
   }
   if (message.includes("app_settings")) {
     return "Studio createur non configure. Executez supabase/creator-nav-settings.sql dans SQL Editor.";
@@ -2896,6 +2902,34 @@ function bindPageEvents() {
           .eq("recipient_id", session.user.id);
         if (error) throw error;
       });
+    });
+  });
+
+  document.querySelectorAll("[data-alert-delete]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const alertId = button.dataset.alertDelete;
+      withAction(async () => {
+        const { error } = await supabaseClient
+          .from("hr_alerts")
+          .delete()
+          .eq("id", alertId)
+          .eq("recipient_id", session.user.id);
+        if (error) throw error;
+      });
+    });
+  });
+
+  document.querySelector("#delete-all-alerts")?.addEventListener("click", () => {
+    const alertIds = (appData.hrAlerts || []).map((alert) => alert.id);
+    if (!alertIds.length) return;
+    if (!confirm("Supprimer toutes les alertes RH ?")) return;
+    withAction(async () => {
+      const { error } = await supabaseClient
+        .from("hr_alerts")
+        .delete()
+        .in("id", alertIds)
+        .eq("recipient_id", session.user.id);
+      if (error) throw error;
     });
   });
 
