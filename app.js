@@ -442,6 +442,53 @@ function profileById(profileId) {
   return appData.orgProfiles.find((profile) => profile.id === profileId);
 }
 
+function getTeamDayWorkLocation(userId, dayKey) {
+  if (!userId || !dayKey || !appData.teamPunches?.length) return null;
+
+  const rows = appData.teamPunches
+    .filter((row) => row.user_id === userId && row.punch_type === "in")
+    .filter((row) => toDateKey(new Date(row.punched_at)) === dayKey)
+    .sort((a, b) => new Date(a.punched_at) - new Date(b.punched_at));
+
+  for (const row of rows) {
+    if (row.work_location) return row.work_location;
+  }
+  return null;
+}
+
+function resolveDailyRowWorkLocation(row) {
+  if (row.workLocation) return row.workLocation;
+  const fromPunches = getDayWorkLocation(row.punches || []);
+  if (fromPunches) return fromPunches;
+  return getTeamDayWorkLocation(row.userId, row.dayKey);
+}
+
+function resolveWorkLocationLabel(row) {
+  return workLocationLabel(resolveDailyRowWorkLocation(row));
+}
+
+function isMissingWorkLocationColumnError(error) {
+  const message = (error?.message || "").toLowerCase();
+  return message.includes("work_location") && (
+    message.includes("does not exist")
+    || message.includes("column")
+    || message.includes("schema cache")
+  );
+}
+
+async function insertTimePunch(payload) {
+  const { error } = await supabaseClient.from("time_punches").insert(payload);
+  if (!error) return;
+
+  if (payload.work_location && isMissingWorkLocationColumnError(error)) {
+    const migrationError = new Error("work_location column missing");
+    migrationError.details = error.message;
+    throw migrationError;
+  }
+
+  throw error;
+}
+
 function normalizeTeamPunchRow(row) {
   const profile = row.profiles || profileById(row.user_id);
   return {
@@ -562,10 +609,17 @@ function summarizeTeamPunchesByDay(teamPunchesRows, startStr, endStr) {
   });
 
   return [...byUserDay.values()]
-    .map((entry) => ({
-      ...entry,
-      ...getDayShiftSummaryFromPunches(entry.punches)
-    }))
+    .map((entry) => {
+      const summary = getDayShiftSummaryFromPunches(entry.punches);
+      const workLocation = summary.workLocation
+        || getDayWorkLocation(entry.punches)
+        || getTeamDayWorkLocation(entry.userId, entry.dayKey);
+      return {
+        ...entry,
+        ...summary,
+        workLocation
+      };
+    })
     .sort((a, b) => {
       const dayCmp = b.dayKey.localeCompare(a.dayKey);
       if (dayCmp !== 0) return dayCmp;
@@ -605,7 +659,7 @@ function exportTeamPunchesCsv() {
       row.name,
       row.email,
       formatDate(row.dayKey),
-      workLocationLabel(row.workLocation),
+      resolveWorkLocationLabel(row),
       row.startTime ? formatTime(row.startTime) : "",
       row.endTime ? formatTime(row.endTime) : (row.hasStarted && !row.isDayClosed ? "En cours" : ""),
       formatDuration(row.breakDurationMs),
@@ -635,7 +689,7 @@ async function loadTeamPunches(filters = teamPunchFilters) {
 
   let query = supabaseClient
     .from("time_punches")
-    .select("id, user_id, punch_type, punched_at, work_location, profiles(full_name, email)")
+    .select("*, profiles(full_name, email)")
     .order("punched_at", { ascending: false });
 
   if (filters.userId) {
@@ -1202,8 +1256,13 @@ function workLocationLabel(location) {
 
 function getDayWorkLocation(punches) {
   const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
-  const inPunch = sorted.find((punch) => punch.type === "in");
-  return getWorkLocationFromPunch(inPunch);
+  for (const punch of sorted) {
+    if (punch.type !== "in") continue;
+    const location = getWorkLocationFromPunch(punch);
+    if (location) return location;
+  }
+  const firstIn = sorted.find((punch) => punch.type === "in");
+  return getWorkLocationFromPunch(firstIn);
 }
 
 function getActiveSessionWorkLocation(punches = getPunches()) {
@@ -1846,6 +1905,8 @@ function teamPunchesPage() {
     : profiles;
   const summary = summarizeTeamPunchesByUser(appData.teamPunches, scopedProfiles, range.start, range.end);
   const dailyRows = summarizeTeamPunchesByDay(appData.teamPunches, range.start, range.end);
+  const showLocationHint = dailyRows.some((row) => row.hasStarted)
+    && !dailyRows.some((row) => resolveDailyRowWorkLocation(row));
   const scopeLabel = isAdmin()
     ? (scope === "team" ? "mon equipe directe" : "tous les collaborateurs")
     : "votre equipe directe";
@@ -1905,6 +1966,7 @@ function teamPunchesPage() {
         <h3>Detail des pointages</h3>
         <span class="hierarchy-result-count">${dailyRows.length} jour${dailyRows.length > 1 ? "s" : ""}</span>
       </div>
+      ${showLocationHint ? `<p class="data-note">Le lieu n'est renseigne que sur les pointages d'entree. Si la colonne est vide, executez <code>supabase/time-punches-location.sql</code> puis refaites un pointage d'entree.</p>` : ""}
       <div class="table-wrap">
         <table>
           <thead>
@@ -1924,7 +1986,7 @@ function teamPunchesPage() {
                 <tr>
                   <td><strong>${escapeHtml(row.name)}</strong></td>
                   <td>${formatDate(row.dayKey)}</td>
-                  <td>${workLocationLabel(row.workLocation)}</td>
+                  <td>${resolveWorkLocationLabel(row)}</td>
                   <td>${row.startTime ? formatTime(row.startTime) : "—"}</td>
                   <td>${formatDayEndTime(row)}</td>
                   <td>${row.breakDurationMs ? formatDuration(row.breakDurationMs) : "—"}</td>
@@ -2459,12 +2521,15 @@ function formatAppError(error) {
   if (message.includes("bucket") || message.includes("storage")) {
     return "Stockage Supabase non configure. Executez supabase/storage-hr-documents.sql dans SQL Editor.";
   }
+  if (message.includes("work_location") || (message.includes("column") && message.includes("time_punches"))) {
+    return "Lieu de travail non configure. Executez supabase/time-punches-location.sql dans SQL Editor, puis refaites un pointage d'entree.";
+  }
   if (message.includes("permission") || message.includes("policy") || message.includes("row-level")) {
     if (message.includes("leave_requests")) {
       return "Acces au calendrier des conges equipe refuse. Executez supabase/leave-requests-access.sql dans SQL Editor.";
     }
-    if (message.includes("work_location") || message.includes("time_punches")) {
-      return "Lieu de travail non configure. Executez supabase/time-punches-location.sql dans SQL Editor.";
+    if (message.includes("time_punches")) {
+      return "Acces refuse aux pointages equipe. Executez supabase/time-punches-access.sql dans SQL Editor.";
     }
     return "Acces refuse aux pointages equipe. Executez supabase/time-punches-access.sql dans SQL Editor.";
   }
@@ -2609,6 +2674,10 @@ async function refreshAppData() {
     }
 
     await loadNavVisibility();
+
+    if (canViewTeamPunches()) {
+      await loadTeamPunches(teamPunchFilters);
+    }
   });
 }
 
@@ -2871,8 +2940,7 @@ function bindPageEvents() {
       const { isOut } = getClockState();
       const punchType = isOut ? "in" : "out";
       if (usesDatabase()) {
-        const { error } = await supabaseClient.from("time_punches").insert(buildClockPunchPayload(punchType));
-        if (error) throw error;
+        await insertTimePunch(buildClockPunchPayload(punchType));
       } else {
         const punches = loadStore("punches", []);
         punches.push(buildDemoClockPunch(punchType));
