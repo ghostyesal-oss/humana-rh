@@ -1681,8 +1681,8 @@ function pointeusePage() {
     ${dbNote}
     <section class="hours-grid">
       ${hoursCard("Aujourd'hui", hours.today)}
-      ${hoursCard("Cette semaine", hours.week)}
       ${hoursCard("Pause dej", breakDuration)}
+      ${hoursCard("Cette semaine", hours.week)}
     </section>
     <section class="clock-grid page-spacer">
       <article class="card clock-card">
