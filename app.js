@@ -442,6 +442,17 @@ function profileById(profileId) {
   return appData.orgProfiles.find((profile) => profile.id === profileId);
 }
 
+function getManagerNameForProfile(userId) {
+  const profile = profileById(userId);
+  if (!profile?.manager_id) return "";
+  return profileById(profile.manager_id)?.full_name || "";
+}
+
+function getProfileMatricule(userId) {
+  const matricule = profileById(userId)?.matricule;
+  return matricule == null ? "" : String(matricule);
+}
+
 function getTeamDayWorkLocation(userId, dayKey) {
   if (!userId || !dayKey || !appData.teamPunches?.length) return null;
 
@@ -617,7 +628,9 @@ function summarizeTeamPunchesByDay(teamPunchesRows, startStr, endStr) {
       return {
         ...entry,
         ...summary,
-        workLocation
+        workLocation,
+        matricule: getProfileMatricule(entry.userId),
+        managerName: getManagerNameForProfile(entry.userId)
       };
     })
     .sort((a, b) => {
@@ -654,10 +667,12 @@ function exportTeamPunchesCsv() {
 
   downloadCsv(
     `pointages-equipe_${range.start}_${range.end}.csv`,
-    ["Nom", "Email", "Date", "Lieu", "Debut", "Fin", "Pause dej", "Heures travaillees"],
+    ["Matricule", "Nom", "Email", "Manager", "Date", "Lieu", "Debut", "Fin", "Pause dej", "Heures travaillees"],
     dailyRows.map((row) => [
+      row.matricule,
       row.name,
       row.email,
+      row.managerName,
       formatDate(row.dayKey),
       resolveWorkLocationLabel(row),
       row.startTime ? formatTime(row.startTime) : "",
