@@ -13,6 +13,12 @@ let hierarchySearch = "";
 const collapsedOrgNodes = new Set();
 let teamPunchFilters = { start: "", end: "", userId: "", scope: "all" };
 let teamPunchesInitialLoadDone = false;
+let journalFilters = { start: "", end: "", userId: "", query: "" };
+let journalSort = { key: "connectedAt", dir: "desc" };
+let journalColumnFilters = {};
+let journalOpenColumn = "";
+let journalPunchesInitialLoadDone = false;
+let journalMetaColumnsEnabled = true;
 let leaveCalendarMonth = null;
 let initialAuthHandled = false;
 
@@ -22,6 +28,8 @@ let appData = {
   profile: null,
   punches: [],
   teamPunches: [],
+  journalPunches: [],
+  journalMetaMissing: false,
   teamLeaveRequests: [],
   leaveRequests: [],
   attestationRequests: [],
@@ -66,6 +74,7 @@ function getDefaultNavVisibility() {
 const pages = {
   home: ["Accueil", "Tout ce dont vous avez besoin, au meme endroit."],
   pointeuse: ["Pointeuse", "Enregistrez vos arrivees et vos departs."],
+  journal: ["Journal", "Consultez l'historique des connexions et les details techniques."],
   leave: ["Conges", "Consultez vos soldes et faites vos demandes."],
   attestations: ["Attestations", "Demandez vos documents en quelques clics."],
   hierarchy: ["Hierarchie", "Votre manager, votre equipe, l'organigramme."],
@@ -228,6 +237,33 @@ const navigation = [
 const HR_DOCUMENTS_BUCKET = "hr-documents";
 const HR_DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
 const AUTO_CLOCK_OUT_MS = 10 * 60 * 60 * 1000;
+const JOURNAL_META_FIELDS = [
+  "connection_method",
+  "operating_system",
+  "browser_application",
+  "ip_address",
+  "network_type",
+  "disconnect_reason"
+];
+const JOURNAL_COLUMNS = [
+  { key: "sessionId", label: "ID_Session" },
+  { key: "matricule", label: "Matricule" },
+  { key: "name", label: "Nom_Collaborateur" },
+  { key: "department", label: "Departement" },
+  { key: "dateIn", label: "Date_Connexion" },
+  { key: "timeIn", label: "Heure_Connexion" },
+  { key: "dateOut", label: "Date_Deconnexion" },
+  { key: "timeOut", label: "Heure_Deconnexion" },
+  { key: "duration", label: "Duree_Session" },
+  { key: "method", label: "Moyen_Connexion" },
+  { key: "os", label: "Systeme_Exploitation" },
+  { key: "browser", label: "Navigateur_Application" },
+  { key: "ip", label: "Adresse_IP" },
+  { key: "network", label: "Type_Reseau" },
+  { key: "location", label: "Localisation" },
+  { key: "status", label: "Statut_Connexion" },
+  { key: "reason", label: "Raison_Deconnexion" }
+];
 const WORK_LOCATION_STORE_KEY = "workLocation";
 const WORK_LOCATIONS = {
   onsite: "Sur site",
@@ -324,6 +360,7 @@ function isCreator() {
 }
 
 function isAdmin() {
+  if (demoMode) return true;
   const role = appData.profile?.role;
   return role === "admin" || role === "creator";
 }
@@ -459,6 +496,14 @@ function ensureAccessiblePage() {
     currentPage = "home";
     return;
   }
+  if (currentPage === "admin" && !isAdmin()) {
+    currentPage = "home";
+    return;
+  }
+  if (currentPage === "journal" && !canViewJournal()) {
+    currentPage = "home";
+    return;
+  }
   if (!isNavPageVisible(currentPage)) {
     currentPage = "home";
   }
@@ -468,8 +513,12 @@ function hasDirectReports() {
   return appData.orgProfiles.some((profile) => profile.manager_id === session?.user?.id);
 }
 
+function canViewJournal() {
+  return isAdmin();
+}
+
 function canViewTeamPunches() {
-  return usesDatabase() && (isAdmin() || hasDirectReports());
+  return demoMode || (usesDatabase() && (isAdmin() || hasDirectReports()));
 }
 
 function canViewTeamLeaveCalendar() {
@@ -551,8 +600,22 @@ function isMissingWorkLocationColumnError(error) {
   );
 }
 
+function isMissingJournalColumnError(error) {
+  const message = (error?.message || error?.details || "").toLowerCase();
+  return JOURNAL_META_FIELDS.some((field) => message.includes(field));
+}
+
+function stripJournalMetaFields(payload) {
+  const next = { ...payload };
+  JOURNAL_META_FIELDS.forEach((field) => {
+    delete next[field];
+  });
+  return next;
+}
+
 async function insertTimePunch(payload) {
-  const { error } = await supabaseClient.from("time_punches").insert(payload);
+  const attempt = journalMetaColumnsEnabled ? { ...payload } : stripJournalMetaFields(payload);
+  const { error } = await supabaseClient.from("time_punches").insert(attempt);
   if (!error) return;
 
   if (payload.work_location && isMissingWorkLocationColumnError(error)) {
@@ -561,8 +624,18 @@ async function insertTimePunch(payload) {
     throw migrationError;
   }
 
+  if (journalMetaColumnsEnabled && isMissingJournalColumnError(error)) {
+    journalMetaColumnsEnabled = false;
+    appData.journalMetaMissing = true;
+    const retry = await supabaseClient.from("time_punches").insert(stripJournalMetaFields(attempt));
+    if (!retry.error) return;
+    throw retry.error;
+  }
+
   throw error;
 }
+
+
 
 function normalizeTeamPunchRow(row) {
   const profile = row.profiles || profileById(row.user_id);
@@ -1175,7 +1248,10 @@ function getNavigationItems() {
     const pointeuseIndex = items.findIndex(([pageId]) => pageId === "pointeuse");
     items.splice(pointeuseIndex + 1, 0, ["team-punches", "Pointages equipe"]);
   }
-  if (isAdmin()) items.push(["admin", "Administration"]);
+  if (isAdmin()) {
+    items.push(["journal", "Journal"]);
+    items.push(["admin", "Administration"]);
+  }
   if (isCreator()) items.push(["creator", "Studio createur"]);
   return items;
 }
@@ -1593,6 +1669,15 @@ function formatTime(value) {
   });
 }
 
+function formatTimeSeconds(value) {
+  if (!value) return "—";
+  return new Date(value).toLocaleTimeString("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
 function getPunches() {
   if (usesDatabase()) {
     return appData.punches.map((punch) => ({
@@ -1648,6 +1733,150 @@ function navBadge(page) {
   if (page === "leave" && countPendingLeave()) return `<span class="nav-badge">${countPendingLeave()}</span>`;
   if (page === "attestations" && countPendingAttestations()) return `<span class="nav-badge">${countPendingAttestations()}</span>`;
   return "";
+}
+
+function parseClientEnvironment() {
+  const uaData = navigator.userAgentData;
+  const ua = navigator.userAgent || "";
+  let os = uaData?.platform || "Inconnu";
+  if (!uaData?.platform) {
+    if (/Windows NT 10/i.test(ua)) os = "Windows 10/11";
+    else if (/Windows/i.test(ua)) os = "Windows";
+    else if (/Mac OS X/i.test(ua)) os = "macOS";
+    else if (/Android/i.test(ua)) os = "Android";
+    else if (/iPhone|iPad|iPod/i.test(ua)) os = "iOS";
+    else if (/Linux/i.test(ua)) os = "Linux";
+  } else if (/Win/i.test(os)) os = "Windows";
+  else if (/Mac/i.test(os)) os = "macOS";
+
+  let browser = "Navigateur";
+  const brands = uaData?.brands || [];
+  const brand = brands.find((item) => item.brand && !/not.?a.?brand/i.test(item.brand) && !/chromium/i.test(item.brand));
+  if (brand?.brand) browser = brand.brand;
+  else if (/Edg\//i.test(ua)) browser = "Microsoft Edge";
+  else if (/OPR\/|Opera/i.test(ua)) browser = "Opera";
+  else if (/Chrome\//i.test(ua) && !/Edg\//i.test(ua)) browser = "Google Chrome";
+  else if (/Firefox\//i.test(ua)) browser = "Mozilla Firefox";
+  else if (/Safari\//i.test(ua) && !/Chrome/i.test(ua)) browser = "Safari";
+
+  const method = /Mobi|Android|iPhone|iPad/i.test(ua) || uaData?.mobile
+    ? "Web mobile"
+    : "Web";
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  const rawType = String(connection?.type || "").toLowerCase();
+  const networkMap = {
+    wifi: "Wi-Fi",
+    wlan: "Wi-Fi",
+    ethernet: "Ethernet",
+    cellular: "Mobile",
+    bluetooth: "Bluetooth",
+    wimax: "WiMAX",
+    other: "Autre"
+  };
+  const network = networkMap[rawType]
+    || (getPreferredWorkLocation() === "onsite" ? "LAN" : "Internet");
+
+  return { method, os, browser, network };
+}
+
+async function getPublicIpAddress() {
+  try {
+    const cached = sessionStorage.getItem("humana_public_ip");
+    if (cached) return cached;
+  } catch {
+    /* ignore */
+  }
+
+  const withTimeout = async (factory, ms = 1500) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    try {
+      return await factory(controller.signal);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const sources = [
+    async (signal) => {
+      const response = await fetch("https://api.ipify.org?format=json", { signal });
+      const data = await response.json();
+      return data?.ip || "";
+    },
+    async (signal) => {
+      const response = await fetch("https://ipv4.icanhazip.com", { signal });
+      return (await response.text()).trim();
+    },
+    async (signal) => {
+      const response = await fetch("https://www.cloudflare.com/cdn-cgi/trace", { signal });
+      const text = await response.text();
+      const match = text.match(/^ip=([^\s]+)$/m);
+      return match ? match[1] : "";
+    }
+  ];
+
+  for (const source of sources) {
+    try {
+      const ip = (await withTimeout(source)).replace(/[^0-9a-fA-F:.]/g, "");
+      if (ip) {
+        try { sessionStorage.setItem("humana_public_ip", ip); } catch { /* ignore */ }
+        return ip;
+      }
+    } catch {
+      /* essayer la source suivante */
+    }
+  }
+  return "";
+}
+
+async function collectJournalMeta() {
+  const env = parseClientEnvironment();
+  try {
+    if (navigator.userAgentData?.getHighEntropyValues) {
+      const high = await navigator.userAgentData.getHighEntropyValues(["platformVersion"]);
+      if (/Windows/i.test(env.os) && high?.platformVersion) {
+        const major = parseInt(String(high.platformVersion).split(".")[0], 10);
+        if (!Number.isNaN(major)) env.os = major >= 13 ? "Windows 11" : "Windows 10";
+      }
+    }
+  } catch {
+    /* hints optionnels */
+  }
+  const ip = await getPublicIpAddress();
+  return { ...env, ip };
+}
+
+function applyJournalMetaToPayload(payload, meta, punchType) {
+  if (!meta || !journalMetaColumnsEnabled) return payload;
+  if (punchType === "in") {
+    payload.connection_method = meta.method;
+    payload.operating_system = meta.os;
+    payload.browser_application = meta.browser;
+    if (meta.ip) payload.ip_address = meta.ip;
+    payload.network_type = meta.network;
+  }
+  if (punchType === "out") {
+    payload.disconnect_reason = payload.disconnect_reason || "Sortie manuelle";
+  }
+  return payload;
+}
+
+function applyJournalMetaToDemoPunch(punch, meta, punchType) {
+  if (!meta) return punch;
+  if (punchType === "in") {
+    punch.connection_method = meta.method;
+    punch.operating_system = meta.os;
+    punch.browser_application = meta.browser;
+    punch.ip_address = meta.ip || "";
+    punch.network_type = meta.network;
+    punch.method = meta.method;
+    punch.os = meta.os;
+    punch.browser = meta.browser;
+    punch.ip = meta.ip || "";
+    punch.network = meta.network;
+  }
+  if (punchType === "out") punch.disconnect_reason = "Sortie manuelle";
+  return punch;
 }
 
 function formatDuration(ms) {
@@ -2317,6 +2546,436 @@ function pointeusePage() {
     </article>`;
 }
 
+function canViewJournalTeam() {
+  return isAdmin() || hasDirectReports();
+}
+
+function getJournalProfiles() {
+  if (isAdmin()) return getTeamPunchProfiles("all");
+  if (hasDirectReports()) {
+    const self = profileById(session?.user?.id);
+    const seen = new Set();
+    return [self, ...getDirectReportProfiles()].filter((profile) => {
+      if (!profile?.id || seen.has(profile.id)) return false;
+      seen.add(profile.id);
+      return true;
+    });
+  }
+  const self = appData.profile || profileById(session?.user?.id);
+  return self ? [self] : [];
+}
+
+function shiftDateKey(dateStr, days) {
+  const date = parseLocalDate(dateStr);
+  date.setDate(date.getDate() + days);
+  return toDateKey(date);
+}
+
+function mapPunchToJournalRow(row, fallbackUserId) {
+  const userId = row.user_id || row.userId || fallbackUserId;
+  const type = row.punch_type || row.type;
+  const time = row.punched_at || row.time;
+  const profile = row.profiles || profileById(userId);
+  return {
+    id: row.id || `local-${userId}-${time}-${type}`,
+    user_id: userId,
+    punch_type: type,
+    punched_at: time,
+    work_location: row.work_location || row.workLocation || null,
+    connection_method: row.connection_method || row.method || null,
+    operating_system: row.operating_system || row.os || null,
+    browser_application: row.browser_application || row.browser || null,
+    ip_address: row.ip_address || row.ip || null,
+    network_type: row.network_type || row.network || null,
+    disconnect_reason: row.disconnect_reason || null,
+    profiles: profile ? { full_name: profile.full_name, email: profile.email } : row.profiles
+  };
+}
+
+function buildSeedJournalRows(userId) {
+  const profile = profileById(userId) || appData.profile || {};
+  const meta = parseClientEnvironment();
+  const now = Date.now();
+  const rows = [];
+  const samples = [
+    { daysAgo: 0, inHour: 8, inMin: 42, outHour: null, location: "onsite", statusOpen: true },
+    { daysAgo: 1, inHour: 9, inMin: 5, outHour: 18, outMin: 12, location: "onsite" },
+    { daysAgo: 2, inHour: 8, inMin: 57, outHour: 17, outMin: 48, location: "remote" },
+    { daysAgo: 3, inHour: 9, inMin: 14, outHour: 18, outMin: 3, location: "onsite", autoOut: true }
+  ];
+
+  samples.forEach((sample, index) => {
+    const day = new Date(now);
+    day.setDate(day.getDate() - sample.daysAgo);
+    const inTime = new Date(day);
+    inTime.setHours(sample.inHour, sample.inMin, 12 + index, 0);
+    const inId = `SESDEMO${index}IN`;
+    rows.push({
+      id: inId,
+      user_id: userId,
+      punch_type: "in",
+      punched_at: inTime.toISOString(),
+      work_location: sample.location,
+      connection_method: meta.method,
+      operating_system: meta.os,
+      browser_application: meta.browser,
+      ip_address: "90.84.12.4" + index,
+      network_type: sample.location === "remote" ? "Wi-Fi" : "LAN",
+      profiles: { full_name: profile.full_name || getUserName(), email: profile.email || "" }
+    });
+    if (sample.statusOpen) return;
+    const outTime = new Date(day);
+    outTime.setHours(sample.outHour, sample.outMin || 0, 40, 0);
+    rows.push({
+      id: `SESDEMO${index}OUT`,
+      user_id: userId,
+      punch_type: "out",
+      punched_at: outTime.toISOString(),
+      disconnect_reason: sample.autoOut ? "Deconnexion automatique" : "Sortie manuelle",
+      profiles: { full_name: profile.full_name || getUserName(), email: profile.email || "" }
+    });
+  });
+  return rows;
+}
+
+function getJournalPunchSource() {
+  const userId = session?.user?.id || "demo-user";
+  if (!usesDatabase()) {
+    const local = loadStore("punches", []).map((punch) => mapPunchToJournalRow(punch, userId));
+    return local.length ? local : buildSeedJournalRows(userId);
+  }
+  const source = journalPunchesInitialLoadDone
+    ? (appData.journalPunches || [])
+    : (appData.punches || []);
+  return source.map((row) => mapPunchToJournalRow(row, row.user_id || userId));
+}
+
+function makeSessionId(inRow) {
+  const raw = String(inRow.id || `${inRow.user_id}-${inRow.punched_at}`).replace(/-/g, "").toUpperCase();
+  const token = raw.slice(0, 12) || String(Date.now());
+  return token.startsWith("SES") ? token : `SES-${token}`;
+}
+
+function displayOrDash(value) {
+  const text = String(value ?? "").trim();
+  return text ? text : "—";
+}
+
+function finalizeJournalSession(open, outRow) {
+  const profile = profileById(open.userId) || open.inRow.profiles || appData.profile || {};
+  const inTime = open.inRow.punched_at;
+  const outTime = outRow?.punched_at || null;
+  const durationMs = (outTime ? new Date(outTime).getTime() : Date.now()) - new Date(inTime).getTime();
+  const storedReason = outRow?.disconnect_reason || "";
+  const autoOut = Boolean(outTime) && (
+    storedReason.toLowerCase().includes("automat")
+    || Math.abs(durationMs - AUTO_CLOCK_OUT_MS) < 120000
+  );
+  const status = outTime ? "Deconnecte" : "Connecte";
+  const reason = !outTime ? "—" : (autoOut ? "Deconnexion automatique" : (storedReason || "Sortie manuelle"));
+  const locationValue = open.inRow.work_location;
+  return {
+    sessionId: makeSessionId(open.inRow),
+    matricule: displayOrDash(getProfileMatricule(open.userId)),
+    name: profile.full_name || "Collaborateur",
+    department: displayOrDash(profile.department),
+    connectedAt: inTime,
+    disconnectedAt: outTime,
+    dateIn: formatDate(inTime),
+    timeIn: formatTimeSeconds(inTime),
+    dateOut: outTime ? formatDate(outTime) : "—",
+    timeOut: outTime ? formatTimeSeconds(outTime) : "—",
+    duration: formatDuration(durationMs),
+    durationMs,
+    method: displayOrDash(open.inRow.connection_method),
+    os: displayOrDash(open.inRow.operating_system),
+    browser: displayOrDash(open.inRow.browser_application),
+    ip: displayOrDash(open.inRow.ip_address),
+    network: displayOrDash(open.inRow.network_type),
+    location: locationValue ? workLocationLabel(locationValue) : "—",
+    status,
+    reason,
+    userId: open.userId
+  };
+}
+
+function buildPunchSessions(punchRows) {
+  const byUser = new Map();
+  punchRows.forEach((row) => {
+    if (!row?.user_id || !row.punched_at) return;
+    if (!byUser.has(row.user_id)) byUser.set(row.user_id, []);
+    byUser.get(row.user_id).push(row);
+  });
+
+  const sessions = [];
+  byUser.forEach((rows, userId) => {
+    const sorted = [...rows].sort((a, b) => new Date(a.punched_at) - new Date(b.punched_at));
+    let open = null;
+    sorted.forEach((row) => {
+      if (row.punch_type === "in") {
+        if (open) sessions.push(finalizeJournalSession(open, null));
+        open = { inRow: row, userId };
+        return;
+      }
+      if (row.punch_type === "out" && open) {
+        sessions.push(finalizeJournalSession(open, row));
+        open = null;
+      }
+    });
+    if (open) sessions.push(finalizeJournalSession(open, null));
+  });
+  return sessions;
+}
+
+function getJournalRange() {
+  return journalFilters.start && journalFilters.end
+    ? journalFilters
+    : getDefaultTeamPunchRange();
+}
+
+function getUnfilteredJournalSessions() {
+  const range = getJournalRange();
+  return buildPunchSessions(getJournalPunchSource()).filter((session) => {
+    const dayKey = toDateKey(new Date(session.connectedAt));
+    if (dayKey < range.start || dayKey > range.end) return false;
+    if (journalFilters.userId && session.userId !== journalFilters.userId) return false;
+    return true;
+  });
+}
+
+function getJournalSessions() {
+  const query = (journalFilters.query || "").trim().toLowerCase();
+  let sessions = getUnfilteredJournalSessions();
+
+  if (query) {
+    sessions = sessions.filter((session) => JOURNAL_COLUMNS.some((column) =>
+      String(session[column.key] || "").toLowerCase().includes(query)
+    ));
+  }
+
+  Object.entries(journalColumnFilters).forEach(([key, value]) => {
+    if (!value) return;
+    sessions = sessions.filter((session) => String(session[key] || "") === value);
+  });
+
+  const dir = journalSort.dir === "asc" ? 1 : -1;
+  const key = journalSort.key || "connectedAt";
+  sessions.sort((a, b) => {
+    if (key === "connectedAt" || key === "disconnectedAt") {
+      const aTime = a[key] ? new Date(a[key]).getTime() : 0;
+      const bTime = b[key] ? new Date(b[key]).getTime() : 0;
+      return (aTime - bTime) * dir;
+    }
+    if (key === "duration") return ((a.durationMs || 0) - (b.durationMs || 0)) * dir;
+    return String(a[key] || "").localeCompare(String(b[key] || ""), "fr", { numeric: true }) * dir;
+  });
+  return sessions;
+}
+
+function uniqueJournalValues(key) {
+  return [...new Set(getUnfilteredJournalSessions().map((session) => String(session[key] || "—")))]
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }));
+}
+
+async function loadJournalPunches(filters = journalFilters) {
+  if (!canViewJournal() || !usesDatabase()) {
+    appData.journalPunches = [];
+    return [];
+  }
+
+  const range = filters.start && filters.end ? filters : getDefaultTeamPunchRange();
+  const profiles = getJournalProfiles();
+  const userIds = filters.userId
+    ? [filters.userId]
+    : profiles.map((profile) => profile.id);
+
+  let query = supabaseClient
+    .from("time_punches")
+    .select("*, profiles(full_name, email)")
+    .order("punched_at", { ascending: false });
+
+  if (filters.userId) {
+    query = query.eq("user_id", filters.userId);
+  } else if (!isAdmin()) {
+    const scopedIds = userIds.length ? userIds : [session.user.id];
+    if (!scopedIds.includes(session.user.id)) scopedIds.push(session.user.id);
+    query = query.in("user_id", scopedIds);
+  }
+
+  query = query.gte("punched_at", `${shiftDateKey(range.start, -1)}T00:00:00`);
+  query = query.lte("punched_at", `${range.end}T23:59:59`);
+
+  const result = await withSupabaseRetry(async () => {
+    const response = await query;
+    if (response.error) throw response.error;
+    return response.data;
+  });
+  appData.journalPunches = result || [];
+  if (appData.journalPunches.length && !Object.prototype.hasOwnProperty.call(appData.journalPunches[0], "connection_method")) {
+    appData.journalMetaMissing = true;
+  }
+  return appData.journalPunches;
+}
+
+function exportJournalCsv() {
+  const sessions = getJournalSessions();
+  if (!sessions.length) {
+    alert("Aucune session a exporter pour cette periode.");
+    return;
+  }
+  const range = getJournalRange();
+  downloadCsv(
+    `journal_${range.start}_${range.end}.csv`,
+    JOURNAL_COLUMNS.map((column) => column.label),
+    sessions.map((session) => JOURNAL_COLUMNS.map((column) => session[column.key]))
+  );
+}
+
+function renderJournalStatus(status) {
+  const tone = status === "Connecte" ? "on" : "off";
+  return `<span class="journal-status journal-status--${tone}">${escapeHtml(status)}</span>`;
+}
+
+function renderJournalColumnMenu(column) {
+  if (journalOpenColumn !== column.key) return "";
+  const values = uniqueJournalValues(column.key);
+  const selected = journalColumnFilters[column.key] || "";
+  return `
+    <div class="journal-col-menu" role="menu">
+      <button type="button" class="journal-col-sort" data-journal-sort="${column.key}" data-journal-dir="asc">Trier A → Z</button>
+      <button type="button" class="journal-col-sort" data-journal-sort="${column.key}" data-journal-dir="desc">Trier Z → A</button>
+      <div class="journal-col-divider"></div>
+      <button type="button" class="journal-col-option${selected ? "" : " is-active"}" data-journal-filter-col="${column.key}" data-journal-filter-value="">Tous</button>
+      ${values.slice(0, 40).map((value) => `
+        <button type="button" class="journal-col-option${selected === value ? " is-active" : ""}" data-journal-filter-col="${column.key}" data-journal-filter-value="${escapeHtml(value)}">${escapeHtml(value)}</button>
+      `).join("")}
+    </div>`;
+}
+
+function journalPage() {
+  if (!canViewJournal()) {
+    return `<article class="card"><p class="empty-state">Acces reserve aux administrateurs.</p></article>`;
+  }
+  if (!journalFilters.start || !journalFilters.end) {
+    journalFilters = { ...journalFilters, ...getDefaultTeamPunchRange() };
+  }
+
+  const range = getJournalRange();
+  const sessions = getJournalSessions();
+  const profiles = getJournalProfiles();
+  const openCount = sessions.filter((session) => session.status === "Connecte").length;
+  const canFilterPeople = usesDatabase();
+  let dbNote = "";
+  if (!usesDatabase()) {
+    dbNote = `<p class="data-note demo">Mode demo : journal local. Connectez-vous avec Microsoft pour voir les sessions reelles.</p>`;
+  } else if (appData.journalMetaMissing) {
+    dbNote = `<p class="data-note">Colonnes techniques absentes en base. Executez <code>supabase/time-punches-journal.sql</code> dans Supabase SQL Editor, puis refaites un pointage d'entree.</p>`;
+  } else if (sessions.length && sessions.every((session) => session.method === "—" && session.os === "—" && session.browser === "—" && session.ip === "—")) {
+    dbNote = `<p class="data-note">Les sessions deja enregistrees n'ont pas IP / OS / navigateur. Ces details apparaitront au prochain pointage d'entree.</p>`;
+  }
+
+  return `
+    ${dbNote}
+    <article class="card form-card page-spacer">
+      ${cardHeading("Filtres")}
+      <form id="journal-filter" class="feature-form team-punches-filter">
+        <div class="form-row">
+          <label>
+            Du
+            <input type="date" name="start" value="${escapeHtml(range.start)}" required>
+          </label>
+          <label>
+            Au
+            <input type="date" name="end" value="${escapeHtml(range.end)}" required>
+          </label>
+        </div>
+        ${canFilterPeople ? `
+        <label>
+          Collaborateur
+          <select name="userId">
+            <option value="">Tous</option>
+            ${profiles.map((profile) => `
+              <option value="${profile.id}"${journalFilters.userId === profile.id ? " selected" : ""}>
+                ${escapeHtml(profile.full_name)}
+              </option>`).join("")}
+          </select>
+        </label>` : ""}
+        <label>
+          Recherche
+          <input type="search" name="query" value="${escapeHtml(journalFilters.query || "")}" placeholder="Nom, matricule, IP, statut...">
+        </label>
+        <div class="team-punches-actions">
+          <button type="submit" class="primary">Actualiser</button>
+          <button type="button" id="journal-export" class="outline-button"${sessions.length ? "" : " disabled"}>Exporter CSV</button>
+        </div>
+      </form>
+    </article>
+    <section class="team-punches-summary page-spacer">
+      <article class="hours-card team-punch-summary-card">
+        <span>Sessions</span>
+        <strong>${sessions.length}</strong>
+        <small>sur la periode</small>
+      </article>
+      <article class="hours-card team-punch-summary-card">
+        <span>En cours</span>
+        <strong>${openCount}</strong>
+        <small>connexion active</small>
+      </article>
+      <article class="hours-card team-punch-summary-card">
+        <span>Deconnectees</span>
+        <strong>${sessions.length - openCount}</strong>
+        <small>sessions closes</small>
+      </article>
+    </section>
+    <article class="card table-card page-spacer journal-card">
+      <div class="toolbar">
+        <h3>Journal</h3>
+        <span class="hierarchy-result-count">${sessions.length} ligne${sessions.length > 1 ? "s" : ""}</span>
+      </div>
+      <div class="table-wrap journal-table-wrap">
+        <table class="journal-table">
+          <thead>
+            <tr>
+              ${JOURNAL_COLUMNS.map((column) => `
+                <th class="journal-th${journalSort.key === column.key ? " is-sorted" : ""}${journalColumnFilters[column.key] ? " is-filtered" : ""}">
+                  <button type="button" class="journal-th-btn" data-journal-col="${column.key}" aria-haspopup="true" aria-expanded="${journalOpenColumn === column.key}">
+                    <span>${column.label}</span>
+                    <span class="journal-th-arrow" aria-hidden="true"></span>
+                  </button>
+                  ${renderJournalColumnMenu(column)}
+                </th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>
+            ${sessions.length
+              ? sessions.map((session) => `
+                <tr>
+                  <td><code class="journal-id">${escapeHtml(session.sessionId)}</code></td>
+                  <td>${escapeHtml(session.matricule)}</td>
+                  <td><strong>${escapeHtml(session.name)}</strong></td>
+                  <td>${escapeHtml(session.department)}</td>
+                  <td>${escapeHtml(session.dateIn)}</td>
+                  <td>${escapeHtml(session.timeIn)}</td>
+                  <td>${escapeHtml(session.dateOut)}</td>
+                  <td>${escapeHtml(session.timeOut)}</td>
+                  <td><strong>${escapeHtml(session.duration)}</strong></td>
+                  <td>${escapeHtml(session.method)}</td>
+                  <td>${escapeHtml(session.os)}</td>
+                  <td>${escapeHtml(session.browser)}</td>
+                  <td><code class="journal-id">${escapeHtml(session.ip)}</code></td>
+                  <td>${escapeHtml(session.network)}</td>
+                  <td>${escapeHtml(session.location)}</td>
+                  <td>${renderJournalStatus(session.status)}</td>
+                  <td>${escapeHtml(session.reason)}</td>
+                </tr>`).join("")
+              : `<tr><td colspan="${JOURNAL_COLUMNS.length}" class="empty-cell">Aucune session pour cette periode. Ajustez les filtres ou pointez une entree.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </article>`;
+}
+
 function teamPunchesPage() {
   if (!usesDatabase()) {
     return `<article class="card"><p class="empty-state">Connectez-vous avec Microsoft pour consulter les pointages de votre equipe.</p></article>`;
@@ -2828,6 +3487,7 @@ function pageContent() {
   return {
     home: homePage,
     pointeuse: pointeusePage,
+    journal: journalPage,
     "team-punches": teamPunchesPage,
     leave: leavePage,
     attestations: attestationsPage,
@@ -2852,6 +3512,9 @@ function formatAppError(error) {
   }
   if (message.includes("bucket") || message.includes("storage")) {
     return "Stockage Supabase non configure. Executez supabase/storage-hr-documents.sql dans SQL Editor.";
+  }
+  if (JOURNAL_META_FIELDS.some((field) => message.includes(field))) {
+    return "Colonnes du Journal non configurees. Executez supabase/time-punches-journal.sql dans SQL Editor, puis refaites un pointage d'entree.";
   }
   if (message.includes("work_location") || (message.includes("column") && message.includes("time_punches"))) {
     return "Lieu de travail non configure. Executez supabase/time-punches-location.sql dans SQL Editor, puis refaites un pointage d'entree.";
@@ -3040,6 +3703,7 @@ async function bootstrapUser(options = {}) {
       await syncSessionAfterLogin();
       await ensureProfile();
       await refreshAppData();
+      collectJournalMeta().catch(() => {});
     } catch (error) {
       appData.error = formatAppError(error);
     } finally {
@@ -3275,11 +3939,13 @@ function bindPageEvents() {
     withAction(async () => {
       const { isOut } = getClockState();
       const punchType = isOut ? "in" : "out";
+      const meta = await collectJournalMeta();
       if (usesDatabase()) {
-        await insertTimePunch(buildClockPunchPayload(punchType));
+        const payload = applyJournalMetaToPayload(buildClockPunchPayload(punchType), meta, punchType);
+        await insertTimePunch(payload);
       } else {
         const punches = loadStore("punches", []);
-        punches.push(buildDemoClockPunch(punchType));
+        punches.push(applyJournalMetaToDemoPunch(buildDemoClockPunch(punchType), meta, punchType));
         saveStore("punches", punches);
       }
     });
@@ -3378,6 +4044,100 @@ function bindPageEvents() {
   document.querySelector("#team-punches-export")?.addEventListener("click", () => {
     exportTeamPunchesCsv();
   });
+
+  const journalFilter = document.querySelector("#journal-filter");
+  if (journalFilter) {
+    if (!journalFilters.start || !journalFilters.end) {
+      journalFilters = { ...getDefaultTeamPunchRange(), userId: journalFilters.userId || "", query: journalFilters.query || "" };
+    }
+    journalFilter.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      journalFilters = {
+        start: data.get("start"),
+        end: data.get("end"),
+        userId: data.get("userId") || "",
+        query: data.get("query") || ""
+      };
+      if (new Date(journalFilters.end) < new Date(journalFilters.start)) {
+        alert("La date de fin doit etre apres la date de debut.");
+        return;
+      }
+      journalPunchesInitialLoadDone = true;
+      if (usesDatabase()) {
+        withAction(() => loadJournalPunches());
+      } else {
+        renderApp();
+      }
+    });
+  }
+
+  if (currentPage === "journal" && canViewJournal() && usesDatabase() && !journalPunchesInitialLoadDone) {
+    journalPunchesInitialLoadDone = true;
+    loadJournalPunches()
+      .then(() => {
+        if (currentPage !== "journal") return;
+        const content = document.querySelector("#page-content");
+        if (content) {
+          content.innerHTML = pageContent();
+          bindPageEvents();
+        }
+      })
+      .catch((error) => {
+        appData.error = formatAppError(error);
+        renderApp();
+      });
+  }
+
+  document.querySelector("#journal-export")?.addEventListener("click", () => {
+    exportJournalCsv();
+  });
+
+  document.querySelectorAll("[data-journal-col]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const key = button.dataset.journalCol;
+      journalOpenColumn = journalOpenColumn === key ? "" : key;
+      const content = document.querySelector("#page-content");
+      if (content) {
+        content.innerHTML = pageContent();
+        bindPageEvents();
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-journal-sort]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      journalSort = {
+        key: button.dataset.journalSort,
+        dir: button.dataset.journalDir || (journalSort.key === button.dataset.journalSort && journalSort.dir === "desc" ? "asc" : "desc")
+      };
+      journalOpenColumn = "";
+      const content = document.querySelector("#page-content");
+      if (content) {
+        content.innerHTML = pageContent();
+        bindPageEvents();
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-journal-filter-col]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const key = button.dataset.journalFilterCol;
+      const value = button.dataset.journalFilterValue || "";
+      if (value) journalColumnFilters[key] = value;
+      else delete journalColumnFilters[key];
+      journalOpenColumn = "";
+      const content = document.querySelector("#page-content");
+      if (content) {
+        content.innerHTML = pageContent();
+        bindPageEvents();
+      }
+    });
+  });
+
 
   document.querySelector(".leave-cal-prev")?.addEventListener("click", () => {
     shiftLeaveCalendarMonth(-1);
@@ -3685,6 +4445,9 @@ function bindAppEvents() {
       if (nextPage === "team-punches") {
         teamPunchesInitialLoadDone = false;
       }
+      if (nextPage === "journal") {
+        journalPunchesInitialLoadDone = false;
+      }
       currentPage = nextPage;
       document.querySelector(".sidebar")?.classList.remove("open");
       renderApp();
@@ -3708,6 +4471,10 @@ function bindAppEvents() {
     currentPage = "home";
     initialAuthHandled = false;
     teamPunchesInitialLoadDone = false;
+    journalPunchesInitialLoadDone = false;
+    journalFilters = { start: "", end: "", userId: "", query: "" };
+    journalColumnFilters = {};
+    journalOpenColumn = "";
     leaveCalendarMonth = null;
     appData = {
       loading: false,
@@ -3715,6 +4482,8 @@ function bindAppEvents() {
       profile: null,
       punches: [],
       teamPunches: [],
+      journalPunches: [],
+      journalMetaMissing: false,
       teamLeaveRequests: [],
       leaveRequests: [],
       attestationRequests: [],
@@ -3724,6 +4493,7 @@ function bindAppEvents() {
       payslips: [],
       hrAlerts: [],
       navVisibility: null,
+      studioCreators: [],
       adminEditingId: "",
       adminEditingInviteId: ""
     };
