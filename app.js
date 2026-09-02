@@ -31,6 +31,7 @@ let appData = {
   payslips: [],
   hrAlerts: [],
   navVisibility: null,
+  studioCreators: [],
   adminEditingId: "",
   adminEditingInviteId: ""
 };
@@ -317,12 +318,37 @@ function usesDatabase() {
 }
 
 function isCreator() {
-  return appData.profile?.role === "creator";
+  if (appData.profile?.role === "creator") return true;
+  const email = session?.user?.email?.toLowerCase();
+  return Boolean(email && getStudioCreatorEmails().includes(email));
 }
 
 function isAdmin() {
   const role = appData.profile?.role;
   return role === "admin" || role === "creator";
+}
+
+function getStudioCreatorEmails() {
+  return (appData.studioCreators || [])
+    .map((email) => String(email || "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function normalizeStudioCreators(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((email) => String(email || "").trim().toLowerCase()).filter(Boolean))];
+}
+
+function isStudioCreatorEmail(email) {
+  const normalized = String(email || "").trim().toLowerCase();
+  return Boolean(normalized && getStudioCreatorEmails().includes(normalized));
+}
+
+function renderUserRolePills() {
+  const pills = [];
+  if (isAdmin()) pills.push(`<span class="admin-pill">Admin</span>`);
+  if (isCreator()) pills.push(`<span class="creator-pill">Createur</span>`);
+  return pills.join("");
 }
 
 function getNavAudienceRole() {
@@ -388,6 +414,44 @@ async function saveNavVisibility(settings) {
     .upsert({ key: "nav_visibility", value: normalized }, { onConflict: "key" });
   if (error) throw error;
   appData.navVisibility = normalized;
+}
+
+async function loadStudioCreators() {
+  if (!usesDatabase()) {
+    appData.studioCreators = normalizeStudioCreators(loadStore("studioCreators", []));
+    return;
+  }
+
+  const { data, error } = await supabaseClient
+    .from("app_settings")
+    .select("value")
+    .eq("key", "studio_creators")
+    .maybeSingle();
+
+  if (error) {
+    if (error.message.includes("does not exist") || error.message.includes("app_settings")) {
+      appData.studioCreators = [];
+      return;
+    }
+    throw error;
+  }
+
+  appData.studioCreators = normalizeStudioCreators(data?.value || []);
+}
+
+async function saveStudioCreators(emails) {
+  const normalized = normalizeStudioCreators(emails);
+  if (!usesDatabase()) {
+    saveStore("studioCreators", normalized);
+    appData.studioCreators = normalized;
+    return;
+  }
+
+  const { error } = await supabaseClient
+    .from("app_settings")
+    .upsert({ key: "studio_creators", value: normalized }, { onConflict: "key" });
+  if (error) throw error;
+  appData.studioCreators = normalized;
 }
 
 function ensureAccessiblePage() {
@@ -1158,45 +1222,49 @@ function setUserAccountEditing({ profileId = "", inviteId = "" }) {
 }
 
 function getCreatorProfiles() {
-  return appData.orgProfiles.filter((profile) => profile.role === "creator");
+  return appData.orgProfiles.filter((profile) =>
+    profile.role === "creator" || isStudioCreatorEmail(profile.email)
+  );
 }
 
 function getPendingCreatorInvites() {
-  return appData.pendingInvites.filter((invite) => invite.role === "creator");
+  return appData.pendingInvites.filter((invite) =>
+    invite.role === "creator" || isStudioCreatorEmail(invite.email)
+  );
 }
 
 async function persistCreatorAccount({ email, fullName }) {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
   const payload = {
     full_name: fullName,
-    job_title: "Createur",
+    job_title: "Administrateur",
     department: "General",
-    role: "creator",
+    role: "admin",
     manager_id: null,
     leave_balance_cp: 25,
     leave_balance_rtt: 8
   };
 
-  const existing = appData.orgProfiles.find((profile) => profile.email?.toLowerCase() === email);
+  const existing = appData.orgProfiles.find((profile) => profile.email?.toLowerCase() === normalizedEmail);
   if (existing) {
-    if (existing.role === "creator") {
+    if (existing.role === "creator" || isStudioCreatorEmail(existing.email)) {
       throw new Error("Cette personne est deja createur.");
     }
     const { error } = await supabaseClient.from("profiles").update(payload).eq("id", existing.id);
     if (error) throw error;
-    return;
+  } else {
+    if (getPendingCreatorInvites().some((invite) => invite.email?.toLowerCase() === normalizedEmail)) {
+      throw new Error("Une invitation createur existe deja pour cette adresse e-mail.");
+    }
+    const { error } = await supabaseClient.from("pending_invites").upsert({
+      email: normalizedEmail,
+      ...payload,
+      created_by: session.user.id
+    }, { onConflict: "email" });
+    if (error) throw error;
   }
 
-  const pending = appData.pendingInvites.find((invite) => invite.email?.toLowerCase() === email);
-  if (pending?.role === "creator") {
-    throw new Error("Une invitation createur existe deja pour cette adresse e-mail.");
-  }
-
-  const { error } = await supabaseClient.from("pending_invites").upsert({
-    email,
-    ...payload,
-    created_by: session.user.id
-  }, { onConflict: "email" });
-  if (error) throw error;
+  await saveStudioCreators([...getStudioCreatorEmails(), normalizedEmail]);
 }
 
 function renderCreatorAccountsSection() {
@@ -1206,7 +1274,7 @@ function renderCreatorAccountsSection() {
   return `
     <article class="card form-card page-spacer">
       ${cardHeading("Comptes createur")}
-      <p class="creator-intro">Votre compte createur reste actif. Ajoutez ici un second acces createur pour une autre personne.</p>
+      <p class="creator-intro">Votre compte createur reste actif. Ajoutez ici un second acces createur : la personne aura le role <strong>Administrateur</strong> et l'acces Studio createur.</p>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Nom</th><th>Email</th><th>Statut</th></tr></thead>
@@ -1244,7 +1312,7 @@ function renderCreatorAccountsSection() {
         </div>
         <button type="submit" class="primary">Ajouter un compte createur</button>
       </form>
-      <p class="hierarchy-meta">Si la personne n'a jamais connecte Humana, elle sera pre-enregistree comme createur. Sinon, son profil existant sera promu createur.</p>
+      <p class="hierarchy-meta">Si la personne n'a jamais connecte Humana, elle sera pre-enregistree comme administrateur createur. Sinon, son profil existant sera promu administrateur createur.</p>
     </article>`;
 }
 
@@ -2941,6 +3009,7 @@ async function refreshAppData() {
     }
 
     await loadNavVisibility();
+    await loadStudioCreators();
 
     if (canViewTeamPunches()) {
       await loadTeamPunches(teamPunchFilters);
@@ -3115,7 +3184,7 @@ function renderApp() {
             ${item[1]}${navBadge(item[0])}
           </button>`).join("")}</nav>
         <div class="sidebar-bottom">
-          <div class="user-card"><span class="avatar avatar-sidebar-user" aria-hidden="true">${initials}</span><div class="user-card-text"><strong title="${name}">${name}</strong><span class="user-card-email" title="${email}">${email}</span>${isCreator() ? `<span class="creator-pill">Createur</span>` : isAdmin() ? `<span class="admin-pill">Admin</span>` : ""}</div><button type="button" id="logout" class="logout-btn" aria-label="Se deconnecter">Sortir</button></div>
+          <div class="user-card"><span class="avatar avatar-sidebar-user" aria-hidden="true">${initials}</span><div class="user-card-text"><strong title="${name}">${name}</strong><span class="user-card-email" title="${email}">${email}</span>${renderUserRolePills()}</div><button type="button" id="logout" class="logout-btn" aria-label="Se deconnecter">Sortir</button></div>
         </div>
       </aside>
       <button class="backdrop" type="button" aria-label="Fermer le menu"></button>
