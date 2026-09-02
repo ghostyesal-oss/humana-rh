@@ -18,6 +18,7 @@ let journalSort = { key: "connectedAt", dir: "desc" };
 let journalColumnFilters = {};
 let journalOpenColumn = "";
 let journalPunchesInitialLoadDone = false;
+let journalMetaColumnsEnabled = true;
 let leaveCalendarMonth = null;
 let initialAuthHandled = false;
 
@@ -28,6 +29,7 @@ let appData = {
   punches: [],
   teamPunches: [],
   journalPunches: [],
+  journalMetaMissing: false,
   teamLeaveRequests: [],
   leaveRequests: [],
   attestationRequests: [],
@@ -234,6 +236,14 @@ const navigation = [
 const HR_DOCUMENTS_BUCKET = "hr-documents";
 const HR_DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
 const AUTO_CLOCK_OUT_MS = 10 * 60 * 60 * 1000;
+const JOURNAL_META_FIELDS = [
+  "connection_method",
+  "operating_system",
+  "browser_application",
+  "ip_address",
+  "network_type",
+  "disconnect_reason"
+];
 const JOURNAL_COLUMNS = [
   { key: "sessionId", label: "ID_Session" },
   { key: "matricule", label: "Matricule" },
@@ -526,14 +536,36 @@ function isMissingWorkLocationColumnError(error) {
   );
 }
 
+function isMissingJournalColumnError(error) {
+  const message = (error?.message || error?.details || "").toLowerCase();
+  return JOURNAL_META_FIELDS.some((field) => message.includes(field));
+}
+
+function stripJournalMetaFields(payload) {
+  const next = { ...payload };
+  JOURNAL_META_FIELDS.forEach((field) => {
+    delete next[field];
+  });
+  return next;
+}
+
 async function insertTimePunch(payload) {
-  const { error } = await supabaseClient.from("time_punches").insert(payload);
+  const attempt = journalMetaColumnsEnabled ? { ...payload } : stripJournalMetaFields(payload);
+  const { error } = await supabaseClient.from("time_punches").insert(attempt);
   if (!error) return;
 
   if (payload.work_location && isMissingWorkLocationColumnError(error)) {
     const migrationError = new Error("work_location column missing");
     migrationError.details = error.message;
     throw migrationError;
+  }
+
+  if (journalMetaColumnsEnabled && isMissingJournalColumnError(error)) {
+    journalMetaColumnsEnabled = false;
+    appData.journalMetaMissing = true;
+    const retry = await supabaseClient.from("time_punches").insert(stripJournalMetaFields(attempt));
+    if (!retry.error) return;
+    throw retry.error;
   }
 
   throw error;
@@ -1293,39 +1325,147 @@ function formatDuration(ms) {
 }
 
 function parseClientEnvironment() {
+  const uaData = navigator.userAgentData;
   const ua = navigator.userAgent || "";
-  let os = "Inconnu";
-  if (/Windows NT 10/i.test(ua)) os = "Windows 10/11";
-  else if (/Windows/i.test(ua)) os = "Windows";
-  else if (/Mac OS X/i.test(ua)) os = "macOS";
-  else if (/Android/i.test(ua)) os = "Android";
-  else if (/iPhone|iPad|iPod/i.test(ua)) os = "iOS";
-  else if (/Linux/i.test(ua)) os = "Linux";
+  let os = uaData?.platform || "Inconnu";
+  if (!uaData?.platform) {
+    if (/Windows NT 10/i.test(ua)) os = "Windows 10/11";
+    else if (/Windows/i.test(ua)) os = "Windows";
+    else if (/Mac OS X/i.test(ua)) os = "macOS";
+    else if (/Android/i.test(ua)) os = "Android";
+    else if (/iPhone|iPad|iPod/i.test(ua)) os = "iOS";
+    else if (/Linux/i.test(ua)) os = "Linux";
+  } else if (/Win/i.test(os)) os = "Windows";
+  else if (/Mac/i.test(os)) os = "macOS";
 
   let browser = "Navigateur";
-  if (/Edg\//i.test(ua)) browser = "Microsoft Edge";
+  const brands = uaData?.brands || [];
+  const brand = brands.find((item) => item.brand && !/not.?a.?brand/i.test(item.brand) && !/chromium/i.test(item.brand));
+  if (brand?.brand) browser = brand.brand;
+  else if (/Edg\//i.test(ua)) browser = "Microsoft Edge";
   else if (/OPR\/|Opera/i.test(ua)) browser = "Opera";
   else if (/Chrome\//i.test(ua) && !/Edg\//i.test(ua)) browser = "Google Chrome";
   else if (/Firefox\//i.test(ua)) browser = "Mozilla Firefox";
   else if (/Safari\//i.test(ua) && !/Chrome/i.test(ua)) browser = "Safari";
 
-  const method = /Mobi|Android|iPhone|iPad/i.test(ua) ? "Web mobile" : "Web";
+  const method = /Mobi|Android|iPhone|iPad/i.test(ua) || uaData?.mobile
+    ? "Web mobile"
+    : "Web";
   const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  const rawNetwork = connection?.type || connection?.effectiveType || "";
+  const rawType = String(connection?.type || "").toLowerCase();
   const networkMap = {
     wifi: "Wi-Fi",
+    wlan: "Wi-Fi",
     ethernet: "Ethernet",
     cellular: "Mobile",
-    "4g": "4G",
-    "5g": "5G",
-    "3g": "3G",
-    "2g": "2G",
-    "slow-2g": "2G"
+    bluetooth: "Bluetooth",
+    wimax: "WiMAX",
+    other: "Autre"
   };
-  const network = networkMap[String(rawNetwork).toLowerCase()]
+  const network = networkMap[rawType]
     || (getPreferredWorkLocation() === "onsite" ? "LAN" : "Internet");
 
   return { method, os, browser, network };
+}
+
+async function getPublicIpAddress() {
+  try {
+    const cached = sessionStorage.getItem("humana_public_ip");
+    if (cached) return cached;
+  } catch {
+    /* ignore */
+  }
+
+  const withTimeout = async (factory, ms = 1500) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    try {
+      return await factory(controller.signal);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const sources = [
+    async (signal) => {
+      const response = await fetch("https://api.ipify.org?format=json", { signal });
+      const data = await response.json();
+      return data?.ip || "";
+    },
+    async (signal) => {
+      const response = await fetch("https://ipv4.icanhazip.com", { signal });
+      return (await response.text()).trim();
+    },
+    async (signal) => {
+      const response = await fetch("https://www.cloudflare.com/cdn-cgi/trace", { signal });
+      const text = await response.text();
+      const match = text.match(/^ip=([^\s]+)$/m);
+      return match ? match[1] : "";
+    }
+  ];
+
+  for (const source of sources) {
+    try {
+      const ip = (await withTimeout(source)).replace(/[^0-9a-fA-F:.]/g, "");
+      if (ip) {
+        try { sessionStorage.setItem("humana_public_ip", ip); } catch { /* ignore */ }
+        return ip;
+      }
+    } catch {
+      /* essayer la source suivante */
+    }
+  }
+  return "";
+}
+
+async function collectJournalMeta() {
+  const env = parseClientEnvironment();
+  try {
+    if (navigator.userAgentData?.getHighEntropyValues) {
+      const high = await navigator.userAgentData.getHighEntropyValues(["platformVersion"]);
+      if (/Windows/i.test(env.os) && high?.platformVersion) {
+        const major = parseInt(String(high.platformVersion).split(".")[0], 10);
+        if (!Number.isNaN(major)) env.os = major >= 13 ? "Windows 11" : "Windows 10";
+      }
+    }
+  } catch {
+    /* hints optionnels */
+  }
+  const ip = await getPublicIpAddress();
+  return { ...env, ip };
+}
+
+function applyJournalMetaToPayload(payload, meta, punchType) {
+  if (!meta || !journalMetaColumnsEnabled) return payload;
+  if (punchType === "in") {
+    payload.connection_method = meta.method;
+    payload.operating_system = meta.os;
+    payload.browser_application = meta.browser;
+    if (meta.ip) payload.ip_address = meta.ip;
+    payload.network_type = meta.network;
+  }
+  if (punchType === "out") {
+    payload.disconnect_reason = payload.disconnect_reason || "Sortie manuelle";
+  }
+  return payload;
+}
+
+function applyJournalMetaToDemoPunch(punch, meta, punchType) {
+  if (!meta) return punch;
+  if (punchType === "in") {
+    punch.connection_method = meta.method;
+    punch.operating_system = meta.os;
+    punch.browser_application = meta.browser;
+    punch.ip_address = meta.ip || "";
+    punch.network_type = meta.network;
+    punch.method = meta.method;
+    punch.os = meta.os;
+    punch.browser = meta.browser;
+    punch.ip = meta.ip || "";
+    punch.network = meta.network;
+  }
+  if (punchType === "out") punch.disconnect_reason = "Sortie manuelle";
+  return punch;
 }
 
 function punchTypeLabel(type) {
@@ -2254,6 +2394,9 @@ async function loadJournalPunches(filters = journalFilters) {
     return response.data;
   });
   appData.journalPunches = result || [];
+  if (appData.journalPunches.length && !Object.prototype.hasOwnProperty.call(appData.journalPunches[0], "connection_method")) {
+    appData.journalMetaMissing = true;
+  }
   return appData.journalPunches;
 }
 
@@ -2305,9 +2448,14 @@ function journalPage() {
   const profiles = getJournalProfiles();
   const openCount = sessions.filter((session) => session.status === "Connecte").length;
   const canFilterPeople = usesDatabase();
-  const dbNote = usesDatabase()
-    ? ""
-    : `<p class="data-note demo">Mode demo : journal local. Connectez-vous avec Microsoft pour voir les sessions reelles.</p>`;
+  let dbNote = "";
+  if (!usesDatabase()) {
+    dbNote = `<p class="data-note demo">Mode demo : journal local. Connectez-vous avec Microsoft pour voir les sessions reelles.</p>`;
+  } else if (appData.journalMetaMissing) {
+    dbNote = `<p class="data-note">Colonnes techniques absentes en base. Executez <code>supabase/time-punches-journal.sql</code> dans Supabase SQL Editor, puis refaites un pointage d'entree.</p>`;
+  } else if (sessions.length && sessions.every((session) => session.method === "—" && session.os === "—" && session.browser === "—" && session.ip === "—")) {
+    dbNote = `<p class="data-note">Les sessions deja enregistrees n'ont pas IP / OS / navigateur. Ces details apparaitront au prochain pointage d'entree.</p>`;
+  }
 
   return `
     ${dbNote}
@@ -3046,6 +3194,9 @@ function formatAppError(error) {
   if (message.includes("bucket") || message.includes("storage")) {
     return "Stockage Supabase non configure. Executez supabase/storage-hr-documents.sql dans SQL Editor.";
   }
+  if (JOURNAL_META_FIELDS.some((field) => message.includes(field))) {
+    return "Colonnes du Journal non configurees. Executez supabase/time-punches-journal.sql dans SQL Editor, puis refaites un pointage d'entree.";
+  }
   if (message.includes("work_location") || (message.includes("column") && message.includes("time_punches"))) {
     return "Lieu de travail non configure. Executez supabase/time-punches-location.sql dans SQL Editor, puis refaites un pointage d'entree.";
   }
@@ -3229,6 +3380,7 @@ async function bootstrapUser(options = {}) {
       await syncSessionAfterLogin();
       await ensureProfile();
       await refreshAppData();
+      collectJournalMeta().catch(() => {});
     } catch (error) {
       appData.error = formatAppError(error);
     } finally {
@@ -3478,11 +3630,13 @@ function bindPageEvents() {
     withAction(async () => {
       const { isOut } = getClockState();
       const punchType = isOut ? "in" : "out";
+      const meta = await collectJournalMeta();
       if (usesDatabase()) {
-        await insertTimePunch(buildClockPunchPayload(punchType));
+        const payload = applyJournalMetaToPayload(buildClockPunchPayload(punchType), meta, punchType);
+        await insertTimePunch(payload);
       } else {
         const punches = loadStore("punches", []);
-        punches.push(buildDemoClockPunch(punchType));
+        punches.push(applyJournalMetaToDemoPunch(buildDemoClockPunch(punchType), meta, punchType));
         saveStore("punches", punches);
       }
     });
@@ -4113,6 +4267,7 @@ function bindAppEvents() {
       punches: [],
       teamPunches: [],
       journalPunches: [],
+      journalMetaMissing: false,
       teamLeaveRequests: [],
       leaveRequests: [],
       attestationRequests: [],
