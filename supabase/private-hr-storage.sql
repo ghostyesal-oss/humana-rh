@@ -14,21 +14,21 @@ begin;
 -- Conserver le chemin des anciens fichiers sans effacer file_url.
 update public.hr_documents
 set storage_path = split_part(
-  split_part(file_url, '/object/public/hr-documents/'),
-  '?',
+  split_part(file_url::text, '/object/public/hr-documents/'::text, 2),
+  '?'::text,
   1
 )
 where coalesce(storage_path, '') = ''
-  and file_url like '%/object/public/hr-documents/%';
+  and file_url::text like '%/object/public/hr-documents/%';
 
 update public.payslips
 set storage_path = split_part(
-  split_part(file_url, '/object/public/hr-documents/'),
-  '?',
+  split_part(file_url::text, '/object/public/hr-documents/'::text, 2),
+  '?'::text,
   1
 )
 where coalesce(storage_path, '') = ''
-  and file_url like '%/object/public/hr-documents/%';
+  and file_url::text like '%/object/public/hr-documents/%';
 
 -- Securite de migration : tout annuler plutot que couper l'acces a un ancien
 -- fichier dont le chemin n'a pas pu etre retrouve ou qui manque dans Storage.
