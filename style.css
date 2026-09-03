@@ -4018,35 +4018,30 @@ body.journal-expanded-open {
 }
 
 .journal-table {
-<<<<<<< HEAD
-  min-width: 1680px;
-  width: 100%;
-  margin: 0 auto;
-=======
   width: 100% !important;
   min-width: 0 !important;
   max-width: 100%;
   table-layout: fixed;
->>>>>>> 9d7d451f00166d3c1e34247f94a3b937974ebd80
   border-collapse: separate;
   border-spacing: 0;
 }
 
 .journal-col-id { width: 6%; }
 .journal-col-mat { width: 6%; }
-.journal-col-name { width: 10%; }
-.journal-col-dept { width: 5.5%; }
+.journal-col-name { width: 9%; }
+.journal-col-dept { width: 5%; }
+.journal-col-event { width: 8%; }
 .journal-col-date { width: 6%; }
-.journal-col-time { width: 5%; }
+.journal-col-time { width: 5.5%; }
 .journal-col-dur { width: 5%; }
 .journal-col-method { width: 5%; }
-.journal-col-os { width: 5.5%; }
-.journal-col-browser { width: 6.5%; }
-.journal-col-ip { width: 6.5%; }
+.journal-col-os { width: 5%; }
+.journal-col-browser { width: 6%; }
+.journal-col-ip { width: 7%; }
 .journal-col-net { width: 5%; }
-.journal-col-loc { width: 6.5%; }
+.journal-col-loc { width: 6%; }
 .journal-col-status { width: 5.5%; }
-.journal-col-reason { width: 6.5%; }
+.journal-col-reason { width: 5%; }
 
 .journal-table thead th {
   position: sticky;
@@ -4185,6 +4180,37 @@ body.journal-expanded-open {
   font-weight: 700;
 }
 
+.journal-event {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.journal-event--in {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.journal-event--out {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+
+.journal-row--out td {
+  background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+}
+
+[data-theme="dark"] .journal-event--in {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+
 .journal-status--on {
   background: #dcfce7;
   color: #166534;
@@ -4213,7 +4239,8 @@ body.journal-expanded-open {
   }
 
   .journal-id,
-  .journal-status {
+  .journal-status,
+  .journal-event {
     font-size: 9px;
   }
 
