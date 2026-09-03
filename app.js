@@ -2649,8 +2649,9 @@ function renderDayTimeline(punches, profile) {
       if (labeledMins.has(min)) return;
       if (seg.type === "off" || seg.type === "future") return;
       labeledMins.add(min);
-      const h = Math.floor(min / 60);
-      const m = min % 60;
+      const rounded = Math.round(min);
+      const h = Math.floor(rounded / 60);
+      const m = rounded % 60;
       const label = m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, "0")}`;
       keyLabels.push({ min, label });
     });
