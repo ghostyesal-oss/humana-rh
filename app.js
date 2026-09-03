@@ -517,6 +517,9 @@ async function loadNavVisibility() {
 }
 
 async function saveNavVisibility(settings) {
+  if (usesDatabase() && !isCreator()) {
+    throw new Error("Seul un createur peut modifier la visibilite des onglets.");
+  }
   const normalized = normalizeNavVisibility(settings);
   if (!usesDatabase()) {
     saveStore("navVisibility", normalized);
@@ -555,6 +558,9 @@ async function loadStudioCreators() {
 }
 
 async function saveStudioCreators(emails) {
+  if (usesDatabase() && !isCreator()) {
+    throw new Error("Seul un createur peut modifier les comptes createur.");
+  }
   const normalized = normalizeStudioCreators(emails);
   if (!usesDatabase()) {
     saveStore("studioCreators", normalized);
@@ -1522,6 +1528,9 @@ function getPendingCreatorInvites() {
 }
 
 async function persistCreatorAccount({ email, fullName }) {
+  if (usesDatabase() && !isCreator()) {
+    throw new Error("Seul un createur peut ajouter un compte createur.");
+  }
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const payload = {
     full_name: fullName,
@@ -1644,6 +1653,10 @@ function bindCreatorAccountsSection() {
 }
 
 function parseUserAccountForm(data) {
+  const requestedRole = String(data.get("role") || "employee");
+  const role = ["employee", "manager", "admin"].includes(requestedRole)
+    ? requestedRole
+    : "employee";
   return {
     email: String(data.get("email") || "").trim().toLowerCase(),
     profileId: String(data.get("profile_id") || ""),
@@ -1652,7 +1665,7 @@ function parseUserAccountForm(data) {
       full_name: String(data.get("full_name") || "").trim(),
       job_title: String(data.get("job_title") || "Collaborateur").trim(),
       department: String(data.get("department") || "General").trim(),
-      role: String(data.get("role") || "employee"),
+      role,
       manager_id: String(data.get("manager_id") || "") || null,
       leave_balance_cp: Number(data.get("leave_balance_cp") || 25),
       leave_balance_rtt: Number(data.get("leave_balance_rtt") || 0),
@@ -1672,6 +1685,9 @@ async function persistWithGtaFallback(action, payload) {
 }
 
 async function persistUserAccount({ email, profileId, inviteId, payload }) {
+  if (usesDatabase() && !isAdmin()) {
+    throw new Error("Seul un administrateur peut gerer les comptes.");
+  }
   if (profileId) {
     if (profileId === session.user.id && payload.role !== "admin" && appData.profile?.role === "admin") {
       const adminCount = appData.orgProfiles.filter((profile) => profile.role === "admin").length;
