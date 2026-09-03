@@ -13,12 +13,6 @@ let hierarchySearch = "";
 const collapsedOrgNodes = new Set();
 let teamPunchFilters = { start: "", end: "", userId: "", scope: "all" };
 let teamPunchesInitialLoadDone = false;
-let journalFilters = { start: "", end: "", userId: "", query: "" };
-let journalSort = { key: "connectedAt", dir: "desc" };
-let journalColumnFilters = {};
-let journalOpenColumn = "";
-let journalPunchesInitialLoadDone = false;
-let journalMetaColumnsEnabled = true;
 let leaveCalendarMonth = null;
 let initialAuthHandled = false;
 
@@ -28,8 +22,6 @@ let appData = {
   profile: null,
   punches: [],
   teamPunches: [],
-  journalPunches: [],
-  journalMetaMissing: false,
   teamLeaveRequests: [],
   leaveRequests: [],
   attestationRequests: [],
@@ -38,9 +30,6 @@ let appData = {
   hrDocuments: [],
   payslips: [],
   hrAlerts: [],
-  punchCorrections: [],
-  overtimeRequests: [],
-  activityEntries: [],
   navVisibility: null,
   studioCreators: [],
   adminEditingId: "",
@@ -77,12 +66,10 @@ function getDefaultNavVisibility() {
 const pages = {
   home: ["Accueil", "Tout ce dont vous avez besoin, au meme endroit."],
   pointeuse: ["Pointeuse", "Enregistrez vos arrivees et vos departs."],
-  journal: ["Journal", "Consultez l'historique des connexions et les details techniques."],
-  leave: ["Conges", "Demandes, soldes, validations et justificatifs."],
+  leave: ["Conges", "Consultez vos soldes et faites vos demandes."],
   attestations: ["Attestations", "Demandez vos documents en quelques clics."],
   hierarchy: ["Hierarchie", "Votre manager, votre equipe, l'organigramme."],
   "team-punches": ["Pointages equipe", "Admin : tous les collaborateurs. Manager : son equipe directe."],
-  reports: ["Rapports EDS", "Temps, absences, retards et extract paie du 21 au 20."],
   admin: ["Administration", "Gestion des comptes et des acces."],
   creator: ["Studio createur", "Controlez la visibilite des onglets par profil."]
 };
@@ -241,108 +228,13 @@ const navigation = [
 const HR_DOCUMENTS_BUCKET = "hr-documents";
 const HR_DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
 const AUTO_CLOCK_OUT_MS = 10 * 60 * 60 * 1000;
-const JOURNAL_META_FIELDS = [
-  "connection_method",
-  "operating_system",
-  "browser_application",
-  "ip_address",
-  "network_type",
-  "disconnect_reason"
-];
-const JOURNAL_COLUMNS = [
-  { key: "sessionId", label: "ID_Session" },
-  { key: "matricule", label: "Matricule" },
-  { key: "name", label: "Nom_Collaborateur" },
-  { key: "department", label: "Departement" },
-  { key: "dateIn", label: "Date_Connexion" },
-  { key: "timeIn", label: "Heure_Connexion" },
-  { key: "dateOut", label: "Date_Deconnexion" },
-  { key: "timeOut", label: "Heure_Deconnexion" },
-  { key: "duration", label: "Duree_Session" },
-  { key: "method", label: "Moyen_Connexion" },
-  { key: "os", label: "Systeme_Exploitation" },
-  { key: "browser", label: "Navigateur_Application" },
-  { key: "ip", label: "Adresse_IP" },
-  { key: "network", label: "Type_Reseau" },
-  { key: "location", label: "Localisation" },
-  { key: "status", label: "Statut_Connexion" },
-  { key: "reason", label: "Raison_Deconnexion" }
-];
 const WORK_LOCATION_STORE_KEY = "workLocation";
 const WORK_LOCATIONS = {
   onsite: "Sur site",
   remote: "Teletravail"
 };
 
-const ABSENCE_CODES = [
-  { code: "Congés Payés", label: "Conges payes", key: "cp", group: "cp", attachment: false, grades: ["employee", "manager", "codir"] },
-  { code: "Congés Payés Responsable Département", label: "Conges payes responsable departement", key: "cp", group: "cp", attachment: false, grades: ["manager", "codir"] },
-  { code: "Congés Payés Management", label: "Conges payes management", key: "cp", group: "cp", attachment: false, grades: ["codir"] },
-  { code: "Récupération", label: "Recuperation", key: "recup", group: "recup", attachment: false },
-  { code: "Conge Maternite", label: "Conge maternite", key: "maternity", group: "family", attachment: true },
-  { code: "Conges Paternite", label: "Conge paternite", key: "paternity", group: "family", attachment: true },
-  { code: "Circoncision", label: "Circoncision", key: "special", group: "event", attachment: true },
-  { code: "Décès 2 Jours", label: "Deces 2 jours", key: "special", group: "event", attachment: true, fixedDays: 2 },
-  { code: "Décès 3 Jours", label: "Deces 3 jours", key: "special", group: "event", attachment: true, fixedDays: 3 },
-  { code: "Mariage salarié", label: "Mariage salarie", key: "special", group: "event", attachment: true },
-  { code: "Opération conjoint / Enfant", label: "Operation conjoint / enfant", key: "special", group: "event", attachment: true },
-  { code: "Congé Sans Solde", label: "Conge sans solde", key: "unpaid", group: "unpaid", attachment: true },
-  { code: "ABS JUSTTIFIER", label: "Absence justifiee", key: "justified", group: "admin", attachment: true },
-  { code: "ABS INJUSTIFIER", label: "Absence injustifiee", key: "unjustified", group: "admin", attachment: false, adminOnly: true },
-  { code: "Déplacement", label: "Deplacement", key: "travel", group: "work", attachment: false },
-  { code: "RETARD", label: "Retard", key: "hours", group: "time", attachment: false, unit: "hours" },
-  { code: "DEPART", label: "Depart anticipe", key: "hours", group: "time", attachment: false, unit: "hours" },
-  { code: "MISE A PIED", label: "Mise a pied", key: "suspension", group: "admin", attachment: false, adminOnly: true }
-];
-const ABSENCE_GROUP_LABELS = {
-  cp: "Conges payes",
-  recup: "Recuperation",
-  family: "Familial",
-  event: "Evenements",
-  unpaid: "Sans solde",
-  admin: "Absences / mesures RH",
-  work: "Deplacement",
-  time: "Retard / depart"
-};
-const activityCategories = ["Production", "Reunion", "Formation", "Coaching", "Pause payee"];
-const PUNCH_CORRECTION_QUOTA = 3;
-const PUNCH_KIND_OPTIONS = [
-  { value: "in", label: "Debut de shift (entree)" },
-  { value: "break_start", label: "Pause in (debut pause)" },
-  { value: "break_end", label: "Pause out (reprise)" },
-  { value: "out", label: "Delogue du shift (sortie)" }
-];
-const PUNCH_CORRECTION_FIELDS = ["punch_kind", "reviewed_by", "reviewed_at"];
-const SHIFT_PRESETS = {
-  cs: {
-    code: "cs",
-    label: "CS / CES",
-    start: "09:00",
-    end: "18:00",
-    lunchMin: 60,
-    lunchFrom: "13:00",
-    lunchTo: "15:00",
-    plannedHours: 8,
-    lateAfter: "09:30",
-    earliestEnd: "18:00"
-  },
-  rnd: {
-    code: "rnd",
-    label: "R&D",
-    start: "10:00",
-    end: "19:00",
-    lunchMin: 60,
-    lunchFrom: "13:00",
-    lunchTo: "15:00",
-    plannedHours: 8,
-    lateAfter: "10:00",
-    earliestEnd: "18:00"
-  }
-};
-const FR_HOLIDAYS_2026 = ["2026-01-01", "2026-04-06", "2026-05-01", "2026-05-08", "2026-05-14", "2026-05-25", "2026-07-14", "2026-08-15", "2026-11-01", "2026-11-11", "2026-12-25"];
-const MA_HOLIDAYS_2026 = ["2026-01-01", "2026-01-11", "2026-05-01", "2026-07-30", "2026-08-14", "2026-08-20", "2026-08-21", "2026-11-06", "2026-11-18"];
-const RAMADAN_2026 = { start: "2026-02-18", end: "2026-03-19" };
-const LEAVE_ACCRUAL = { employee: 1.5, manager: 2, codir: 2.5 };
+const leaveTypes = ["Conges payes", "RTT", "Conge maladie", "Conge sans solde"];
 const attestationTypes = [
   "Attestation employeur",
   "Certificat de travail",
@@ -432,7 +324,6 @@ function isCreator() {
 }
 
 function isAdmin() {
-  if (demoMode) return true;
   const role = appData.profile?.role;
   return role === "admin" || role === "creator";
 }
@@ -568,18 +459,6 @@ function ensureAccessiblePage() {
     currentPage = "home";
     return;
   }
-  if (currentPage === "admin" && !isAdmin()) {
-    currentPage = "home";
-    return;
-  }
-  if (currentPage === "reports" && !canViewReports()) {
-    currentPage = "home";
-    return;
-  }
-  if (currentPage === "journal" && !canViewJournal()) {
-    currentPage = "home";
-    return;
-  }
   if (!isNavPageVisible(currentPage)) {
     currentPage = "home";
   }
@@ -589,16 +468,8 @@ function hasDirectReports() {
   return appData.orgProfiles.some((profile) => profile.manager_id === session?.user?.id);
 }
 
-function canViewJournal() {
-  return isAdmin();
-}
-
 function canViewTeamPunches() {
-  return demoMode || (usesDatabase() && (isAdmin() || hasDirectReports()));
-}
-
-function canViewReports() {
-  return Boolean(session?.user);
+  return usesDatabase() && (isAdmin() || hasDirectReports());
 }
 
 function canViewTeamLeaveCalendar() {
@@ -680,22 +551,8 @@ function isMissingWorkLocationColumnError(error) {
   );
 }
 
-function isMissingJournalColumnError(error) {
-  const message = (error?.message || error?.details || "").toLowerCase();
-  return JOURNAL_META_FIELDS.some((field) => message.includes(field));
-}
-
-function stripJournalMetaFields(payload) {
-  const next = { ...payload };
-  JOURNAL_META_FIELDS.forEach((field) => {
-    delete next[field];
-  });
-  return next;
-}
-
 async function insertTimePunch(payload) {
-  const attempt = journalMetaColumnsEnabled ? { ...payload } : stripJournalMetaFields(payload);
-  const { error } = await supabaseClient.from("time_punches").insert(attempt);
+  const { error } = await supabaseClient.from("time_punches").insert(payload);
   if (!error) return;
 
   if (payload.work_location && isMissingWorkLocationColumnError(error)) {
@@ -704,101 +561,7 @@ async function insertTimePunch(payload) {
     throw migrationError;
   }
 
-  if (journalMetaColumnsEnabled && isMissingJournalColumnError(error)) {
-    journalMetaColumnsEnabled = false;
-    appData.journalMetaMissing = true;
-    const retry = await supabaseClient.from("time_punches").insert(stripJournalMetaFields(attempt));
-    if (!retry.error) return;
-    throw retry.error;
-  }
-
   throw error;
-}
-
-const LEAVE_GTA_FIELDS = ["unit", "half_day", "hours", "motif", "attachment_name", "workflow_step"];
-const PROFILE_GTA_FIELDS = ["hired_at", "shift_code", "leave_grade"];
-const GTA_KINDS = {
-  corrections: { store: "punchCorrections", table: "punch_corrections" },
-  overtime: { store: "overtimeRequests", table: "overtime_requests" },
-  activity: { store: "activityEntries", table: "activity_entries" }
-};
-
-function isMissingDbObjectError(error) {
-  const message = (error?.message || error?.details || "").toLowerCase();
-  return message.includes("does not exist")
-    || message.includes("schema cache")
-    || message.includes("could not find the table")
-    || (message.includes("could not find the") && message.includes("column"));
-}
-
-function errorMentionsAny(error, fields) {
-  const message = (error?.message || error?.details || "").toLowerCase();
-  return fields.some((field) => message.includes(String(field).toLowerCase()));
-}
-
-function stripFields(payload, fields) {
-  const next = { ...payload };
-  fields.forEach((field) => {
-    delete next[field];
-  });
-  return next;
-}
-
-async function insertLeaveRequestRow(row) {
-  const { error } = await supabaseClient.from("leave_requests").insert(row);
-  if (!error) return;
-  if (errorMentionsAny(error, LEAVE_GTA_FIELDS)) {
-    const retry = await supabaseClient.from("leave_requests").insert(stripFields(row, LEAVE_GTA_FIELDS));
-    if (!retry.error) return;
-    throw retry.error;
-  }
-  throw error;
-}
-
-async function insertPunchCorrectionRow(row) {
-  const { error } = await supabaseClient.from("punch_corrections").insert(row);
-  if (!error) return;
-  if (errorMentionsAny(error, PUNCH_CORRECTION_FIELDS)) {
-    const retry = await supabaseClient.from("punch_corrections").insert(stripFields(row, PUNCH_CORRECTION_FIELDS));
-    if (!retry.error) return;
-    throw retry.error;
-  }
-  throw error;
-}
-
-async function updateWithOptionalFields(table, payload, matchColumn, matchValue, optionalFields) {
-  const { error } = await supabaseClient.from(table).update(payload).eq(matchColumn, matchValue);
-  if (!error) return;
-  if (errorMentionsAny(error, optionalFields)) {
-    const retry = await supabaseClient.from(table).update(stripFields(payload, optionalFields)).eq(matchColumn, matchValue);
-    if (!retry.error) return;
-    throw retry.error;
-  }
-  throw error;
-}
-
-function gtaItemUserId(item) {
-  return item?.userId || item?.user_id || "";
-}
-
-function gtaItemDate(item) {
-  return item?.date || item?.punch_date || item?.work_date || "";
-}
-
-function gtaItemCreated(item) {
-  return item?.created || item?.created_at || "";
-}
-
-function canManageGtaItem(item) {
-  const userId = gtaItemUserId(item);
-  if (!userId) return false;
-  if (userId === session?.user?.id && !isAdmin()) return false;
-  if (isAdmin()) return true;
-  return getDirectReportProfiles().some((profile) => profile.id === userId);
-}
-
-function pendingGtaItems(list) {
-  return (list || []).filter((item) => String(item.status || "").toLowerCase().includes("valider"));
 }
 
 function normalizeTeamPunchRow(row) {
@@ -968,31 +731,19 @@ function exportTeamPunchesCsv() {
 
   downloadCsv(
     `pointages-equipe_${range.start}_${range.end}.csv`,
-    ["Matricule", "Nom", "Email", "Manager", "Date", "Lieu", "Debut", "Fin", "Pause dej", "Planifie", "Realise", "Retard min", "Manquant", "HS payables", "Log shift", "Heure rectifiee", "Modifie par", "Motif"],
-    dailyRows.map((row) => {
-      const stats = analyzeWorkedDay(row, profileById(row.userId) || {});
-      const correction = formatDayCorrectionSummary(row.userId, row.dayKey);
-      return [
-        row.matricule,
-        row.name,
-        row.email,
-        row.managerName,
-        formatDate(row.dayKey),
-        resolveWorkLocationLabel(row),
-        row.startTime ? formatTime(row.startTime) : "",
-        row.endTime ? formatTime(row.endTime) : (row.hasStarted && !row.isDayClosed ? "En cours" : ""),
-        formatDuration(row.breakDurationMs),
-        formatDuration(stats.plannedMs),
-        formatDuration(stats.realizedMs),
-        stats.delayMin,
-        formatDuration(stats.missingMs),
-        formatDuration(stats.payableOtMs),
-        formatDayPunchLogText(row),
-        correction.rectified,
-        correction.who,
-        correction.motif
-      ];
-    })
+    ["Matricule", "Nom", "Email", "Manager", "Date", "Lieu", "Debut", "Fin", "Pause dej", "Heures travaillees"],
+    dailyRows.map((row) => [
+      row.matricule,
+      row.name,
+      row.email,
+      row.managerName,
+      formatDate(row.dayKey),
+      resolveWorkLocationLabel(row),
+      row.startTime ? formatTime(row.startTime) : "",
+      row.endTime ? formatTime(row.endTime) : (row.hasStarted && !row.isDayClosed ? "En cours" : ""),
+      formatDuration(row.breakDurationMs),
+      formatDuration(row.workedMs)
+    ])
   );
 }
 
@@ -1066,20 +817,15 @@ function isLeaveStatusVisible(status) {
 function normalizeTeamLeaveRequest(row) {
   return {
     id: row.id,
-    userId: row.user_id || row.userId,
-    type: row.leave_type || row.type,
-    start: row.start_date || row.start,
-    end: row.end_date || row.end,
+    userId: row.user_id,
+    type: row.leave_type,
+    start: row.start_date,
+    end: row.end_date,
     days: row.days,
-    hours: row.hours,
-    unit: row.unit,
-    motif: row.motif,
-    attachmentName: row.attachment_name || row.attachmentName,
-    workflowStep: row.workflow_step || row.workflowStep || 1,
     comment: row.comment || "",
     status: row.status,
-    created: row.created_at || row.created,
-    name: row.profiles?.full_name || row.name || profileById(row.user_id || row.userId)?.full_name || "Collaborateur"
+    created: row.created_at,
+    name: row.profiles?.full_name || profileById(row.user_id)?.full_name || "Collaborateur"
   };
 }
 
@@ -1104,24 +850,13 @@ async function loadTeamLeaveRequests(monthRef = getLeaveCalendarMonth()) {
   }
 
   const result = await withSupabaseRetry(async () => {
-    const fullSelect = "id, user_id, leave_type, start_date, end_date, days, hours, unit, motif, attachment_name, workflow_step, comment, status, created_at, profiles(full_name, email)";
-    const baseSelect = "id, user_id, leave_type, start_date, end_date, days, comment, status, created_at, profiles(full_name, email)";
-    let response = await supabaseClient
+    const response = await supabaseClient
       .from("leave_requests")
-      .select(fullSelect)
+      .select("id, user_id, leave_type, start_date, end_date, days, comment, status, created_at, profiles(full_name, email)")
       .lte("start_date", monthEnd)
       .gte("end_date", monthStart)
       .in("user_id", userIds)
       .order("start_date", { ascending: true });
-    if (response.error && errorMentionsAny(response.error, LEAVE_GTA_FIELDS)) {
-      response = await supabaseClient
-        .from("leave_requests")
-        .select(baseSelect)
-        .lte("start_date", monthEnd)
-        .gte("end_date", monthStart)
-        .in("user_id", userIds)
-        .order("start_date", { ascending: true });
-    }
     if (response.error) throw response.error;
     return response.data;
   });
@@ -1162,14 +897,10 @@ function getLeaveEventsForDay(dayKey, requests) {
 }
 
 function leaveTypeColorClass(type) {
-  const key = leaveTypeKey(type);
-  if (key === "recup") return "leave-type-rtt";
-  if (key === "justified" || key === "maternity" || key === "paternity") return "leave-type-sick";
-  if (key === "unpaid" || key === "suspension") return "leave-type-unpaid";
-  if (key === "special") return "leave-type-special";
-  if (key === "unjustified") return "leave-type-unjustified";
-  if (key === "travel") return "leave-type-travel";
-  if (key === "hours") return "leave-type-hours";
+  const normalized = (type || "").toLowerCase();
+  if (normalized.includes("rtt")) return "leave-type-rtt";
+  if (normalized.includes("maladie")) return "leave-type-sick";
+  if (normalized.includes("sans solde")) return "leave-type-unpaid";
   return "leave-type-cp";
 }
 
@@ -1240,11 +971,8 @@ function renderLeaveCalendar() {
       </div>
       <div class="leave-cal-legend">
         <span class="leave-cal-legend-item"><i class="leave-type-cp"></i> Conges payes</span>
-        <span class="leave-cal-legend-item"><i class="leave-type-special"></i> Evenements</span>
-        <span class="leave-cal-legend-item"><i class="leave-type-rtt"></i> Recuperation</span>
-        <span class="leave-cal-legend-item"><i class="leave-type-sick"></i> Justifiee / familial</span>
-        <span class="leave-cal-legend-item"><i class="leave-type-unpaid"></i> Sans solde / mise a pied</span>
-        <span class="leave-cal-legend-item"><i class="leave-type-unjustified"></i> Injustifiee</span>
+        <span class="leave-cal-legend-item"><i class="leave-type-rtt"></i> RTT</span>
+        <span class="leave-cal-legend-item"><i class="leave-type-sick"></i> Maladie</span>
         <span class="leave-cal-legend-item leave-cal-legend-pending"><i></i> En attente</span>
         ${teamScope ? `<span class="leave-cal-legend-item leave-cal-legend-conflict"><i></i> Conflit equipe</span>` : ""}
       </div>
@@ -1443,19 +1171,11 @@ function escapeHtml(value) {
 
 function getNavigationItems() {
   const items = navigation.filter(([pageId]) => isNavPageVisible(pageId));
-  const pointeuseIndex = items.findIndex(([pageId]) => pageId === "pointeuse");
   if (canViewTeamPunches()) {
+    const pointeuseIndex = items.findIndex(([pageId]) => pageId === "pointeuse");
     items.splice(pointeuseIndex + 1, 0, ["team-punches", "Pointages equipe"]);
   }
-  if (canViewReports()) {
-    const teamIndex = items.findIndex(([pageId]) => pageId === "team-punches");
-    const after = teamIndex >= 0 ? teamIndex : items.findIndex(([pageId]) => pageId === "pointeuse");
-    items.splice((after >= 0 ? after : items.length - 1) + 1, 0, ["reports", "Rapports EDS"]);
-  }
-  if (isAdmin()) {
-    items.push(["journal", "Journal"]);
-    items.push(["admin", "Administration"]);
-  }
+  if (isAdmin()) items.push(["admin", "Administration"]);
   if (isCreator()) items.push(["creator", "Studio createur"]);
   return items;
 }
@@ -1634,20 +1354,9 @@ function parseUserAccountForm(data) {
       role: String(data.get("role") || "employee"),
       manager_id: String(data.get("manager_id") || "") || null,
       leave_balance_cp: Number(data.get("leave_balance_cp") || 25),
-      leave_balance_rtt: Number(data.get("leave_balance_rtt") || 0),
-      hired_at: String(data.get("hired_at") || "") || null,
-      shift_code: String(data.get("shift_code") || "cs"),
-      leave_grade: String(data.get("leave_grade") || "employee")
+      leave_balance_rtt: Number(data.get("leave_balance_rtt") || 8)
     }
   };
-}
-
-async function persistWithGtaFallback(action, payload) {
-  const result = await action(payload);
-  if (!result.error) return;
-  if (!errorMentionsAny(result.error, PROFILE_GTA_FIELDS)) throw result.error;
-  const retry = await action(stripFields(payload, PROFILE_GTA_FIELDS));
-  if (retry.error) throw retry.error;
 }
 
 async function persistUserAccount({ email, profileId, inviteId, payload }) {
@@ -1658,30 +1367,34 @@ async function persistUserAccount({ email, profileId, inviteId, payload }) {
         throw new Error("Vous etes le dernier administrateur. Ajoutez un autre admin avant de modifier votre role.");
       }
     }
-    await persistWithGtaFallback((row) => supabaseClient.from("profiles").update(row).eq("id", profileId), payload);
+    const { error } = await supabaseClient.from("profiles").update(payload).eq("id", profileId);
+    if (error) throw error;
     return;
   }
 
   if (inviteId) {
-    await persistWithGtaFallback((row) => supabaseClient.from("pending_invites").update({
+    const { error } = await supabaseClient.from("pending_invites").update({
       email,
-      ...row,
+      ...payload,
       created_by: session.user.id
-    }).eq("id", inviteId), payload);
+    }).eq("id", inviteId);
+    if (error) throw error;
     return;
   }
 
   const existing = appData.orgProfiles.find((profile) => profile.email?.toLowerCase() === email);
   if (existing) {
-    await persistWithGtaFallback((row) => supabaseClient.from("profiles").update(row).eq("id", existing.id), payload);
+    const { error } = await supabaseClient.from("profiles").update(payload).eq("id", existing.id);
+    if (error) throw error;
     return;
   }
 
-  await persistWithGtaFallback((row) => supabaseClient.from("pending_invites").upsert({
+  const { error } = await supabaseClient.from("pending_invites").upsert({
     email,
-    ...row,
+    ...payload,
     created_by: session.user.id
-  }, { onConflict: "email" }), payload);
+  }, { onConflict: "email" });
+  if (error) throw error;
 }
 
 function renderUserAccountSection() {
@@ -1731,28 +1444,11 @@ function renderUserAccountSection() {
               Solde conges payes (jours)
               <input type="number" min="0" step="0.5" name="leave_balance_cp" value="${escapeHtml(editing?.leave_balance_cp ?? 25)}">
             </label>
-          </div>
-          <div class="form-row">
             <label>
-              Date d'entree
-              <input type="date" name="hired_at" value="${escapeHtml(editing?.hired_at || "")}">
-            </label>
-            <label>
-              Vacation
-              <select name="shift_code">
-                <option value="cs"${(editing?.shift_code || "cs") === "cs" ? " selected" : ""}>CS / CES 09h-18h</option>
-                <option value="rnd"${editing?.shift_code === "rnd" ? " selected" : ""}>R&amp;D 10h FR</option>
-              </select>
+              Solde RTT (jours)
+              <input type="number" min="0" step="0.5" name="leave_balance_rtt" value="${escapeHtml(editing?.leave_balance_rtt ?? 8)}">
             </label>
           </div>
-          <label>
-            Grade conges
-            <select name="leave_grade">
-              <option value="employee"${(editing?.leave_grade || "employee") === "employee" ? " selected" : ""}>Collaborateur — 1,5 j/mois</option>
-              <option value="manager"${editing?.leave_grade === "manager" ? " selected" : ""}>Responsable — 2 j/mois</option>
-              <option value="codir"${editing?.leave_grade === "codir" ? " selected" : ""}>CODIR — 2,5 j/mois</option>
-            </select>
-          </label>
           <div class="admin-form-actions">
             <button type="submit" class="primary">${editing ? "Enregistrer" : "Ajouter"}</button>
             ${editing ? `<button type="button" id="admin-cancel-edit" class="outline-button">Annuler</button>` : ""}
@@ -1897,15 +1593,6 @@ function formatTime(value) {
   });
 }
 
-function formatTimeSeconds(value) {
-  if (!value) return "—";
-  return new Date(value).toLocaleTimeString("fr-FR", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  });
-}
-
 function getPunches() {
   if (usesDatabase()) {
     return appData.punches.map((punch) => ({
@@ -1921,17 +1608,10 @@ function getLeaveRequests() {
   if (usesDatabase()) {
     return appData.leaveRequests.map((request) => ({
       id: request.id,
-      userId: request.user_id,
       type: request.leave_type,
       start: request.start_date,
       end: request.end_date,
       days: request.days,
-      hours: request.hours,
-      unit: request.unit,
-      halfDay: request.half_day,
-      motif: request.motif,
-      attachmentName: request.attachment_name,
-      workflowStep: request.workflow_step || 1,
       comment: request.comment,
       status: request.status,
       created: request.created_at
@@ -1954,7 +1634,7 @@ function getAttestationRequests() {
 }
 
 function countPendingLeave() {
-  return getLeaveRequests().filter((item) => String(item.status || "").toLowerCase().includes("valider")).length;
+  return getLeaveRequests().filter((item) => item.status === "A valider").length;
 }
 
 function countPendingAttestations() {
@@ -1970,150 +1650,6 @@ function navBadge(page) {
   return "";
 }
 
-function parseClientEnvironment() {
-  const uaData = navigator.userAgentData;
-  const ua = navigator.userAgent || "";
-  let os = uaData?.platform || "Inconnu";
-  if (!uaData?.platform) {
-    if (/Windows NT 10/i.test(ua)) os = "Windows 10/11";
-    else if (/Windows/i.test(ua)) os = "Windows";
-    else if (/Mac OS X/i.test(ua)) os = "macOS";
-    else if (/Android/i.test(ua)) os = "Android";
-    else if (/iPhone|iPad|iPod/i.test(ua)) os = "iOS";
-    else if (/Linux/i.test(ua)) os = "Linux";
-  } else if (/Win/i.test(os)) os = "Windows";
-  else if (/Mac/i.test(os)) os = "macOS";
-
-  let browser = "Navigateur";
-  const brands = uaData?.brands || [];
-  const brand = brands.find((item) => item.brand && !/not.?a.?brand/i.test(item.brand) && !/chromium/i.test(item.brand));
-  if (brand?.brand) browser = brand.brand;
-  else if (/Edg\//i.test(ua)) browser = "Microsoft Edge";
-  else if (/OPR\/|Opera/i.test(ua)) browser = "Opera";
-  else if (/Chrome\//i.test(ua) && !/Edg\//i.test(ua)) browser = "Google Chrome";
-  else if (/Firefox\//i.test(ua)) browser = "Mozilla Firefox";
-  else if (/Safari\//i.test(ua) && !/Chrome/i.test(ua)) browser = "Safari";
-
-  const method = /Mobi|Android|iPhone|iPad/i.test(ua) || uaData?.mobile
-    ? "Web mobile"
-    : "Web";
-  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  const rawType = String(connection?.type || "").toLowerCase();
-  const networkMap = {
-    wifi: "Wi-Fi",
-    wlan: "Wi-Fi",
-    ethernet: "Ethernet",
-    cellular: "Mobile",
-    bluetooth: "Bluetooth",
-    wimax: "WiMAX",
-    other: "Autre"
-  };
-  const network = networkMap[rawType]
-    || (getPreferredWorkLocation() === "onsite" ? "LAN" : "Internet");
-
-  return { method, os, browser, network };
-}
-
-async function getPublicIpAddress() {
-  try {
-    const cached = sessionStorage.getItem("humana_public_ip");
-    if (cached) return cached;
-  } catch {
-    /* ignore */
-  }
-
-  const withTimeout = async (factory, ms = 1500) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), ms);
-    try {
-      return await factory(controller.signal);
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-
-  const sources = [
-    async (signal) => {
-      const response = await fetch("https://api.ipify.org?format=json", { signal });
-      const data = await response.json();
-      return data?.ip || "";
-    },
-    async (signal) => {
-      const response = await fetch("https://ipv4.icanhazip.com", { signal });
-      return (await response.text()).trim();
-    },
-    async (signal) => {
-      const response = await fetch("https://www.cloudflare.com/cdn-cgi/trace", { signal });
-      const text = await response.text();
-      const match = text.match(/^ip=([^\s]+)$/m);
-      return match ? match[1] : "";
-    }
-  ];
-
-  for (const source of sources) {
-    try {
-      const ip = (await withTimeout(source)).replace(/[^0-9a-fA-F:.]/g, "");
-      if (ip) {
-        try { sessionStorage.setItem("humana_public_ip", ip); } catch { /* ignore */ }
-        return ip;
-      }
-    } catch {
-      /* essayer la source suivante */
-    }
-  }
-  return "";
-}
-
-async function collectJournalMeta() {
-  const env = parseClientEnvironment();
-  try {
-    if (navigator.userAgentData?.getHighEntropyValues) {
-      const high = await navigator.userAgentData.getHighEntropyValues(["platformVersion"]);
-      if (/Windows/i.test(env.os) && high?.platformVersion) {
-        const major = parseInt(String(high.platformVersion).split(".")[0], 10);
-        if (!Number.isNaN(major)) env.os = major >= 13 ? "Windows 11" : "Windows 10";
-      }
-    }
-  } catch {
-    /* hints optionnels */
-  }
-  const ip = await getPublicIpAddress();
-  return { ...env, ip };
-}
-
-function applyJournalMetaToPayload(payload, meta, punchType) {
-  if (!meta || !journalMetaColumnsEnabled) return payload;
-  if (punchType === "in") {
-    payload.connection_method = meta.method;
-    payload.operating_system = meta.os;
-    payload.browser_application = meta.browser;
-    if (meta.ip) payload.ip_address = meta.ip;
-    payload.network_type = meta.network;
-  }
-  if (punchType === "out") {
-    payload.disconnect_reason = payload.disconnect_reason || "Sortie manuelle";
-  }
-  return payload;
-}
-
-function applyJournalMetaToDemoPunch(punch, meta, punchType) {
-  if (!meta) return punch;
-  if (punchType === "in") {
-    punch.connection_method = meta.method;
-    punch.operating_system = meta.os;
-    punch.browser_application = meta.browser;
-    punch.ip_address = meta.ip || "";
-    punch.network_type = meta.network;
-    punch.method = meta.method;
-    punch.os = meta.os;
-    punch.browser = meta.browser;
-    punch.ip = meta.ip || "";
-    punch.network = meta.network;
-  }
-  if (punchType === "out") punch.disconnect_reason = "Sortie manuelle";
-  return punch;
-}
-
 function formatDuration(ms) {
   const totalMinutes = Math.max(0, Math.round(ms / 60000));
   const hours = Math.floor(totalMinutes / 60);
@@ -2123,77 +1659,12 @@ function formatDuration(ms) {
 
 function punchTypeLabel(type) {
   switch (type) {
-    case "in": return "Debut de shift";
-    case "out": return "Delogue du shift";
-    case "break_start": return "Pause in";
-    case "break_end": return "Pause out";
-    default: return type || "Autre";
+    case "in": return "Entree";
+    case "out": return "Sortie";
+    case "break_start": return "Pause dej";
+    case "break_end": return "Reprise dej";
+    default: return type;
   }
-}
-
-function formatPunchKind(kind) {
-  const option = PUNCH_KIND_OPTIONS.find((item) => item.value === kind);
-  if (option) return option.label;
-  return punchTypeLabel(kind);
-}
-
-function formatDayPunchLog(row) {
-  const punches = [...(row.punches || [])].sort((a, b) => new Date(a.time) - new Date(b.time));
-  const pick = (type) => punches.find((punch) => punch.type === type);
-  const lastOut = [...punches].reverse().find((punch) => punch.type === "out");
-  const lines = [
-    ["Debut", pick("in")],
-    ["Pause in", pick("break_start")],
-    ["Pause out", pick("break_end")],
-    ["Delogue", lastOut]
-  ];
-  return `<div class="punch-log">${lines.map(([label, punch]) => (
-    `<span><b>${label}</b> ${punch ? formatTime(punch.time) : (label === "Delogue" && row.hasStarted && !row.isDayClosed ? "en cours" : "—")}</span>`
-  )).join("")}</div>`;
-}
-
-function formatDayPunchLogText(row) {
-  const punches = [...(row.punches || [])].sort((a, b) => new Date(a.time) - new Date(b.time));
-  const pick = (type) => punches.find((punch) => punch.type === type);
-  const lastOut = [...punches].reverse().find((punch) => punch.type === "out");
-  return [
-    `Debut ${pick("in") ? formatTime(pick("in").time) : "—"}`,
-    `Pause in ${pick("break_start") ? formatTime(pick("break_start").time) : "—"}`,
-    `Pause out ${pick("break_end") ? formatTime(pick("break_end").time) : "—"}`,
-    `Delogue ${lastOut ? formatTime(lastOut.time) : (row.hasStarted && !row.isDayClosed ? "en cours" : "—")}`
-  ].join(" | ");
-}
-
-function getDayPunchCorrections(userId, dayKey) {
-  return getPunchCorrections().filter((item) => gtaItemUserId(item) === userId && gtaItemDate(item) === dayKey);
-}
-
-function formatDayCorrectionSummary(userId, dayKey) {
-  const items = getDayPunchCorrections(userId, dayKey);
-  if (!items.length) {
-    return { rectified: "Non", who: "—", motif: "—" };
-  }
-  const approved = items.filter((item) => String(item.status || "").toLowerCase().includes("approuv"));
-  const pending = items.filter((item) => String(item.status || "").toLowerCase().includes("valider"));
-  const source = approved.length ? approved : items;
-  const who = source.map((item) => {
-    const reviewerId = item.reviewed_by || item.reviewedBy;
-    if (reviewerId) return profileById(reviewerId)?.full_name || item.reviewedByName || "Valideur";
-    if (item.reviewedByName) return item.reviewedByName;
-    if (approved.length) return getUserName();
-    return `Demande : ${profileById(gtaItemUserId(item))?.full_name || "collaborateur"}`;
-  }).filter((value, index, list) => value && list.indexOf(value) === index).join(", ");
-  const motif = source.map((item) => {
-    const kind = formatPunchKind(item.punch_kind || item.punchKind || item.kind || "");
-    const time = String(item.time || item.requested_time || "").slice(0, 5);
-    const reason = item.reason || "Sans motif";
-    return `${kind}${time ? ` ${time}` : ""} — ${reason}`;
-  }).join(" | ");
-  return {
-    rectified: approved.length ? "Oui" : (pending.length ? "En attente" : "Non"),
-    who: who || "—",
-    motif: motif || "—"
-  };
 }
 
 function getPreferredWorkLocation() {
@@ -2409,128 +1880,50 @@ function renderHomeShiftSummary(punches = getPunches()) {
     </div>`;
 }
 
-function foldAbsenceText(value) {
-  return String(value || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/justtifier/g, "justifiee")
-    .replace(/injustifier/g, "injustifiee")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function getAbsenceDef(type) {
-  const needle = foldAbsenceText(type);
-  if (!needle) return null;
-  const exact = ABSENCE_CODES.find((item) => foldAbsenceText(item.code) === needle || foldAbsenceText(item.label) === needle);
-  if (exact) return exact;
-  return [...ABSENCE_CODES]
-    .sort((a, b) => foldAbsenceText(b.code).length - foldAbsenceText(a.code).length)
-    .find((item) => needle.includes(foldAbsenceText(item.code)) || foldAbsenceText(item.code).includes(needle)) || null;
-}
-
-function visibleAbsenceCodes() {
-  const grade = getLeaveGrade();
-  const admin = isAdmin();
-  return ABSENCE_CODES.filter((item) => {
-    if (item.adminOnly && !admin) return false;
-    if (item.grades && !admin && !item.grades.includes(grade)) return false;
-    return true;
-  });
-}
-
-function leaveTypeOptionsHtml() {
-  const grouped = new Map();
-  visibleAbsenceCodes().forEach((item) => {
-    if (!grouped.has(item.group)) grouped.set(item.group, []);
-    grouped.get(item.group).push(item);
-  });
-  return ["cp", "recup", "family", "event", "unpaid", "work", "time", "admin"]
-    .filter((group) => grouped.has(group))
-    .map((group) => `
-      <optgroup label="${ABSENCE_GROUP_LABELS[group]}">
-        ${grouped.get(group).map((item) => `<option value="${escapeHtml(item.code)}">${escapeHtml(item.label)}</option>`).join("")}
-      </optgroup>`).join("");
-}
-
-function addWorkingDaysKey(start, count) {
-  const cursor = parseLocalDate(start);
-  if (Number.isNaN(cursor.getTime()) || count < 1) return start;
-  let remaining = count;
-  while (!isWorkingDayKey(toDateKey(cursor))) {
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  remaining -= 1;
-  while (remaining > 0) {
-    cursor.setDate(cursor.getDate() + 1);
-    if (isWorkingDayKey(toDateKey(cursor))) remaining -= 1;
-  }
-  return toDateKey(cursor);
-}
-
 function leaveTypeKey(type) {
-  const def = getAbsenceDef(type);
-  if (def?.key) return def.key;
-  const normalized = foldAbsenceText(type);
+  const normalized = (type || "").toLowerCase();
   if (normalized.includes("rtt")) return "rtt";
-  if (normalized.includes("recup")) return "recup";
-  if (normalized.includes("special") || normalized.includes("deces") || normalized.includes("mariage") || normalized.includes("circoncision")) return "special";
-  if (normalized.includes("maladie") || normalized.includes("justifi")) return "justified";
-  if (normalized.includes("retard") || normalized.includes("depart")) return "hours";
-  if (normalized.includes("sans solde")) return "unpaid";
-  if (normalized.includes("matern")) return "maternity";
-  if (normalized.includes("patern")) return "paternity";
-  if (normalized.includes("paye") || normalized.includes("conges payes")) return "cp";
+  if (normalized.includes("maladie")) return "maladie";
+  if (normalized.includes("sans solde")) return null;
+  if (normalized.includes("conge")) return "cp";
   return null;
 }
 
 function getLeaveBalances() {
   const requests = getLeaveRequests();
-  const profile = appData.profile;
-  const accruedCp = accruedLeaveDays(profile);
-  const recup = recoveryDaysForYear();
-  const stored = usesDatabase()
+  const totals = usesDatabase()
     ? {
-        cp: Number(profile?.leave_balance_cp ?? accruedCp),
-        recup: Number(profile?.leave_balance_recup ?? recup)
+        cp: Number(appData.profile?.leave_balance_cp ?? 25),
+        rtt: Number(appData.profile?.leave_balance_rtt ?? 8)
       }
-    : loadStore("leaveBalances", { cp: accruedCp, recup });
-  const totals = {
-    cp: Math.max(Number(stored.cp) || 0, accruedCp),
-    recup: Number(stored.recup) || recup
-  };
+    : loadStore("leaveBalances", { cp: 25, rtt: 8 });
 
-  const used = { cp: 0, recup: 0 };
-  const pending = { cp: 0, recup: 0 };
+  const used = { cp: 0, rtt: 0 };
+  const pending = { cp: 0, rtt: 0 };
 
   requests.forEach((request) => {
     const key = leaveTypeKey(request.type);
-    if (!key || !["cp", "recup"].includes(key)) return;
-    const amount = Number(request.days || request.hours / 8 || 0);
-    const status = String(request.status || "").toLowerCase();
-    if (status.includes("refus")) return;
-    const bucket = status.includes("approuv") ? used : pending;
-    if (status.includes("valider") || status.includes("approuv")) bucket[key] += amount;
+    if (!key || key === "maladie") return;
+    const bucket = request.status === "A valider" ? pending : used;
+    if (request.status === "A valider" || request.status.toLowerCase().includes("approuv")) {
+      bucket[key] += Number(request.days) || 0;
+    }
   });
 
-  const remainingCp = Math.max(0, totals.cp - used.cp - pending.cp);
   return [
     {
       label: "Conges payes",
       total: totals.cp,
       used: used.cp,
       pending: pending.cp,
-      remaining: remainingCp,
-      hint: `${LEAVE_ACCRUAL[getLeaveGrade(profile)]} j / mois · ${getLeaveGrade(profile)}`
+      remaining: Math.max(0, totals.cp - used.cp - pending.cp)
     },
     {
-      label: "Recuperation",
-      total: totals.recup,
-      used: used.recup,
-      pending: pending.recup,
-      remaining: Math.max(0, totals.recup - used.recup - pending.recup),
-      hint: "Ecart fériés FR vs MA"
+      label: "RTT",
+      total: totals.rtt,
+      used: used.rtt,
+      pending: pending.rtt,
+      remaining: Math.max(0, totals.rtt - used.rtt - pending.rtt)
     }
   ];
 }
@@ -2549,7 +1942,6 @@ function balanceCard(balance) {
         <span>Utilise : <b>${balance.used} j</b></span>
         <span>En attente : <b>${balance.pending} j</b></span>
       </div>
-      ${balance.hint ? `<small class="hierarchy-meta">${escapeHtml(balance.hint)}</small>` : ""}
     </article>`;
 }
 
@@ -2825,15 +2217,6 @@ function homePage() {
         </div>
       </article>` : ""}
 
-      ${canViewReports() ? `
-      <article class="card home-widget">
-        <div class="card-heading">
-          <h3>Rapports EDS</h3>
-          <button type="button" class="home-link" data-goto-page="reports">Ouvrir</button>
-        </div>
-        <p class="hierarchy-meta">Cycle paie du 21 au 20 : temps planifie, realise, retards, absences. Export CSV pour la paie.</p>
-      </article>` : ""}
-
       <article class="card home-widget">
         <div class="card-heading">
           <h3>Documents partages</h3>
@@ -2871,145 +2254,6 @@ function homePage() {
         </div>
       </article>
     </section>`;
-}
-
-function renderGtaClockTools() {
-  const shift = getActiveShift();
-  const used = correctionsThisMonth().length;
-  const remaining = Math.max(0, PUNCH_CORRECTION_QUOTA - used);
-  const today = toDateKey(new Date());
-  const stats = analyzeWorkedDay({
-    userId: session?.user?.id,
-    dayKey: today,
-    startTime: getTodayPunches().find((punch) => punch.type === "in")?.time,
-    workedMs: computeWorkedHours(getPunches()).today,
-    breakDurationMs: computeBreakDuration(getTodayPunches())
-  }, appData.profile);
-  return `
-    <p class="data-note">Vacation ${escapeHtml(shift.label)} · arrivee toleree jusqu'a ${shift.lateAfter} · ${shift.plannedHours} h planifiees · decalage FR/MA ${getFrMaOffsetHours()} h</p>
-    <section class="hours-grid">
-      ${hoursCard("Planifie", stats.plannedMs)}
-      ${hoursCard("Manquant", stats.missingMs)}
-      ${hoursCard("HS payables", stats.payableOtMs)}
-    </section>
-    <div class="feature-grid page-spacer">
-      <article class="card form-card">
-        ${cardHeading("Correction de pointage")}
-        <p class="hierarchy-meta">Quota : ${remaining}/${PUNCH_CORRECTION_QUOTA} demandes ce mois. Le manager confirme, le Traffic Manager applique.</p>
-        <form id="punch-correction-form" class="feature-form">
-          <label>Date <input type="date" name="date" value="${today}" required></label>
-          <label>Point a rectifier
-            <select name="punch_kind" required>
-              ${PUNCH_KIND_OPTIONS.map((item) => `<option value="${item.value}">${item.label}</option>`).join("")}
-            </select>
-          </label>
-          <label>Heure demandee <input type="time" name="time" required></label>
-          <label>Motif <textarea name="reason" rows="2" required placeholder="Oubli de badge, pause non pointee..."></textarea></label>
-          <button type="submit" class="primary" ${remaining ? "" : "disabled"}>Signaler l'anomalie</button>
-        </form>
-      </article>
-      <article class="card form-card">
-        ${cardHeading("Heures supplementaires")}
-        <p class="hierarchy-meta">Sans validation prealable, les heures extra ne sont pas payees.</p>
-        <form id="overtime-form" class="feature-form">
-          <label>Date <input type="date" name="date" value="${today}" required></label>
-          <label>Heures <input type="number" name="hours" min="0.5" step="0.5" value="1" required></label>
-          <label>Motif <textarea name="reason" rows="2" required></textarea></label>
-          <button type="submit" class="primary">Demander validation</button>
-        </form>
-      </article>
-      <article class="card form-card">
-        ${cardHeading("Feuille de temps / statuts")}
-        <form id="activity-form" class="feature-form">
-          <label>Date <input type="date" name="date" value="${today}" required></label>
-          <label>Categorie
-            <select name="category">${activityCategories.map((item) => `<option>${item}</option>`).join("")}</select>
-          </label>
-          <label>Heures <input type="number" name="hours" min="0.5" step="0.5" value="1" required></label>
-          <label>Commentaire <input type="text" name="comment" placeholder="Reunion, formation..."></label>
-          <button type="submit" class="primary">Declarer</button>
-        </form>
-      </article>
-    </div>
-    ${renderGtaOwnLists()}`;
-}
-
-function renderGtaStatusRows(items, emptyLabel, extraCell) {
-  const rows = items.slice(0, 8);
-  if (!rows.length) {
-    return `<tr><td colspan="5" class="empty-cell">${emptyLabel}</td></tr>`;
-  }
-  return rows.map((item) => `
-    <tr>
-      <td>${escapeHtml(profileById(gtaItemUserId(item))?.full_name || getUserName())}</td>
-      <td>${formatDate(gtaItemDate(item))}</td>
-      <td>${escapeHtml(extraCell(item))}</td>
-      <td>${badge(item.status)}</td>
-      <td>${canManageGtaItem(item) && String(item.status || "").toLowerCase().includes("valider")
-        ? `<button type="button" class="primary gta-approve" data-gta-kind="${item._kind}" data-gta-id="${item.id}">Valider</button>
-           <button type="button" class="outline-button gta-reject" data-gta-kind="${item._kind}" data-gta-id="${item.id}">Refuser</button>`
-        : ""}</td>
-    </tr>`).join("");
-}
-
-function withGtaKind(list, kind) {
-  return (list || []).map((item) => ({ ...item, _kind: kind }));
-}
-
-function renderGtaOwnLists() {
-  const mine = (list) => (list || []).filter((item) => gtaItemUserId(item) === session?.user?.id);
-  const rows = [
-              ...mine(getPunchCorrections()).map((item) => ({ kind: formatPunchKind(item.punch_kind || item.punchKind || "in"), date: gtaItemDate(item), detail: `${item.time || item.requested_time || ""} — ${item.reason || ""}`, status: item.status })),
-    ...mine(getOvertimeRequests()).map((item) => ({ kind: "Heures supp.", date: gtaItemDate(item), detail: `${item.hours || 0} h`, status: item.status })),
-    ...mine(getActivityEntries()).map((item) => ({ kind: "Activite", date: gtaItemDate(item), detail: item.category || item.comment || "", status: item.status }))
-  ].slice(0, 10);
-  return `
-    <article class="card table-card page-spacer">
-      <div class="toolbar"><h3>Mes demandes GTA</h3></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Type</th><th>Date</th><th>Detail</th><th>Statut</th></tr></thead>
-          <tbody>
-            ${rows.length
-              ? rows.map((row) => `
-                <tr>
-                  <td>${escapeHtml(row.kind)}</td>
-                  <td>${formatDate(row.date)}</td>
-                  <td>${escapeHtml(row.detail)}</td>
-                  <td>${badge(row.status)}</td>
-                </tr>`).join("")
-              : `<tr><td colspan="4" class="empty-cell">Aucune demande de correction, HS ou activite.</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    </article>`;
-}
-
-function renderGtaTeamInbox() {
-  if (!canViewTeamPunches() && !isAdmin()) return "";
-  const pending = [
-    ...withGtaKind(pendingGtaItems(getPunchCorrections()), "corrections"),
-    ...withGtaKind(pendingGtaItems(getOvertimeRequests()), "overtime"),
-    ...withGtaKind(pendingGtaItems(getActivityEntries()), "activity")
-  ].filter(canManageGtaItem);
-  if (!pending.length) return "";
-  return `
-    <article class="card table-card page-spacer">
-      <div class="toolbar"><h3>Validations GTA</h3></div>
-      <p class="hierarchy-meta">Corrections de pointage, heures supplementaires et feuilles de temps. M-Work n'est pas connecte.</p>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Collaborateur</th><th>Date</th><th>Demande</th><th>Statut</th><th></th></tr></thead>
-          <tbody>
-            ${renderGtaStatusRows(pending, "Aucune demande a valider.", (item) => {
-              if (item._kind === "corrections") return `${formatPunchKind(item.punch_kind || item.punchKind)} ${item.time || item.requested_time || ""} — ${item.reason || ""}`;
-              if (item._kind === "overtime") return `HS ${item.hours || 0} h — ${item.reason || ""}`;
-              return `${item.category || "Activite"} · ${item.hours || 0} h`;
-            })}
-          </tbody>
-        </table>
-      </div>
-    </article>`;
 }
 
 function pointeusePage() {
@@ -3070,442 +2314,11 @@ function pointeusePage() {
           </tbody>
         </table>
       </div>
-    </article>
-    ${renderGtaClockTools()}`;
-}
-
-function canViewJournalTeam() {
-  return isAdmin() || hasDirectReports();
-}
-
-function getJournalProfiles() {
-  if (isAdmin()) return getTeamPunchProfiles("all");
-  if (hasDirectReports()) {
-    const self = profileById(session?.user?.id);
-    const seen = new Set();
-    return [self, ...getDirectReportProfiles()].filter((profile) => {
-      if (!profile?.id || seen.has(profile.id)) return false;
-      seen.add(profile.id);
-      return true;
-    });
-  }
-  const self = appData.profile || profileById(session?.user?.id);
-  return self ? [self] : [];
-}
-
-function shiftDateKey(dateStr, days) {
-  const date = parseLocalDate(dateStr);
-  date.setDate(date.getDate() + days);
-  return toDateKey(date);
-}
-
-function mapPunchToJournalRow(row, fallbackUserId) {
-  const userId = row.user_id || row.userId || fallbackUserId;
-  const type = row.punch_type || row.type;
-  const time = row.punched_at || row.time;
-  const profile = row.profiles || profileById(userId);
-  return {
-    id: row.id || `local-${userId}-${time}-${type}`,
-    user_id: userId,
-    punch_type: type,
-    punched_at: time,
-    work_location: row.work_location || row.workLocation || null,
-    connection_method: row.connection_method || row.method || null,
-    operating_system: row.operating_system || row.os || null,
-    browser_application: row.browser_application || row.browser || null,
-    ip_address: row.ip_address || row.ip || null,
-    network_type: row.network_type || row.network || null,
-    disconnect_reason: row.disconnect_reason || null,
-    profiles: profile ? { full_name: profile.full_name, email: profile.email } : row.profiles
-  };
-}
-
-function buildSeedJournalRows(userId) {
-  const profile = profileById(userId) || appData.profile || {};
-  const meta = parseClientEnvironment();
-  const now = Date.now();
-  const rows = [];
-  const samples = [
-    { daysAgo: 0, inHour: 8, inMin: 42, outHour: null, location: "onsite", statusOpen: true },
-    { daysAgo: 1, inHour: 9, inMin: 5, outHour: 18, outMin: 12, location: "onsite" },
-    { daysAgo: 2, inHour: 8, inMin: 57, outHour: 17, outMin: 48, location: "remote" },
-    { daysAgo: 3, inHour: 9, inMin: 14, outHour: 18, outMin: 3, location: "onsite", autoOut: true }
-  ];
-
-  samples.forEach((sample, index) => {
-    const day = new Date(now);
-    day.setDate(day.getDate() - sample.daysAgo);
-    const inTime = new Date(day);
-    inTime.setHours(sample.inHour, sample.inMin, 12 + index, 0);
-    const inId = `SESDEMO${index}IN`;
-    rows.push({
-      id: inId,
-      user_id: userId,
-      punch_type: "in",
-      punched_at: inTime.toISOString(),
-      work_location: sample.location,
-      connection_method: meta.method,
-      operating_system: meta.os,
-      browser_application: meta.browser,
-      ip_address: "90.84.12.4" + index,
-      network_type: sample.location === "remote" ? "Wi-Fi" : "LAN",
-      profiles: { full_name: profile.full_name || getUserName(), email: profile.email || "" }
-    });
-    if (sample.statusOpen) return;
-    const outTime = new Date(day);
-    outTime.setHours(sample.outHour, sample.outMin || 0, 40, 0);
-    rows.push({
-      id: `SESDEMO${index}OUT`,
-      user_id: userId,
-      punch_type: "out",
-      punched_at: outTime.toISOString(),
-      disconnect_reason: sample.autoOut ? "Deconnexion automatique" : "Sortie manuelle",
-      profiles: { full_name: profile.full_name || getUserName(), email: profile.email || "" }
-    });
-  });
-  return rows;
-}
-
-function getJournalPunchSource() {
-  const userId = session?.user?.id || "demo-user";
-  if (!usesDatabase()) {
-    const local = loadStore("punches", []).map((punch) => mapPunchToJournalRow(punch, userId));
-    return local.length ? local : buildSeedJournalRows(userId);
-  }
-  const source = journalPunchesInitialLoadDone
-    ? (appData.journalPunches || [])
-    : (appData.punches || []);
-  return source.map((row) => mapPunchToJournalRow(row, row.user_id || userId));
-}
-
-function makeSessionId(inRow) {
-  const raw = String(inRow.id || `${inRow.user_id}-${inRow.punched_at}`).replace(/-/g, "").toUpperCase();
-  const token = raw.slice(0, 12) || String(Date.now());
-  return token.startsWith("SES") ? token : `SES-${token}`;
-}
-
-function displayOrDash(value) {
-  const text = String(value ?? "").trim();
-  return text ? text : "—";
-}
-
-function finalizeJournalSession(open, outRow) {
-  const profile = profileById(open.userId) || open.inRow.profiles || appData.profile || {};
-  const inTime = open.inRow.punched_at;
-  const outTime = outRow?.punched_at || null;
-  const durationMs = (outTime ? new Date(outTime).getTime() : Date.now()) - new Date(inTime).getTime();
-  const storedReason = outRow?.disconnect_reason || "";
-  const autoOut = Boolean(outTime) && (
-    storedReason.toLowerCase().includes("automat")
-    || Math.abs(durationMs - AUTO_CLOCK_OUT_MS) < 120000
-  );
-  const status = outTime ? "Deconnecte" : "Connecte";
-  const reason = !outTime ? "—" : (autoOut ? "Deconnexion automatique" : (storedReason || "Sortie manuelle"));
-  const locationValue = open.inRow.work_location;
-  return {
-    sessionId: makeSessionId(open.inRow),
-    matricule: displayOrDash(getProfileMatricule(open.userId)),
-    name: profile.full_name || "Collaborateur",
-    department: displayOrDash(profile.department),
-    connectedAt: inTime,
-    disconnectedAt: outTime,
-    dateIn: formatDate(inTime),
-    timeIn: formatTimeSeconds(inTime),
-    dateOut: outTime ? formatDate(outTime) : "—",
-    timeOut: outTime ? formatTimeSeconds(outTime) : "—",
-    duration: formatDuration(durationMs),
-    durationMs,
-    method: displayOrDash(open.inRow.connection_method),
-    os: displayOrDash(open.inRow.operating_system),
-    browser: displayOrDash(open.inRow.browser_application),
-    ip: displayOrDash(open.inRow.ip_address),
-    network: displayOrDash(open.inRow.network_type),
-    location: locationValue ? workLocationLabel(locationValue) : "—",
-    status,
-    reason,
-    userId: open.userId
-  };
-}
-
-function buildPunchSessions(punchRows) {
-  const byUser = new Map();
-  punchRows.forEach((row) => {
-    if (!row?.user_id || !row.punched_at) return;
-    if (!byUser.has(row.user_id)) byUser.set(row.user_id, []);
-    byUser.get(row.user_id).push(row);
-  });
-
-  const sessions = [];
-  byUser.forEach((rows, userId) => {
-    const sorted = [...rows].sort((a, b) => new Date(a.punched_at) - new Date(b.punched_at));
-    let open = null;
-    sorted.forEach((row) => {
-      if (row.punch_type === "in") {
-        if (open) sessions.push(finalizeJournalSession(open, null));
-        open = { inRow: row, userId };
-        return;
-      }
-      if (row.punch_type === "out" && open) {
-        sessions.push(finalizeJournalSession(open, row));
-        open = null;
-      }
-    });
-    if (open) sessions.push(finalizeJournalSession(open, null));
-  });
-  return sessions;
-}
-
-function getJournalRange() {
-  return journalFilters.start && journalFilters.end
-    ? journalFilters
-    : getDefaultTeamPunchRange();
-}
-
-function getUnfilteredJournalSessions() {
-  const range = getJournalRange();
-  return buildPunchSessions(getJournalPunchSource()).filter((session) => {
-    const dayKey = toDateKey(new Date(session.connectedAt));
-    if (dayKey < range.start || dayKey > range.end) return false;
-    if (journalFilters.userId && session.userId !== journalFilters.userId) return false;
-    return true;
-  });
-}
-
-function getJournalSessions() {
-  const query = (journalFilters.query || "").trim().toLowerCase();
-  let sessions = getUnfilteredJournalSessions();
-
-  if (query) {
-    sessions = sessions.filter((session) => JOURNAL_COLUMNS.some((column) =>
-      String(session[column.key] || "").toLowerCase().includes(query)
-    ));
-  }
-
-  Object.entries(journalColumnFilters).forEach(([key, value]) => {
-    if (!value) return;
-    sessions = sessions.filter((session) => String(session[key] || "") === value);
-  });
-
-  const dir = journalSort.dir === "asc" ? 1 : -1;
-  const key = journalSort.key || "connectedAt";
-  sessions.sort((a, b) => {
-    if (key === "connectedAt" || key === "disconnectedAt") {
-      const aTime = a[key] ? new Date(a[key]).getTime() : 0;
-      const bTime = b[key] ? new Date(b[key]).getTime() : 0;
-      return (aTime - bTime) * dir;
-    }
-    if (key === "duration") return ((a.durationMs || 0) - (b.durationMs || 0)) * dir;
-    return String(a[key] || "").localeCompare(String(b[key] || ""), "fr", { numeric: true }) * dir;
-  });
-  return sessions;
-}
-
-function uniqueJournalValues(key) {
-  return [...new Set(getUnfilteredJournalSessions().map((session) => String(session[key] || "—")))]
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }));
-}
-
-async function loadJournalPunches(filters = journalFilters) {
-  if (!canViewJournal() || !usesDatabase()) {
-    appData.journalPunches = [];
-    return [];
-  }
-
-  const range = filters.start && filters.end ? filters : getDefaultTeamPunchRange();
-  const profiles = getJournalProfiles();
-  const userIds = filters.userId
-    ? [filters.userId]
-    : profiles.map((profile) => profile.id);
-
-  let query = supabaseClient
-    .from("time_punches")
-    .select("*, profiles(full_name, email)")
-    .order("punched_at", { ascending: false });
-
-  if (filters.userId) {
-    query = query.eq("user_id", filters.userId);
-  } else if (!isAdmin()) {
-    const scopedIds = userIds.length ? userIds : [session.user.id];
-    if (!scopedIds.includes(session.user.id)) scopedIds.push(session.user.id);
-    query = query.in("user_id", scopedIds);
-  }
-
-  query = query.gte("punched_at", `${shiftDateKey(range.start, -1)}T00:00:00`);
-  query = query.lte("punched_at", `${range.end}T23:59:59`);
-
-  const result = await withSupabaseRetry(async () => {
-    const response = await query;
-    if (response.error) throw response.error;
-    return response.data;
-  });
-  appData.journalPunches = result || [];
-  if (appData.journalPunches.length && !Object.prototype.hasOwnProperty.call(appData.journalPunches[0], "connection_method")) {
-    appData.journalMetaMissing = true;
-  }
-  return appData.journalPunches;
-}
-
-function exportJournalCsv() {
-  const sessions = getJournalSessions();
-  if (!sessions.length) {
-    alert("Aucune session a exporter pour cette periode.");
-    return;
-  }
-  const range = getJournalRange();
-  downloadCsv(
-    `journal_${range.start}_${range.end}.csv`,
-    JOURNAL_COLUMNS.map((column) => column.label),
-    sessions.map((session) => JOURNAL_COLUMNS.map((column) => session[column.key]))
-  );
-}
-
-function renderJournalStatus(status) {
-  const tone = status === "Connecte" ? "on" : "off";
-  return `<span class="journal-status journal-status--${tone}">${escapeHtml(status)}</span>`;
-}
-
-function renderJournalColumnMenu(column) {
-  if (journalOpenColumn !== column.key) return "";
-  const values = uniqueJournalValues(column.key);
-  const selected = journalColumnFilters[column.key] || "";
-  return `
-    <div class="journal-col-menu" role="menu">
-      <button type="button" class="journal-col-sort" data-journal-sort="${column.key}" data-journal-dir="asc">Trier A → Z</button>
-      <button type="button" class="journal-col-sort" data-journal-sort="${column.key}" data-journal-dir="desc">Trier Z → A</button>
-      <div class="journal-col-divider"></div>
-      <button type="button" class="journal-col-option${selected ? "" : " is-active"}" data-journal-filter-col="${column.key}" data-journal-filter-value="">Tous</button>
-      ${values.slice(0, 40).map((value) => `
-        <button type="button" class="journal-col-option${selected === value ? " is-active" : ""}" data-journal-filter-col="${column.key}" data-journal-filter-value="${escapeHtml(value)}">${escapeHtml(value)}</button>
-      `).join("")}
-    </div>`;
-}
-
-function journalPage() {
-  if (!canViewJournal()) {
-    return `<article class="card"><p class="empty-state">Acces reserve aux administrateurs.</p></article>`;
-  }
-  if (!journalFilters.start || !journalFilters.end) {
-    journalFilters = { ...journalFilters, ...getDefaultTeamPunchRange() };
-  }
-
-  const range = getJournalRange();
-  const sessions = getJournalSessions();
-  const profiles = getJournalProfiles();
-  const openCount = sessions.filter((session) => session.status === "Connecte").length;
-  const canFilterPeople = usesDatabase();
-  let dbNote = "";
-  if (!usesDatabase()) {
-    dbNote = `<p class="data-note demo">Mode demo : journal local. Connectez-vous avec Microsoft pour voir les sessions reelles.</p>`;
-  } else if (appData.journalMetaMissing) {
-    dbNote = `<p class="data-note">Colonnes techniques absentes en base. Executez <code>supabase/time-punches-journal.sql</code> dans Supabase SQL Editor, puis refaites un pointage d'entree.</p>`;
-  } else if (sessions.length && sessions.every((session) => session.method === "—" && session.os === "—" && session.browser === "—" && session.ip === "—")) {
-    dbNote = `<p class="data-note">Les sessions deja enregistrees n'ont pas IP / OS / navigateur. Ces details apparaitront au prochain pointage d'entree.</p>`;
-  }
-
-  return `
-    ${dbNote}
-    <article class="card form-card page-spacer">
-      ${cardHeading("Filtres")}
-      <form id="journal-filter" class="feature-form team-punches-filter">
-        <div class="form-row">
-          <label>
-            Du
-            <input type="date" name="start" value="${escapeHtml(range.start)}" required>
-          </label>
-          <label>
-            Au
-            <input type="date" name="end" value="${escapeHtml(range.end)}" required>
-          </label>
-        </div>
-        ${canFilterPeople ? `
-        <label>
-          Collaborateur
-          <select name="userId">
-            <option value="">Tous</option>
-            ${profiles.map((profile) => `
-              <option value="${profile.id}"${journalFilters.userId === profile.id ? " selected" : ""}>
-                ${escapeHtml(profile.full_name)}
-              </option>`).join("")}
-          </select>
-        </label>` : ""}
-        <label>
-          Recherche
-          <input type="search" name="query" value="${escapeHtml(journalFilters.query || "")}" placeholder="Nom, matricule, IP, statut...">
-        </label>
-        <div class="team-punches-actions">
-          <button type="submit" class="primary">Actualiser</button>
-          <button type="button" id="journal-export" class="outline-button"${sessions.length ? "" : " disabled"}>Exporter CSV</button>
-        </div>
-      </form>
-    </article>
-    <section class="team-punches-summary page-spacer">
-      <article class="hours-card team-punch-summary-card">
-        <span>Sessions</span>
-        <strong>${sessions.length}</strong>
-        <small>sur la periode</small>
-      </article>
-      <article class="hours-card team-punch-summary-card">
-        <span>En cours</span>
-        <strong>${openCount}</strong>
-        <small>connexion active</small>
-      </article>
-      <article class="hours-card team-punch-summary-card">
-        <span>Deconnectees</span>
-        <strong>${sessions.length - openCount}</strong>
-        <small>sessions closes</small>
-      </article>
-    </section>
-    <article class="card table-card page-spacer journal-card">
-      <div class="toolbar">
-        <h3>Journal</h3>
-        <span class="hierarchy-result-count">${sessions.length} ligne${sessions.length > 1 ? "s" : ""}</span>
-      </div>
-      <div class="table-wrap journal-table-wrap">
-        <table class="journal-table">
-          <thead>
-            <tr>
-              ${JOURNAL_COLUMNS.map((column) => `
-                <th class="journal-th${journalSort.key === column.key ? " is-sorted" : ""}${journalColumnFilters[column.key] ? " is-filtered" : ""}">
-                  <button type="button" class="journal-th-btn" data-journal-col="${column.key}" aria-haspopup="true" aria-expanded="${journalOpenColumn === column.key}">
-                    <span>${column.label}</span>
-                    <span class="journal-th-arrow" aria-hidden="true"></span>
-                  </button>
-                  ${renderJournalColumnMenu(column)}
-                </th>`).join("")}
-            </tr>
-          </thead>
-          <tbody>
-            ${sessions.length
-              ? sessions.map((session) => `
-                <tr>
-                  <td><code class="journal-id">${escapeHtml(session.sessionId)}</code></td>
-                  <td>${escapeHtml(session.matricule)}</td>
-                  <td><strong>${escapeHtml(session.name)}</strong></td>
-                  <td>${escapeHtml(session.department)}</td>
-                  <td>${escapeHtml(session.dateIn)}</td>
-                  <td>${escapeHtml(session.timeIn)}</td>
-                  <td>${escapeHtml(session.dateOut)}</td>
-                  <td>${escapeHtml(session.timeOut)}</td>
-                  <td><strong>${escapeHtml(session.duration)}</strong></td>
-                  <td>${escapeHtml(session.method)}</td>
-                  <td>${escapeHtml(session.os)}</td>
-                  <td>${escapeHtml(session.browser)}</td>
-                  <td><code class="journal-id">${escapeHtml(session.ip)}</code></td>
-                  <td>${escapeHtml(session.network)}</td>
-                  <td>${escapeHtml(session.location)}</td>
-                  <td>${renderJournalStatus(session.status)}</td>
-                  <td>${escapeHtml(session.reason)}</td>
-                </tr>`).join("")
-              : `<tr><td colspan="${JOURNAL_COLUMNS.length}" class="empty-cell">Aucune session pour cette periode. Ajustez les filtres ou pointez une entree.</td></tr>`}
-          </tbody>
-        </table>
-      </div>
     </article>`;
 }
 
 function teamPunchesPage() {
-  if (!usesDatabase() && !demoMode) {
+  if (!usesDatabase()) {
     return `<article class="card"><p class="empty-state">Connectez-vous avec Microsoft pour consulter les pointages de votre equipe.</p></article>`;
   }
 
@@ -3595,24 +2408,12 @@ function teamPunchesPage() {
               <th>Debut</th>
               <th>Fin</th>
               <th>Pause dej</th>
-              <th>Heures planifiees</th>
-              <th>Heures realisees</th>
-              <th>Retard</th>
-              <th>Heures manquantes</th>
-              <th>HS payables</th>
-              <th>Log shift</th>
-              <th>Heure rectifiee</th>
-              <th>Modifie par</th>
-              <th>Motif</th>
+              <th>Heures travaillees</th>
             </tr>
           </thead>
           <tbody>
             ${dailyRows.length
-              ? dailyRows.map((row) => {
-                  const profile = profileById(row.userId) || { full_name: row.name, id: row.userId };
-                  const stats = analyzeWorkedDay(row, profile);
-                  const correction = formatDayCorrectionSummary(row.userId, row.dayKey);
-                  return `
+              ? dailyRows.map((row) => `
                 <tr>
                   <td><strong>${escapeHtml(row.name)}</strong></td>
                   <td>${formatDate(row.dayKey)}</td>
@@ -3620,18 +2421,9 @@ function teamPunchesPage() {
                   <td>${row.startTime ? formatTime(row.startTime) : "—"}</td>
                   <td>${formatDayEndTime(row)}</td>
                   <td>${row.breakDurationMs ? formatDuration(row.breakDurationMs) : "—"}</td>
-                  <td>${formatDuration(stats.plannedMs)}</td>
-                  <td><strong>${formatDuration(stats.realizedMs)}</strong></td>
-                  <td>${stats.delayMin ? `${stats.delayMin} min` : "—"}</td>
-                  <td>${stats.missingMs ? formatDuration(stats.missingMs) : "—"}</td>
-                  <td>${stats.payableOtMs ? formatDuration(stats.payableOtMs) : "—"}</td>
-                  <td>${formatDayPunchLog(row)}</td>
-                  <td>${correction.rectified === "Oui" ? badge("Oui") : escapeHtml(correction.rectified)}</td>
-                  <td>${escapeHtml(correction.who)}</td>
-                  <td>${escapeHtml(correction.motif)}</td>
-                </tr>`;
-                }).join("")
-              : `<tr><td colspan="15" class="empty-cell">Aucun pointage pour cette periode. Ajustez les filtres puis actualisez.</td></tr>`}
+                  <td><strong>${formatDuration(row.workedMs)}</strong></td>
+                </tr>`).join("")
+              : `<tr><td colspan="7" class="empty-cell">Aucun pointage pour cette periode. Ajustez les filtres puis actualisez.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -3645,52 +2437,20 @@ function leavePage() {
 
   const requests = getLeaveRequests();
   const balances = getLeaveBalances();
-  const pending = pendingLeaveForValidator();
-  const months = seniorityMonths();
-  const carryFlag = balances[0] && balances[0].remaining > 3 && new Date().getMonth() === 11;
-  const chain = getLeaveValidatorChain(session?.user?.id);
-  const shift = getActiveShift();
 
   return `
-    ${carryFlag ? `<p class="data-note">Alerte report : plus de 3 jours de CP restants au 31/12. Le solde non consomme est reportable une seule annee.</p>` : ""}
-    ${months < 6 && !isAdmin() ? `<p class="data-note">Anciennete : ${months} mois. Le legal demande 6 mois, sauf derogation RH.</p>` : ""}
-    <p class="data-note">Horaire ${escapeHtml(shift.label)} · ${shift.start}–${shift.end} · pause ${shift.lunchMin} min (${shift.lunchFrom}–${shift.lunchTo}) · decalage FR/MA ${getFrMaOffsetHours()} h${isRamadanDay(toDateKey(new Date())) ? " · periode Ramadan" : ""}</p>
-    <p class="data-note">18 codes d'absence (paie) : CP selon le profil, recuperation, familial, deces, mariage, absences justifiee/injustifiee, retard, depart, deplacement, mise a pied.</p>
     <section class="balance-grid">
       ${balances.map((balance) => balanceCard(balance)).join("")}
     </section>
     ${renderLeaveCalendar()}
-    ${pending.length ? `
-    <article class="card table-card page-spacer">
-      <div class="toolbar"><h3>Demandes a valider</h3></div>
-      <p class="hierarchy-meta">Circuit : ${chain.map((item) => item.role).join(" → ")}</p>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Collaborateur</th><th>Type</th><th>Periode</th><th>Statut</th><th></th></tr></thead>
-          <tbody>
-            ${pending.map((request) => `
-              <tr>
-                <td>${escapeHtml(request.name || profileById(request.userId || request.user_id)?.full_name || getUserName())}</td>
-                <td>${escapeHtml(request.type)}${request.motif ? `<br><small>${escapeHtml(request.motif)}</small>` : ""}</td>
-                <td>${formatDate(request.start)} - ${formatDate(request.end)} · ${request.days || request.hours || 0}${leaveIsHoursUnit(request.type) ? " h" : " j"}</td>
-                <td>${badge(request.status)}</td>
-                <td>
-                  <button type="button" class="primary leave-approve" data-leave-id="${request.id}">Valider</button>
-                  <button type="button" class="outline-button leave-reject" data-leave-id="${request.id}">Refuser</button>
-                </td>
-              </tr>`).join("")}
-          </tbody>
-        </table>
-      </div>
-    </article>` : ""}
     <div class="feature-grid page-spacer">
       <article class="card form-card">
         ${cardHeading("Nouvelle demande")}
         <form id="leave-form" class="feature-form">
           <label>
-            Code d'absence
-            <select name="type" id="leave-type" required>
-              ${leaveTypeOptionsHtml()}
+            Type de conge
+            <select name="type" required>
+              ${leaveTypes.map((type) => `<option value="${type}">${type}</option>`).join("")}
             </select>
           </label>
           <div class="form-row">
@@ -3704,41 +2464,17 @@ function leavePage() {
             </label>
           </div>
           <label>
-            Duree
-            <select name="unit">
-              <option value="days">Jours ouvres</option>
-              <option value="half">Demi-journee</option>
-              <option value="hours">Heures (retard / depart)</option>
-            </select>
-          </label>
-          <label id="leave-half-wrap" hidden>
-            Demi-journee
-            <select name="half_day">
-              <option value="morning">Matin</option>
-              <option value="afternoon">Apres-midi</option>
-            </select>
-          </label>
-          <label id="leave-hours-wrap" hidden>
-            Heures
-            <input type="number" name="hours" min="0.5" step="0.5" value="1">
-          </label>
-          <label>
-            Commentaire
+            Commentaire (optionnel)
             <textarea name="comment" rows="3" placeholder="Precisez le contexte si besoin..."></textarea>
-          </label>
-          <label id="leave-file-wrap">
-            Justificatif
-            <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx">
           </label>
           <button type="submit" class="primary">Envoyer la demande</button>
         </form>
-        <p class="hierarchy-meta">Validation : ${chain.map((item) => escapeHtml(item.role)).join(" → ")}. Les absences ne peuvent pas se chevaucher.</p>
       </article>
       <article class="card table-card">
         <div class="toolbar"><h3>Mes demandes</h3></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Type</th><th>Periode</th><th>Duree</th><th>Justificatif</th><th>Statut</th></tr></thead>
+            <thead><tr><th>Type</th><th>Periode</th><th>Duree</th><th>Statut</th></tr></thead>
             <tbody>${leaveRows(requests)}</tbody>
           </table>
         </div>
@@ -3748,14 +2484,13 @@ function leavePage() {
 
 function leaveRows(requests) {
   if (!requests.length) {
-    return `<tr><td colspan="5" class="empty-cell">Aucune demande de conge pour le moment.</td></tr>`;
+    return `<tr><td colspan="4" class="empty-cell">Aucune demande de conge pour le moment.</td></tr>`;
   }
   return requests.map((request) => `
     <tr>
-      <td>${request.type}${request.motif ? `<br><small>${escapeHtml(request.motif)}</small>` : ""}</td>
+      <td>${request.type}</td>
       <td>${formatDate(request.start)} - ${formatDate(request.end)}</td>
-      <td>${leaveIsHoursUnit(request.type) ? `${request.hours || 0} h` : `${request.days} jour${Number(request.days) > 1 ? "s" : ""} ouvres`}</td>
-      <td>${escapeHtml(request.attachment_name || request.attachmentName || "—")}</td>
+      <td>${request.days} jour${request.days > 1 ? "s" : ""}</td>
       <td>${badge(request.status)}</td>
     </tr>`).join("");
 }
@@ -3875,7 +2610,7 @@ function hierarchyPage() {
     return `<article class="card"><p class="empty-state">L'onglet Hierarchie n'est pas disponible pour votre profil.</p></article>`;
   }
 
-  if (!usesDatabase() && !demoMode) {
+  if (!usesDatabase()) {
     return `<article class="card"><p class="empty-state">Connectez-vous avec Microsoft pour afficher l'organigramme de l'entreprise.</p></article>`;
   }
 
@@ -4079,115 +2814,6 @@ function adminPage() {
     </article>`;
 }
 
-function getReportProfiles() {
-  if (isAdmin()) return appData.orgProfiles.filter(Boolean);
-  if (hasDirectReports()) {
-    const self = profileById(session?.user?.id) || appData.profile;
-    const team = getDirectReportProfiles();
-    if (!self) return team;
-    return [self, ...team.filter((profile) => profile.id !== self.id)];
-  }
-  return appData.profile ? [appData.profile] : [];
-}
-
-function getReportPunches() {
-  if (appData.teamPunches?.length) return appData.teamPunches;
-  const profile = appData.profile;
-  const punches = usesDatabase() ? (appData.punches || []) : getPunches();
-  return punches.map((punch) => ({
-    user_id: punch.user_id || profile?.id || session?.user?.id,
-    punch_type: punch.punch_type || punch.type,
-    punched_at: punch.punched_at || punch.time,
-    work_location: punch.work_location || punch.workLocation || null,
-    profiles: {
-      full_name: profile?.full_name || getUserName(),
-      email: profile?.email || session?.user?.email || ""
-    }
-  }));
-}
-
-function buildEdsRows() {
-  const range = getEdsRange();
-  const profiles = getReportProfiles();
-  const punches = getReportPunches();
-  const daily = summarizeTeamPunchesByDay(punches, range.start, range.end);
-  const leaves = [...getLeaveRequests(), ...(appData.teamLeaveRequests || [])];
-  return profiles.map((profile) => {
-    const days = daily.filter((row) => row.userId === profile.id);
-    let planned = 0;
-    let realized = 0;
-    let delay = 0;
-    let missing = 0;
-    let ot = 0;
-    days.forEach((row) => {
-      const stats = analyzeWorkedDay(row, profile);
-      planned += stats.plannedMs;
-      realized += stats.realizedMs;
-      delay += stats.delayMin;
-      missing += stats.missingMs;
-      ot += stats.payableOtMs;
-    });
-    const ofType = (key) => leaves.filter((item) => (item.userId || item.user_id || session?.user?.id) === profile.id && leaveTypeKey(item.type) === key && String(item.status || "").toLowerCase().includes("approuv")).reduce((sum, item) => sum + Number(item.days || item.hours || 0), 0);
-    return {
-      name: profile.full_name,
-      matricule: getProfileMatricule(profile.id),
-      planned,
-      realized,
-      delay,
-      missing,
-      ot,
-      cp: ofType("cp"),
-      unpaid: ofType("unpaid"),
-      sick: ofType("justified") + ofType("maladie"),
-      range
-    };
-  });
-}
-
-function reportsPage() {
-  if (!canViewReports()) {
-    return `<article class="card"><p class="empty-state">Connectez-vous pour consulter les rapports.</p></article>`;
-  }
-  const range = getEdsRange();
-  const rows = buildEdsRows();
-  const teamScope = canViewTeamPunches() || isAdmin();
-  return `
-    <p class="data-note">Cycle paie EDS : du ${formatDate(range.start)} au ${formatDate(range.end)} (21 du mois precedent → 20 du mois en cours). ${teamScope ? "Vue equipe." : "Votre temps uniquement."} M-Work n'est pas connecte, volontairement.</p>
-    ${renderGtaTeamInbox()}
-    <article class="card form-card page-spacer">
-      ${cardHeading("Exports")}
-      <div class="team-punches-actions">
-        <button type="button" id="export-eds" class="primary">Export EDS consolide</button>
-        <button type="button" id="export-absences" class="outline-button">Absences / conges</button>
-        <button type="button" id="export-retards" class="outline-button">Retards et heures manquantes</button>
-      </div>
-    </article>
-    <article class="card table-card page-spacer">
-      <div class="toolbar"><h3>Apercu EDS</h3></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Collaborateur</th><th>Planifie</th><th>Realise</th><th>Retard</th><th>Manquant</th><th>HS</th><th>CP</th><th>Sans solde</th><th>Maladie</th></tr></thead>
-          <tbody>
-            ${rows.length
-              ? rows.map((row) => `
-                <tr>
-                  <td><strong>${escapeHtml(row.name)}</strong></td>
-                  <td>${formatDuration(row.planned)}</td>
-                  <td>${formatDuration(row.realized)}</td>
-                  <td>${row.delay} min</td>
-                  <td>${formatDuration(row.missing)}</td>
-                  <td>${formatDuration(row.ot)}</td>
-                  <td>${row.cp}</td>
-                  <td>${row.unpaid}</td>
-                  <td>${row.sick}</td>
-                </tr>`).join("")
-              : `<tr><td colspan="9" class="empty-cell">Aucune donnee sur le cycle.</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    </article>`;
-}
-
 function pageContent() {
   if (appData.loading) {
     return `<div class="boot-message"><span class="loader" aria-hidden="true"></span>Chargement des donnees...</div>`;
@@ -4202,9 +2828,7 @@ function pageContent() {
   return {
     home: homePage,
     pointeuse: pointeusePage,
-    journal: journalPage,
     "team-punches": teamPunchesPage,
-    reports: reportsPage,
     leave: leavePage,
     attestations: attestationsPage,
     hierarchy: hierarchyPage,
@@ -4228,12 +2852,6 @@ function formatAppError(error) {
   }
   if (message.includes("bucket") || message.includes("storage")) {
     return "Stockage Supabase non configure. Executez supabase/storage-hr-documents.sql dans SQL Editor.";
-  }
-  if (message.includes("punch_corrections") || message.includes("overtime_requests") || message.includes("activity_entries") || message.includes("shift_code") || message.includes("workflow_step")) {
-    return "Module Cegid GTA non configure. Executez supabase/cegid-gta.sql dans SQL Editor.";
-  }
-  if (JOURNAL_META_FIELDS.some((field) => message.includes(field))) {
-    return "Colonnes du Journal non configurees. Executez supabase/time-punches-journal.sql dans SQL Editor, puis refaites un pointage d'entree.";
   }
   if (message.includes("work_location") || (message.includes("column") && message.includes("time_punches"))) {
     return "Lieu de travail non configure. Executez supabase/time-punches-location.sql dans SQL Editor, puis refaites un pointage d'entree.";
@@ -4396,39 +3014,7 @@ async function refreshAppData() {
     if (canViewTeamPunches()) {
       await loadTeamPunches(teamPunchFilters);
     }
-
-    try {
-      await loadGtaCollections(userId);
-    } catch (error) {
-      console.warn("GTA collections:", error?.message || error);
-    }
   });
-}
-
-async function loadGtaCollections(userId) {
-  const kinds = Object.values(GTA_KINDS);
-  await Promise.all(kinds.map(async ({ table, store }) => {
-    try {
-      let query = supabaseClient.from(table).select("*").order("created_at", { ascending: false }).limit(200);
-      if (!canViewTeamPunches() && !isAdmin()) {
-        query = query.eq("user_id", userId);
-      }
-      const { data, error } = await query;
-      if (!error) {
-        appData[store] = data || [];
-        return;
-      }
-      if (isMissingDbObjectError(error)) {
-        appData[store] = [];
-        return;
-      }
-      const own = await supabaseClient.from(table).select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(200);
-      appData[store] = own.error ? [] : (own.data || []);
-    } catch (error) {
-      console.warn("GTA", table, error?.message || error);
-      appData[store] = [];
-    }
-  }));
 }
 
 async function bootstrapUser(options = {}) {
@@ -4454,7 +3040,6 @@ async function bootstrapUser(options = {}) {
       await syncSessionAfterLogin();
       await ensureProfile();
       await refreshAppData();
-      collectJournalMeta().catch(() => {});
     } catch (error) {
       appData.error = formatAppError(error);
     } finally {
@@ -4479,7 +3064,6 @@ function bindLoginEvents() {
     demoBtn.dataset.humanaBound = "1";
     demoBtn.addEventListener("click", () => {
       demoMode = true;
-      hydrateDemoWorkspace();
       renderApp();
     });
   }
@@ -4558,9 +3142,7 @@ async function signInWithMicrosoft() {
   const { error } = await supabaseClient.auth.signInWithOAuth({
     provider: "azure",
     options: {
-      redirectTo: typeof window.humanaAuthRedirectTo === "function"
-        ? window.humanaAuthRedirectTo()
-        : window.location.origin,
+      redirectTo: window.HUMANA_CONFIG?.REDIRECT_URL || "https://humana-rh.vercel.app",
       scopes: "openid email profile"
     }
   });
@@ -4591,8 +3173,8 @@ function renderApp() {
   const initials = profileInitials(name);
 
   app.innerHTML = `
-    <div class="app-shell" data-current-page="${currentPage}">
-      <aside class="sidebar">
+    <div class="app-shell ui-3d-scene" data-current-page="${currentPage}">
+      <aside class="sidebar sidebar--3d">
         <button type="button" class="brand brand-home" id="brand-home" aria-label="Retour a l'accueil">
           <span>H</span> Humana
         </button>
@@ -4608,9 +3190,12 @@ function renderApp() {
       <button class="backdrop" type="button" aria-label="Fermer le menu"></button>
       <main class="main-content">
         <div class="main-bg" aria-hidden="true">
+          <span class="ui-3d-grid"></span>
           <span class="main-blob main-blob-1"></span>
           <span class="main-blob main-blob-2"></span>
+          <span class="main-blob main-blob-3"></span>
         </div>
+        <div class="ui-3d-stage">
         <header class="topbar">
           <button class="menu-button" type="button" aria-label="Menu"></button>
           <div class="topbar-page">${pages[currentPage][0]}</div>
@@ -4622,263 +3207,77 @@ function renderApp() {
           </header>
           <div id="page-content" class="page-content">${pageContent()}</div>
         </div>
+        </div>
       </main>
     </div>`;
 
   bindAppEvents();
   playViewAnimations();
+  initUi3D();
 }
 
-function minutesFromHhmm(value) {
-  const [hours, minutes] = String(value || "00:00").split(":").map(Number);
-  return (hours || 0) * 60 + (minutes || 0);
+function prefersReducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-function isWeekendDate(date) {
-  const day = date.getDay();
-  return day === 0 || day === 6;
-}
+function initUi3D() {
+  if (prefersReducedMotion() || window.innerWidth < 900) return;
 
-function holidaySet() {
-  return new Set([...FR_HOLIDAYS_2026, ...MA_HOLIDAYS_2026]);
-}
+  const scene = document.querySelector(".ui-3d-scene");
+  const main = document.querySelector(".main-content");
+  if (!scene || !main || main.dataset.ui3dBound) return;
+  main.dataset.ui3dBound = "1";
 
-function isHolidayKey(dayKey) {
-  return holidaySet().has(dayKey);
-}
-
-function isWorkingDayKey(dayKey) {
-  const date = parseLocalDate(dayKey);
-  return !isWeekendDate(date) && !isHolidayKey(dayKey);
-}
-
-function countWorkingDays(start, end) {
-  const startDate = parseLocalDate(start);
-  const endDate = parseLocalDate(end);
-  if (endDate < startDate) return 0;
-  let count = 0;
-  const cursor = new Date(startDate);
-  while (cursor <= endDate) {
-    const key = toDateKey(cursor);
-    if (isWorkingDayKey(key)) count += 1;
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return Math.max(count, 0);
-}
-
-function roundUpOneDecimal(value) {
-  return Math.ceil(Number(value) * 10 - 1e-9) / 10;
-}
-
-function getFrMaOffsetHours(date = new Date()) {
-  const year = date.getFullYear();
-  const lastSunday = (month) => {
-    const last = new Date(year, month + 1, 0);
-    last.setDate(last.getDate() - last.getDay());
-    return last;
-  };
-  const summerStart = lastSunday(2);
-  const summerEnd = lastSunday(9);
-  return date >= summerStart && date < summerEnd ? 2 : 1;
-}
-
-function isRamadanDay(dayKey) {
-  return dayKey >= RAMADAN_2026.start && dayKey <= RAMADAN_2026.end;
-}
-
-function getProfileShift(profile = appData.profile) {
-  const code = String(profile?.shift_code || "").toLowerCase();
-  if (SHIFT_PRESETS[code]) return SHIFT_PRESETS[code];
-  const dept = String(profile?.department || profile?.job_title || "").toLowerCase();
-  if (dept.includes("r&d") || dept.includes("r et d") || /\brd\b/.test(dept)) return SHIFT_PRESETS.rnd;
-  return SHIFT_PRESETS.cs;
-}
-
-function getActiveShift(profile, dayKey = toDateKey(new Date())) {
-  const base = { ...getProfileShift(profile) };
-  if (isRamadanDay(dayKey)) {
-    base.lunchMin = 30;
-    base.label = `${base.label} · Ramadan`;
-  }
-  return base;
-}
-
-function getLeaveGrade(profile = appData.profile) {
-  const explicit = String(profile?.leave_grade || "").toLowerCase();
-  if (LEAVE_ACCRUAL[explicit]) return explicit;
-  const title = String(profile?.job_title || "").toLowerCase();
-  if (title.includes("codir") || title.includes("directeur")) return "codir";
-  if (profile?.role === "manager" || profile?.role === "admin" || profile?.role === "creator") return "manager";
-  return "employee";
-}
-
-function monthsBetween(startDate, endDate) {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
-  return (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + (end.getDate() >= start.getDate() ? 0 : -1) + 1;
-}
-
-function getHiredAt(profile = appData.profile) {
-  return profile?.hired_at || profile?.hiredAt || "";
-}
-
-function seniorityMonths(profile = appData.profile, at = new Date()) {
-  const hired = getHiredAt(profile);
-  if (!hired) return 12;
-  return Math.max(0, monthsBetween(hired, at));
-}
-
-function accruedLeaveDays(profile = appData.profile, at = new Date()) {
-  const rate = LEAVE_ACCRUAL[getLeaveGrade(profile)] || 1.5;
-  return roundUpOneDecimal(Math.max(0, seniorityMonths(profile, at)) * rate);
-}
-
-function recoveryDaysForYear(year = new Date().getFullYear()) {
-  const fr = FR_HOLIDAYS_2026.filter((day) => day.startsWith(String(year)) && isWorkingDayKey(day));
-  const ma = new Set(MA_HOLIDAYS_2026.filter((day) => day.startsWith(String(year))));
-  return fr.filter((day) => !ma.has(day)).length;
-}
-
-function leaveNeedsAttachment(type) {
-  const def = getAbsenceDef(type);
-  if (def) return Boolean(def.attachment);
-  const normalized = foldAbsenceText(type);
-  return !normalized.includes("paye") && !normalized.includes("recup");
-}
-
-function leaveIsHoursUnit(type) {
-  const def = getAbsenceDef(type);
-  if (def?.unit === "hours") return true;
-  const normalized = foldAbsenceText(type);
-  return normalized.includes("retard") || normalized === "depart" || normalized.includes("depart anticipe");
-}
-
-function getLeaveValidatorChain(userId) {
-  const labels = ["Manager N+1", "OPS manager N+2", "Directeur N+3"];
-  const chain = [];
-  let current = profileById(userId) || appData.profile;
-  const seen = new Set();
-  for (let index = 0; index < 3; index += 1) {
-    const managerId = current?.manager_id;
-    if (!managerId || seen.has(managerId)) break;
-    const manager = profileById(managerId);
-    if (!manager) break;
-    seen.add(managerId);
-    chain.push({ step: chain.length + 1, id: manager.id, name: manager.full_name, role: labels[index] });
-    current = manager;
-  }
-  const rh = appData.orgProfiles.find((profile) => profile.role === "admin" || profile.role === "creator")
-    || appData.profile;
-  if (rh && !chain.some((item) => item.id === rh.id)) {
-    chain.push({ step: chain.length + 1, id: rh.id, name: rh.full_name || "RH", role: "RH" });
-  } else if (!chain.length) {
-    chain.push({ step: 1, id: session?.user?.id, name: "RH", role: "RH" });
-  }
-  return chain;
-}
-
-function leaveRangesOverlap(aStart, aEnd, bStart, bEnd) {
-  return parseLocalDate(aStart) <= parseLocalDate(bEnd) && parseLocalDate(bStart) <= parseLocalDate(aEnd);
-}
-
-function hasOverlappingLeave(start, end, ignoreId = "") {
-  return getLeaveRequests().some((request) => {
-    if (String(request.id) === String(ignoreId)) return false;
-    const status = String(request.status || "").toLowerCase();
-    if (status.includes("refus")) return false;
-    return leaveRangesOverlap(start, end, request.start, request.end);
+  main.addEventListener("pointermove", (event) => {
+    const rect = main.getBoundingClientRect();
+    const x = (event.clientX - rect.left) / rect.width - 0.5;
+    const y = (event.clientY - rect.top) / rect.height - 0.5;
+    scene.style.setProperty("--ui-tilt-x", `${(y * -5).toFixed(2)}deg`);
+    scene.style.setProperty("--ui-tilt-y", `${(x * 6).toFixed(2)}deg`);
+    scene.style.setProperty("--ui-parallax-x", `${(x * 28).toFixed(1)}px`);
+    scene.style.setProperty("--ui-parallax-y", `${(y * 22).toFixed(1)}px`);
   });
+
+  main.addEventListener("pointerleave", () => {
+    scene.style.setProperty("--ui-tilt-x", "0deg");
+    scene.style.setProperty("--ui-tilt-y", "0deg");
+    scene.style.setProperty("--ui-parallax-x", "0px");
+    scene.style.setProperty("--ui-parallax-y", "0px");
+  });
+
+  bindUi3DCards(main);
 }
 
-function getGtaStore(key, fallback = []) {
-  if (usesDatabase()) return appData[key] || fallback;
-  return loadStore(key, fallback);
-}
+function bindUi3DCards(root = document) {
+  if (prefersReducedMotion()) return;
 
-function saveGtaStore(key, value) {
-  saveStore(key, value);
-  appData[key] = value;
-}
+  const selector = ".card, .home-widget, .hours-card, .balance-card, .stat-card, .team-punch-summary-card, .document-card";
+  root.querySelectorAll(selector).forEach((card) => {
+    if (card.dataset.tiltBound) return;
+    card.dataset.tiltBound = "1";
+    card.classList.add("ui-tilt-card");
 
-function getPunchCorrections() {
-  return getGtaStore("punchCorrections", []);
-}
+    card.addEventListener("pointermove", (event) => {
+      const rect = card.getBoundingClientRect();
+      const x = (event.clientX - rect.left) / rect.width - 0.5;
+      const y = (event.clientY - rect.top) / rect.height - 0.5;
+      card.style.setProperty("--card-tilt-x", `${(y * -11).toFixed(2)}deg`);
+      card.style.setProperty("--card-tilt-y", `${(x * 13).toFixed(2)}deg`);
+      card.style.setProperty("--card-lift", "18px");
+    });
 
-function getOvertimeRequests() {
-  return getGtaStore("overtimeRequests", []);
-}
-
-function getActivityEntries() {
-  return getGtaStore("activityEntries", []);
-}
-
-function correctionsThisMonth(userId = session?.user?.id) {
-  const monthKey = toDateKey(new Date()).slice(0, 7);
-  return getPunchCorrections().filter((item) => (item.userId || item.user_id) === userId && String(item.created || item.created_at || "").slice(0, 7) === monthKey);
-}
-
-function approvedOvertimeHours(userId, dayKey) {
-  return getOvertimeRequests()
-    .filter((item) => (item.userId || item.user_id) === userId && (item.date || item.work_date) === dayKey && String(item.status || "").toLowerCase().includes("approuv"))
-    .reduce((total, item) => total + Number(item.hours || 0), 0);
-}
-
-function analyzeWorkedDay(row, profile) {
-  const dayKey = row.dayKey;
-  const shift = getActiveShift(profile, dayKey);
-  const plannedMs = shift.plannedHours * 3600000;
-  const realizedMs = row.workedMs || 0;
-  const startMin = row.startTime ? new Date(row.startTime).getHours() * 60 + new Date(row.startTime).getMinutes() : null;
-  const lateAfter = minutesFromHhmm(shift.lateAfter);
-  const delayMin = startMin == null ? 0 : Math.max(0, startMin - lateAfter);
-  const missingMs = Math.max(0, plannedMs - realizedMs);
-  const extraMs = Math.max(0, realizedMs - plannedMs);
-  const otApproved = approvedOvertimeHours(row.userId, dayKey) * 3600000;
-  const payableOtMs = Math.min(extraMs, otApproved);
-  return {
-    plannedMs,
-    realizedMs,
-    delayMin,
-    missingMs,
-    extraMs,
-    payableOtMs,
-    shift
-  };
-}
-
-function getEdsRange(fromDate = new Date()) {
-  const year = fromDate.getFullYear();
-  const month = fromDate.getMonth();
-  const start = new Date(year, month - 1, 21);
-  const end = new Date(year, month, 20);
-  return { start: toDateKey(start), end: toDateKey(end) };
-}
-
-function canValidateLeave(request) {
-  if (isAdmin()) return true;
-  const chain = getLeaveValidatorChain(request.userId || request.user_id || session?.user?.id);
-  const step = Number(request.workflowStep || request.workflow_step || 1);
-  const current = chain[Math.max(0, step - 1)];
-  return current?.id === session?.user?.id;
-}
-
-function pendingLeaveForValidator() {
-  const source = usesDatabase()
-    ? [...getLeaveRequests(), ...(appData.teamLeaveRequests || []).map(normalizeTeamLeaveRequest)]
-    : getLeaveRequests();
-  const seen = new Set();
-  return source.filter((request) => {
-    if (seen.has(request.id)) return false;
-    seen.add(request.id);
-    const status = String(request.status || "");
-    if (!status.toLowerCase().includes("valider")) return false;
-    return canValidateLeave(request);
+    card.addEventListener("pointerleave", () => {
+      card.style.setProperty("--card-tilt-x", "0deg");
+      card.style.setProperty("--card-tilt-y", "0deg");
+      card.style.setProperty("--card-lift", "0px");
+    });
   });
 }
 
 function daysBetween(start, end) {
-  return Math.max(countWorkingDays(start, end), 0);
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  return Math.max(1, Math.floor((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1);
 }
 
 async function withAction(handler) {
@@ -4917,37 +3316,7 @@ function bindHierarchyOrgEvents() {
   });
 }
 
-function bindTablePan() {
-  document.querySelectorAll(".table-wrap").forEach((wrap) => {
-    if (wrap.dataset.humanaPanBound) return;
-    wrap.dataset.humanaPanBound = "1";
-    let dragging = false;
-    let startX = 0;
-    let startLeft = 0;
-    wrap.addEventListener("pointerdown", (event) => {
-      if (event.pointerType === "mouse" && event.button !== 0) return;
-      if (event.target.closest("button, a, input, select, textarea, label")) return;
-      dragging = true;
-      startX = event.clientX;
-      startLeft = wrap.scrollLeft;
-      wrap.classList.add("is-panning");
-      wrap.setPointerCapture?.(event.pointerId);
-    });
-    wrap.addEventListener("pointermove", (event) => {
-      if (!dragging) return;
-      wrap.scrollLeft = startLeft - (event.clientX - startX);
-    });
-    const stop = () => {
-      dragging = false;
-      wrap.classList.remove("is-panning");
-    };
-    wrap.addEventListener("pointerup", stop);
-    wrap.addEventListener("pointercancel", stop);
-  });
-}
-
 function bindPageEvents() {
-  bindTablePan();
   document.querySelectorAll("[data-goto-page]").forEach((button) => {
     button.addEventListener("click", () => {
       currentPage = button.dataset.gotoPage;
@@ -4969,13 +3338,11 @@ function bindPageEvents() {
     withAction(async () => {
       const { isOut } = getClockState();
       const punchType = isOut ? "in" : "out";
-      const meta = await collectJournalMeta();
       if (usesDatabase()) {
-        const payload = applyJournalMetaToPayload(buildClockPunchPayload(punchType), meta, punchType);
-        await insertTimePunch(payload);
+        await insertTimePunch(buildClockPunchPayload(punchType));
       } else {
         const punches = loadStore("punches", []);
-        punches.push(applyJournalMetaToDemoPunch(buildDemoClockPunch(punchType), meta, punchType));
+        punches.push(buildDemoClockPunch(punchType));
         saveStore("punches", punches);
       }
     });
@@ -4998,175 +3365,6 @@ function bindPageEvents() {
         saveStore("punches", punches);
       }
     });
-  });
-
-  const saveLocalGta = (key, payload) => {
-    const rows = loadStore(key, []);
-    rows.unshift({ id: Date.now(), userId: session?.user?.id, created: new Date().toISOString(), ...payload });
-    saveGtaStore(key, rows);
-  };
-
-  document.querySelector("#punch-correction-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (correctionsThisMonth().length >= PUNCH_CORRECTION_QUOTA) {
-      alert("Quota mensuel de corrections atteint.");
-      return;
-    }
-    const data = new FormData(event.currentTarget);
-    withAction(async () => {
-      const payload = {
-        date: data.get("date"),
-        time: data.get("time"),
-        punchKind: data.get("punch_kind") || "in",
-        reason: data.get("reason"),
-        status: "A valider"
-      };
-      if (usesDatabase()) {
-        await insertPunchCorrectionRow({
-          user_id: session.user.id,
-          punch_date: payload.date,
-          requested_time: payload.time,
-          punch_kind: payload.punchKind,
-          reason: payload.reason,
-          status: payload.status
-        });
-      } else saveLocalGta("punchCorrections", payload);
-      currentPage = "pointeuse";
-    });
-  });
-
-  document.querySelector("#overtime-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    withAction(async () => {
-      const payload = { date: data.get("date"), hours: Number(data.get("hours")), reason: data.get("reason"), status: "A valider" };
-      if (usesDatabase()) {
-        const { error } = await supabaseClient.from("overtime_requests").insert({
-          user_id: session.user.id,
-          work_date: payload.date,
-          hours: payload.hours,
-          reason: payload.reason,
-          status: payload.status
-        });
-        if (error) throw error;
-      } else saveLocalGta("overtimeRequests", payload);
-      currentPage = "pointeuse";
-    });
-  });
-
-  document.querySelector("#activity-form")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    withAction(async () => {
-      const payload = { date: data.get("date"), hours: Number(data.get("hours")), category: data.get("category"), comment: data.get("comment"), status: "A valider" };
-      if (usesDatabase()) {
-        const { error } = await supabaseClient.from("activity_entries").insert({
-          user_id: session.user.id,
-          work_date: payload.date,
-          hours: payload.hours,
-          category: payload.category,
-          comment: payload.comment,
-          status: payload.status
-        });
-        if (error) throw error;
-      } else saveLocalGta("activityEntries", payload);
-      currentPage = "pointeuse";
-    });
-  });
-
-  const settleGtaItem = (kind, itemId, refuse) => {
-    const meta = GTA_KINDS[kind];
-    if (!meta) return;
-    withAction(async () => {
-      const status = refuse ? "Refuse" : "Approuve";
-      const reviewer = {
-        reviewed_by: session?.user?.id || null,
-        reviewed_at: new Date().toISOString(),
-        reviewedBy: session?.user?.id,
-        reviewedByName: getUserName()
-      };
-      if (usesDatabase()) {
-        const payload = { status };
-        if (kind === "corrections") {
-          payload.reviewed_by = reviewer.reviewed_by;
-          payload.reviewed_at = reviewer.reviewed_at;
-        }
-        await updateWithOptionalFields(meta.table, payload, "id", itemId, PUNCH_CORRECTION_FIELDS);
-      } else {
-        saveGtaStore(meta.store, loadStore(meta.store, []).map((item) => (
-          String(item.id) === String(itemId)
-            ? { ...item, status, ...(kind === "corrections" ? reviewer : {}) }
-            : item
-        )));
-      }
-      currentPage = currentPage === "reports" ? "reports" : "pointeuse";
-    });
-  };
-
-  document.querySelectorAll(".gta-approve").forEach((button) => {
-    button.addEventListener("click", () => settleGtaItem(button.dataset.gtaKind, button.dataset.gtaId, false));
-  });
-  document.querySelectorAll(".gta-reject").forEach((button) => {
-    button.addEventListener("click", () => settleGtaItem(button.dataset.gtaKind, button.dataset.gtaId, true));
-  });
-
-  const advanceLeave = (requestId, refuse) => {
-    withAction(async () => {
-      const updateOne = (request) => {
-        if (String(request.id) !== String(requestId)) return request;
-        if (refuse) return { ...request, status: "Refuse" };
-        const chain = getLeaveValidatorChain(request.userId || request.user_id || session?.user?.id);
-        const step = Number(request.workflowStep || request.workflow_step || 1);
-        if (step >= chain.length) return { ...request, status: "Approuve", workflowStep: step };
-        const next = chain[step];
-        return { ...request, workflowStep: step + 1, status: `A valider — ${next.role}` };
-      };
-      if (usesDatabase()) {
-        const current = [...(appData.leaveRequests || []), ...(appData.teamLeaveRequests || [])].find((item) => String(item.id) === String(requestId));
-        const next = updateOne({
-          id: requestId,
-          userId: current?.user_id,
-          workflowStep: current?.workflow_step || 1,
-          status: current?.status
-        });
-        await updateWithOptionalFields("leave_requests", {
-          status: next.status,
-          workflow_step: next.workflowStep
-        }, "id", requestId, ["workflow_step"]);
-      } else {
-        saveStore("leaveRequests", loadStore("leaveRequests", []).map(updateOne));
-      }
-      currentPage = "leave";
-    });
-  };
-
-  document.querySelectorAll(".leave-approve").forEach((button) => {
-    button.addEventListener("click", () => advanceLeave(button.dataset.leaveId, false));
-  });
-  document.querySelectorAll(".leave-reject").forEach((button) => {
-    button.addEventListener("click", () => advanceLeave(button.dataset.leaveId, true));
-  });
-
-  document.querySelector("#export-eds")?.addEventListener("click", () => {
-    const rows = buildEdsRows();
-    const range = getEdsRange();
-    downloadCsv(`eds_${range.start}_${range.end}.csv`,
-      ["Matricule", "Nom", "Planifie", "Realise", "Retard_min", "Manquant", "HS", "CP", "Sans_solde", "Maladie"],
-      rows.map((row) => [row.matricule, row.name, formatDuration(row.planned), formatDuration(row.realized), row.delay, formatDuration(row.missing), formatDuration(row.ot), row.cp, row.unpaid, row.sick]));
-  });
-  document.querySelector("#export-absences")?.addEventListener("click", () => {
-    const requests = [...getLeaveRequests(), ...(appData.teamLeaveRequests || [])];
-    downloadCsv("absences.csv", ["Nom", "Type", "Debut", "Fin", "Duree", "Statut"],
-      requests.map((item) => [item.name || getUserName(), item.type, item.start, item.end, item.days || item.hours, item.status]));
-  });
-  document.querySelector("#export-retards")?.addEventListener("click", () => {
-    const range = getEdsRange();
-    const daily = summarizeTeamPunchesByDay(appData.teamPunches || [], range.start, range.end);
-    downloadCsv(`retards_${range.start}_${range.end}.csv`, ["Nom", "Date", "Retard_min", "Manquant"],
-      daily.map((row) => {
-        const stats = analyzeWorkedDay(row, profileById(row.userId) || {});
-        return [row.name, row.dayKey, stats.delayMin, formatDuration(stats.missingMs)];
-      }).filter((row) => Number(row[2]) > 0 || row[3] !== "0h00"));
   });
 
   const hierarchySearchInput = document.querySelector("#hierarchy-search");
@@ -5223,11 +3421,11 @@ function bindPageEvents() {
     });
   }
 
-  if ((currentPage === "team-punches" || currentPage === "reports") && canViewTeamPunches() && usesDatabase() && !teamPunchesInitialLoadDone) {
+  if (currentPage === "team-punches" && canViewTeamPunches() && !teamPunchesInitialLoadDone) {
     teamPunchesInitialLoadDone = true;
     loadTeamPunches()
       .then(() => {
-        if (currentPage !== "team-punches" && currentPage !== "reports") return;
+        if (currentPage !== "team-punches") return;
         const content = document.querySelector("#page-content");
         if (content) {
           content.innerHTML = pageContent();
@@ -5243,100 +3441,6 @@ function bindPageEvents() {
   document.querySelector("#team-punches-export")?.addEventListener("click", () => {
     exportTeamPunchesCsv();
   });
-
-  const journalFilter = document.querySelector("#journal-filter");
-  if (journalFilter) {
-    if (!journalFilters.start || !journalFilters.end) {
-      journalFilters = { ...getDefaultTeamPunchRange(), userId: journalFilters.userId || "", query: journalFilters.query || "" };
-    }
-    journalFilter.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const data = new FormData(event.currentTarget);
-      journalFilters = {
-        start: data.get("start"),
-        end: data.get("end"),
-        userId: data.get("userId") || "",
-        query: data.get("query") || ""
-      };
-      if (new Date(journalFilters.end) < new Date(journalFilters.start)) {
-        alert("La date de fin doit etre apres la date de debut.");
-        return;
-      }
-      journalPunchesInitialLoadDone = true;
-      if (usesDatabase()) {
-        withAction(() => loadJournalPunches());
-      } else {
-        renderApp();
-      }
-    });
-  }
-
-  if (currentPage === "journal" && canViewJournal() && usesDatabase() && !journalPunchesInitialLoadDone) {
-    journalPunchesInitialLoadDone = true;
-    loadJournalPunches()
-      .then(() => {
-        if (currentPage !== "journal") return;
-        const content = document.querySelector("#page-content");
-        if (content) {
-          content.innerHTML = pageContent();
-          bindPageEvents();
-        }
-      })
-      .catch((error) => {
-        appData.error = formatAppError(error);
-        renderApp();
-      });
-  }
-
-  document.querySelector("#journal-export")?.addEventListener("click", () => {
-    exportJournalCsv();
-  });
-
-  document.querySelectorAll("[data-journal-col]").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const key = button.dataset.journalCol;
-      journalOpenColumn = journalOpenColumn === key ? "" : key;
-      const content = document.querySelector("#page-content");
-      if (content) {
-        content.innerHTML = pageContent();
-        bindPageEvents();
-      }
-    });
-  });
-
-  document.querySelectorAll("[data-journal-sort]").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      journalSort = {
-        key: button.dataset.journalSort,
-        dir: button.dataset.journalDir || (journalSort.key === button.dataset.journalSort && journalSort.dir === "desc" ? "asc" : "desc")
-      };
-      journalOpenColumn = "";
-      const content = document.querySelector("#page-content");
-      if (content) {
-        content.innerHTML = pageContent();
-        bindPageEvents();
-      }
-    });
-  });
-
-  document.querySelectorAll("[data-journal-filter-col]").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const key = button.dataset.journalFilterCol;
-      const value = button.dataset.journalFilterValue || "";
-      if (value) journalColumnFilters[key] = value;
-      else delete journalColumnFilters[key];
-      journalOpenColumn = "";
-      const content = document.querySelector("#page-content");
-      if (content) {
-        content.innerHTML = pageContent();
-        bindPageEvents();
-      }
-    });
-  });
-
 
   document.querySelector(".leave-cal-prev")?.addEventListener("click", () => {
     shiftLeaveCalendarMonth(-1);
@@ -5425,127 +3529,38 @@ function bindPageEvents() {
   bindUserAccountSection();
   bindCreatorAccountsSection();
 
-  const syncLeaveTypeUi = () => {
-    const type = document.querySelector("#leave-type")?.value || "";
-    const def = getAbsenceDef(type);
-    const fileWrap = document.querySelector("#leave-file-wrap");
-    const unitSelect = document.querySelector("[name='unit']");
-    const unitLabel = unitSelect?.closest("label");
-    const half = document.querySelector("#leave-half-wrap");
-    const hours = document.querySelector("#leave-hours-wrap");
-    const startInput = document.querySelector("#leave-form [name='start']");
-    const endInput = document.querySelector("#leave-form [name='end']");
-    const required = leaveNeedsAttachment(type);
-    const isHours = Boolean(def?.unit === "hours" || leaveIsHoursUnit(type));
-    if (fileWrap) {
-      const input = fileWrap.querySelector("input");
-      fileWrap.hidden = !required;
-      if (input) input.required = required;
-    }
-    if (unitSelect) {
-      unitSelect.value = isHours ? "hours" : (unitSelect.value === "half" && !def?.fixedDays ? "half" : "days");
-      if (unitLabel) unitLabel.hidden = Boolean(def?.fixedDays) || isHours;
-    }
-    if (half) half.hidden = unitSelect?.value !== "half";
-    if (hours) hours.hidden = !isHours && unitSelect?.value !== "hours";
-    if (def?.fixedDays && startInput?.value && endInput) {
-      endInput.value = addWorkingDaysKey(startInput.value, def.fixedDays);
-      endInput.readOnly = true;
-    } else if (endInput) {
-      endInput.readOnly = false;
-    }
-  };
-
-  document.querySelector("#leave-type")?.addEventListener("change", syncLeaveTypeUi);
-  document.querySelector("#leave-form [name='start']")?.addEventListener("change", syncLeaveTypeUi);
-  document.querySelector("[name='unit']")?.addEventListener("change", (event) => {
-    const unit = event.currentTarget.value;
-    const half = document.querySelector("#leave-half-wrap");
-    const hours = document.querySelector("#leave-hours-wrap");
-    if (half) half.hidden = unit !== "half";
-    if (hours) hours.hidden = unit !== "hours";
-  });
-  syncLeaveTypeUi();
-
   document.querySelector("#leave-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
     const start = data.get("start");
-    const type = String(data.get("type") || "");
-    const def = getAbsenceDef(type);
-    const unit = def?.unit === "hours" || leaveIsHoursUnit(type)
-      ? "hours"
-      : (def?.fixedDays ? "days" : String(data.get("unit") || "days"));
-    if (def?.adminOnly && !isAdmin()) {
-      alert("Ce code d'absence est reserve aux RH.");
-      return;
-    }
-    if (def?.grades && !isAdmin() && !def.grades.includes(getLeaveGrade())) {
-      alert("Ce code de conges payes n'est pas disponible pour votre profil.");
-      return;
-    }
-    let end = data.get("end");
-    if (def?.fixedDays && start) {
-      end = addWorkingDaysKey(start, def.fixedDays);
-    }
+    const end = data.get("end");
     if (new Date(end) < new Date(start)) {
       alert("La date de fin doit etre apres la date de debut.");
       return;
     }
-    if (hasOverlappingLeave(start, end)) {
-      alert("Les absences ne peuvent pas se chevaucher.");
-      return;
-    }
-    if (seniorityMonths() < 6 && !isAdmin() && leaveTypeKey(type) === "cp") {
-      alert("Anciennete minimale de 6 mois pour poser des conges payes, sauf derogation RH.");
-      return;
-    }
-    const days = unit === "hours" ? 0 : (def?.fixedDays || (unit === "half" ? 0.5 : daysBetween(start, end)));
-    if (unit !== "hours" && days <= 0) {
-      alert("La periode ne contient aucun jour ouvré.");
-      return;
-    }
-    if (leaveNeedsAttachment(type) && !data.get("file")?.name) {
-      alert("Un justificatif est obligatoire pour ce type d'absence.");
-      return;
-    }
-    const chain = getLeaveValidatorChain(session?.user?.id);
-    const first = chain[0];
 
     withAction(async () => {
       const payload = {
-        type,
+        type: data.get("type"),
         start,
         end,
-        days,
-        hours: unit === "hours" ? Number(data.get("hours") || 0) : null,
-        unit,
-        halfDay: unit === "half" ? data.get("half_day") : "",
-        motif: def?.label || type,
-        attachmentName: data.get("file")?.name || "",
+        days: daysBetween(start, end),
         comment: data.get("comment") || "",
-        workflowStep: 1,
-        status: `A valider — ${first?.role || "Manager N+1"}`,
-        userId: session?.user?.id
+        status: "A valider"
       };
 
       if (usesDatabase()) {
-        await insertLeaveRequestRow({
+        const { error } = await supabaseClient.from("leave_requests").insert({
           user_id: session.user.id,
           leave_type: payload.type,
           start_date: payload.start,
           end_date: payload.end,
           days: payload.days,
-          hours: payload.hours,
-          unit: payload.unit,
-          half_day: payload.halfDay || null,
-          motif: payload.motif || null,
-          attachment_name: payload.attachmentName || null,
-          workflow_step: 1,
           comment: payload.comment,
           status: payload.status
         });
+        if (error) throw error;
       } else {
         const requests = loadStore("leaveRequests", []);
         requests.unshift({ id: Date.now(), ...payload, created: new Date().toISOString() });
@@ -5733,9 +3748,6 @@ function bindAppEvents() {
       if (nextPage === "team-punches") {
         teamPunchesInitialLoadDone = false;
       }
-      if (nextPage === "journal") {
-        journalPunchesInitialLoadDone = false;
-      }
       currentPage = nextPage;
       document.querySelector(".sidebar")?.classList.remove("open");
       renderApp();
@@ -5759,10 +3771,6 @@ function bindAppEvents() {
     currentPage = "home";
     initialAuthHandled = false;
     teamPunchesInitialLoadDone = false;
-    journalPunchesInitialLoadDone = false;
-    journalFilters = { start: "", end: "", userId: "", query: "" };
-    journalColumnFilters = {};
-    journalOpenColumn = "";
     leaveCalendarMonth = null;
     appData = {
       loading: false,
@@ -5770,8 +3778,6 @@ function bindAppEvents() {
       profile: null,
       punches: [],
       teamPunches: [],
-      journalPunches: [],
-      journalMetaMissing: false,
       teamLeaveRequests: [],
       leaveRequests: [],
       attestationRequests: [],
@@ -5780,11 +3786,7 @@ function bindAppEvents() {
       hrDocuments: [],
       payslips: [],
       hrAlerts: [],
-      punchCorrections: [],
-      overtimeRequests: [],
-      activityEntries: [],
       navVisibility: null,
-      studioCreators: [],
       adminEditingId: "",
       adminEditingInviteId: ""
     };
@@ -5951,107 +3953,11 @@ window.humanaRender = async function (authSession) {
   clearAuthParamsFromUrl();
 };
 
-function hydrateDemoWorkspace() {
-  const profiles = [
-    { id: "u-camille", email: "camille.moreau@humaine.fr", full_name: "Camille Moreau", job_title: "Directrice RH", department: "Ressources humaines", role: "admin", manager_id: "", matricule: "HUM-1001", leave_grade: "codir", shift_code: "cs", hired_at: "2018-03-01", leave_balance_cp: 30, leave_balance_rtt: 8 },
-    { id: "u-thomas", email: "thomas.bernard@humaine.fr", full_name: "Thomas Bernard", job_title: "Responsable operations", department: "Operations", role: "manager", manager_id: "u-camille", matricule: "HUM-1042", leave_grade: "manager", shift_code: "cs", hired_at: "2020-01-15", leave_balance_cp: 24, leave_balance_rtt: 6 },
-    { id: "u-sarah", email: "sarah.nguyen@humaine.fr", full_name: "Sarah Nguyen", job_title: "Responsable commercial", department: "Commercial", role: "manager", manager_id: "u-camille", matricule: "HUM-1088", leave_grade: "manager", shift_code: "cs", hired_at: "2019-09-01", leave_balance_cp: 24, leave_balance_rtt: 8 },
-    { id: "u-lea", email: "lea.martin@humaine.fr", full_name: "Lea Martin", job_title: "Chargee de paie", department: "Ressources humaines", role: "employee", manager_id: "u-thomas", matricule: "HUM-1214", leave_grade: "employee", shift_code: "cs", hired_at: "2024-01-08", leave_balance_cp: 18, leave_balance_rtt: 5 },
-    { id: "u-hugo", email: "hugo.petit@humaine.fr", full_name: "Hugo Petit", job_title: "Ingenieur R&D", department: "R&D", role: "employee", manager_id: "u-thomas", matricule: "HUM-1307", leave_grade: "employee", shift_code: "rnd", hired_at: "2023-06-12", leave_balance_cp: 18, leave_balance_rtt: 8 },
-    { id: "u-nina", email: "nina.rossi@humaine.fr", full_name: "Nina Rossi", job_title: "Commerciale", department: "Commercial", role: "employee", manager_id: "u-sarah", matricule: "HUM-1420", leave_grade: "employee", shift_code: "cs", hired_at: "2025-11-02", leave_balance_cp: 4, leave_balance_rtt: 2 }
-  ];
-  session = {
-    user: {
-      id: "u-camille",
-      email: "camille.moreau@humaine.fr",
-      user_metadata: { full_name: "Camille Moreau", name: "Camille Moreau" }
-    }
-  };
-  appData.profile = profiles[0];
-  appData.orgProfiles = profiles;
-  const punches = [];
-  profiles.forEach((profile, index) => {
-    for (let daysAgo = 2; daysAgo >= 0; daysAgo -= 1) {
-      const day = new Date();
-      day.setDate(day.getDate() - daysAgo);
-      const stamp = (hour, minute) => {
-        const value = new Date(day);
-        value.setHours(hour, minute + index, 0, 0);
-        return value.toISOString();
-      };
-      punches.push({ id: `${profile.id}-in-${daysAgo}`, user_id: profile.id, punch_type: "in", punched_at: stamp(profile.shift_code === "rnd" ? 9 : 8, 45), work_location: daysAgo === 1 ? "remote" : "onsite", profiles: { full_name: profile.full_name, email: profile.email } });
-      punches.push({ id: `${profile.id}-b-${daysAgo}`, user_id: profile.id, punch_type: "break_start", punched_at: stamp(12, 10), profiles: { full_name: profile.full_name } });
-      punches.push({ id: `${profile.id}-r-${daysAgo}`, user_id: profile.id, punch_type: "break_end", punched_at: stamp(13, 5), profiles: { full_name: profile.full_name } });
-      if (daysAgo !== 0 || profile.id !== "u-camille") {
-        punches.push({ id: `${profile.id}-out-${daysAgo}`, user_id: profile.id, punch_type: "out", punched_at: stamp(18, 5), profiles: { full_name: profile.full_name } });
-      }
-    }
-  });
-  appData.teamPunches = punches;
-  appData.journalPunches = punches;
-  saveStore("leaveRequests", [{
-    id: "leave-demo-1",
-    userId: "u-lea",
-    name: "Lea Martin",
-    type: "Conges payes",
-    start: toDateKey(new Date(Date.now() + 86400000 * 7)),
-    end: toDateKey(new Date(Date.now() + 86400000 * 9)),
-    days: 3,
-    status: "A valider — Manager N+1",
-    workflowStep: 1,
-    created: new Date().toISOString()
-  }]);
-  const todayKey = toDateKey(new Date());
-  saveStore("punchCorrections", [{
-    id: "corr-demo-1",
-    userId: "u-hugo",
-    date: todayKey,
-    time: "09:12",
-    punchKind: "in",
-    reason: "Oubli de badge a l'arrivee",
-    status: "Approuve",
-    reviewedBy: "u-camille",
-    reviewedByName: "Camille Moreau",
-    created: new Date().toISOString()
-  }, {
-    id: "corr-demo-2",
-    userId: "u-lea",
-    date: todayKey,
-    time: "12:40",
-    punchKind: "break_start",
-    reason: "Pause dej non pointee",
-    status: "A valider",
-    created: new Date().toISOString()
-  }]);
-  saveStore("overtimeRequests", [{
-    id: "ot-demo-1",
-    userId: "u-lea",
-    date: todayKey,
-    hours: 2,
-    reason: "Cloture paie",
-    status: "A valider",
-    created: new Date().toISOString()
-  }]);
-  saveStore("activityEntries", [{
-    id: "act-demo-1",
-    userId: "u-nina",
-    date: todayKey,
-    hours: 1,
-    category: "Formation",
-    comment: "Onboarding produit",
-    status: "A valider",
-    created: new Date().toISOString()
-  }]);
-  teamPunchesInitialLoadDone = true;
-  journalPunchesInitialLoadDone = true;
-}
-
 window.humanaStartDemo = function () {
   demoMode = true;
   supabaseClient = getSupabaseClient();
   ensureAppContainer();
   hideAuthBootScreen();
-  hydrateDemoWorkspace();
   renderApp();
 };
 
