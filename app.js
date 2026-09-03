@@ -244,6 +244,7 @@ const navigation = [
 
 const HR_DOCUMENTS_BUCKET = "hr-documents";
 const HR_DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
+const PRIVATE_FILE_URL_TTL_SECONDS = 120;
 const AUTO_CLOCK_OUT_MS = 10 * 60 * 60 * 1000;
 const JOURNAL_META_FIELDS = [
   "connection_method",
@@ -2731,8 +2732,46 @@ function getHrDocuments() {
   return loadStore("hrDocuments", demoHrDocuments);
 }
 
-function resolveHrDocumentUrl(doc) {
-  return doc?.file_url || "#";
+function getPrivateStoragePath(fileRecord) {
+  const storedPath = String(fileRecord?.storage_path || "").trim();
+  if (storedPath) return storedPath;
+
+  const legacyUrl = String(fileRecord?.file_url || "").trim();
+  if (!legacyUrl) return "";
+  const markers = [
+    `/object/public/${HR_DOCUMENTS_BUCKET}/`,
+    `/object/sign/${HR_DOCUMENTS_BUCKET}/`
+  ];
+  const marker = markers.find((candidate) => legacyUrl.includes(candidate));
+  if (!marker) return "";
+
+  const encodedPath = legacyUrl.split(marker)[1]?.split("?")[0] || "";
+  try {
+    return decodeURIComponent(encodedPath);
+  } catch {
+    return encodedPath;
+  }
+}
+
+async function createPrivateFileUrl(fileRecord) {
+  const storagePath = getPrivateStoragePath(fileRecord);
+  if (!storagePath) {
+    throw new Error("Chemin du fichier introuvable. Renseignez storage_path pour cet ancien document.");
+  }
+  const { data, error } = await supabaseClient.storage
+    .from(HR_DOCUMENTS_BUCKET)
+    .createSignedUrl(storagePath, PRIVATE_FILE_URL_TTL_SECONDS);
+  if (error) throw error;
+  if (!data?.signedUrl) throw new Error("Impossible de generer le lien temporaire.");
+  return data.signedUrl;
+}
+
+function privateFileLinkAttributes(kind, fileRecord) {
+  if (!usesDatabase()) {
+    const url = String(fileRecord?.file_url || "#");
+    return `href="${escapeHtml(/^https?:\/\//i.test(url) ? url : "#")}"`;
+  }
+  return `href="#" data-private-file-kind="${kind}" data-private-file-id="${escapeHtml(fileRecord?.id || "")}"`;
 }
 
 function sanitizeFileName(name) {
@@ -2755,8 +2794,7 @@ async function uploadHrDocumentFile(file) {
       contentType: file.type || "application/octet-stream"
     });
   if (error) throw error;
-  const { data } = supabaseClient.storage.from(HR_DOCUMENTS_BUCKET).getPublicUrl(storagePath);
-  return { publicUrl: data.publicUrl, storagePath };
+  return { storagePath };
 }
 
 async function uploadPayslipFile(file, userId) {
@@ -2770,8 +2808,7 @@ async function uploadPayslipFile(file, userId) {
       contentType: file.type || "application/pdf"
     });
   if (error) throw error;
-  const { data } = supabaseClient.storage.from(HR_DOCUMENTS_BUCKET).getPublicUrl(storagePath);
-  return { publicUrl: data.publicUrl, storagePath };
+  return { storagePath };
 }
 
 function getPayslips() {
@@ -2861,7 +2898,7 @@ function homePage() {
         <div class="home-doc-list">
           ${documents.length
             ? documents.map((doc) => `
-              <a class="home-doc-item" href="${escapeHtml(resolveHrDocumentUrl(doc))}" target="_blank" rel="noopener noreferrer">
+              <a class="home-doc-item" ${privateFileLinkAttributes("hr-document", doc)} target="_blank" rel="noopener noreferrer">
                 <span class="file-mark" aria-hidden="true"></span>
                 <div>
                   <strong>${escapeHtml(doc.title)}</strong>
@@ -2885,7 +2922,7 @@ function homePage() {
                   <strong>${escapeHtml(slip.period_label)}</strong>
                   <span>Bulletin mensuel</span>
                 </div>
-                <a class="home-payslip-btn" href="${escapeHtml(slip.file_url || "#")}" target="_blank" rel="noopener noreferrer">Ouvrir</a>
+                <a class="home-payslip-btn" ${privateFileLinkAttributes("payslip", slip)} target="_blank" rel="noopener noreferrer">Ouvrir</a>
               </div>`).join("")
             : `<p class="empty-state">Vos bulletins apparaitront ici des qu'ils seront disponibles.</p>`}
         </div>
@@ -4089,7 +4126,7 @@ function adminPage() {
                   <td><strong>${escapeHtml(doc.title)}</strong><br><small>${escapeHtml(doc.description || "")}</small></td>
                   <td>${escapeHtml(doc.category || "General")}</td>
                   <td>${formatDate(doc.published_at)}</td>
-                  <td><a href="${escapeHtml(resolveHrDocumentUrl(doc))}" target="_blank" rel="noopener noreferrer">Ouvrir</a></td>
+                  <td><a ${privateFileLinkAttributes("hr-document", doc)} target="_blank" rel="noopener noreferrer">Ouvrir</a></td>
                   <td><button type="button" class="outline-button admin-delete-hr-doc" data-doc-id="${doc.id}" data-storage-path="${escapeHtml(doc.storage_path || "")}">Supprimer</button></td>
                 </tr>`).join("")
               : `<tr><td colspan="5" class="empty-cell">Aucun document publie.</td></tr>`}
@@ -5636,7 +5673,6 @@ function bindPageEvents() {
           throw new Error("Fichier trop volumineux. Taille maximum : 10 Mo.");
         }
         const uploaded = await uploadHrDocumentFile(fileEntry);
-        payload.file_url = uploaded.publicUrl;
         payload.storage_path = uploaded.storagePath;
         const { error } = await supabaseClient.from("hr_documents").insert(payload);
         if (error) throw error;
@@ -5715,7 +5751,6 @@ function bindPageEvents() {
           .eq("period_month", month)
           .maybeSingle();
         const uploaded = await uploadPayslipFile(fileEntry, userId);
-        payload.file_url = uploaded.publicUrl;
         payload.storage_path = uploaded.storagePath;
         const { error } = await supabaseClient.from("payslips").upsert(payload, {
           onConflict: "user_id,period_year,period_month"
@@ -5742,8 +5777,38 @@ function bindPageEvents() {
   });
 }
 
+function bindPrivateFileLinks() {
+  document.querySelectorAll("[data-private-file-kind][data-private-file-id]").forEach((link) => {
+    link.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const collection = link.dataset.privateFileKind === "payslip"
+        ? getPayslips()
+        : getHrDocuments();
+      const fileRecord = collection.find((item) =>
+        String(item.id) === String(link.dataset.privateFileId)
+      );
+      if (!fileRecord) {
+        alert("Fichier introuvable.");
+        return;
+      }
+
+      const popup = window.open("about:blank", "_blank");
+      if (popup) popup.opener = null;
+      try {
+        const signedUrl = await createPrivateFileUrl(fileRecord);
+        if (popup) popup.location.replace(signedUrl);
+        else window.location.assign(signedUrl);
+      } catch (error) {
+        popup?.close();
+        alert(error?.message || "Impossible d'ouvrir le fichier prive.");
+      }
+    });
+  });
+}
+
 function bindAppEvents() {
   bindThemeToggle();
+  bindPrivateFileLinks();
 
   document.querySelector("#brand-home")?.addEventListener("click", () => {
     currentPage = "home";
