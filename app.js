@@ -57,7 +57,9 @@ const roleLabels = {
 const NAV_VISIBILITY_PAGES = [
   { id: "leave", label: "Conges" },
   { id: "attestations", label: "Attestations" },
-  { id: "hierarchy", label: "Hierarchie" }
+  { id: "hierarchy", label: "Hierarchie" },
+  { id: "reports", label: "Rapports" },
+  { id: "journal", label: "Journal" }
 ];
 
 const NAV_VISIBILITY_AUDIENCES = [
@@ -70,7 +72,9 @@ function getDefaultNavVisibility() {
   return {
     leave: { admin: true, manager: true, employee: true },
     attestations: { admin: true, manager: true, employee: true },
-    hierarchy: { admin: true, manager: true, employee: true }
+    hierarchy: { admin: true, manager: true, employee: true },
+    reports: { admin: true, manager: true, employee: true },
+    journal: { admin: true, manager: false, employee: false }
   };
 }
 
@@ -426,6 +430,7 @@ function usesDatabase() {
 }
 
 function isCreator() {
+  if (demoMode) return true;
   if (appData.profile?.role === "creator") return true;
   const email = session?.user?.email?.toLowerCase();
   return Boolean(email && getStudioCreatorEmails().includes(email));
@@ -590,7 +595,7 @@ function hasDirectReports() {
 }
 
 function canViewJournal() {
-  return isAdmin();
+  return Boolean(session?.user) && isNavPageVisible("journal");
 }
 
 function canViewTeamPunches() {
@@ -598,7 +603,7 @@ function canViewTeamPunches() {
 }
 
 function canViewReports() {
-  return Boolean(session?.user);
+  return Boolean(session?.user) && isNavPageVisible("reports");
 }
 
 function canViewTeamLeaveCalendar() {
@@ -1452,8 +1457,10 @@ function getNavigationItems() {
     const after = teamIndex >= 0 ? teamIndex : items.findIndex(([pageId]) => pageId === "pointeuse");
     items.splice((after >= 0 ? after : items.length - 1) + 1, 0, ["reports", "Rapports EDS"]);
   }
-  if (isAdmin()) {
+  if (canViewJournal()) {
     items.push(["journal", "Journal"]);
+  }
+  if (isAdmin()) {
     items.push(["admin", "Administration"]);
   }
   if (isCreator()) items.push(["creator", "Studio createur"]);
@@ -1530,8 +1537,21 @@ async function persistCreatorAccount({ email, fullName }) {
     if (existing.role === "creator" || isStudioCreatorEmail(existing.email)) {
       throw new Error("Cette personne est deja createur.");
     }
-    const { error } = await supabaseClient.from("profiles").update(payload).eq("id", existing.id);
-    if (error) throw error;
+    if (!usesDatabase()) {
+      existing.role = "admin";
+    } else {
+      const { error } = await supabaseClient.from("profiles").update(payload).eq("id", existing.id);
+      if (error) throw error;
+    }
+  } else if (!usesDatabase()) {
+    if (getPendingCreatorInvites().some((invite) => invite.email?.toLowerCase() === normalizedEmail)) {
+      throw new Error("Une invitation createur existe deja pour cette adresse e-mail.");
+    }
+    appData.pendingInvites.push({
+      email: normalizedEmail,
+      ...payload,
+      created_by: session.user.id
+    });
   } else {
     if (getPendingCreatorInvites().some((invite) => invite.email?.toLowerCase() === normalizedEmail)) {
       throw new Error("Une invitation createur existe deja pour cette adresse e-mail.");
@@ -3383,7 +3403,7 @@ function renderJournalColumnMenu(column) {
 
 function journalPage() {
   if (!canViewJournal()) {
-    return `<article class="card"><p class="empty-state">Acces reserve aux administrateurs.</p></article>`;
+    return `<article class="card"><p class="empty-state">Acces au journal non autorise pour votre profil.</p></article>`;
   }
   if (!journalFilters.start || !journalFilters.end) {
     journalFilters = { ...journalFilters, ...getDefaultTeamPunchRange() };
@@ -3953,7 +3973,7 @@ function creatorPage() {
   return `
     <article class="card form-card">
       ${cardHeading("Visibilite des onglets")}
-      <p class="creator-intro">Activez ou masquez les onglets <strong>Conges</strong>, <strong>Attestations</strong> et <strong>Hierarchie</strong> pour chaque type de profil.</p>
+      <p class="creator-intro">Activez ou masquez les onglets <strong>Conges</strong>, <strong>Attestations</strong>, <strong>Hierarchie</strong>, <strong>Rapports</strong> et <strong>Journal</strong> pour chaque type de profil.</p>
       <form id="creator-nav-form" class="feature-form creator-nav-form">
         <div class="table-wrap">
           <table class="creator-nav-table">
@@ -4146,7 +4166,7 @@ function buildEdsRows() {
 
 function reportsPage() {
   if (!canViewReports()) {
-    return `<article class="card"><p class="empty-state">Connectez-vous pour consulter les rapports.</p></article>`;
+    return `<article class="card"><p class="empty-state">Acces aux rapports non autorise pour votre profil.</p></article>`;
   }
   const range = getEdsRange();
   const rows = buildEdsRows();
@@ -5953,7 +5973,7 @@ window.humanaRender = async function (authSession) {
 
 function hydrateDemoWorkspace() {
   const profiles = [
-    { id: "u-camille", email: "camille.moreau@humaine.fr", full_name: "Camille Moreau", job_title: "Directrice RH", department: "Ressources humaines", role: "admin", manager_id: "", matricule: "HUM-1001", leave_grade: "codir", shift_code: "cs", hired_at: "2018-03-01", leave_balance_cp: 30, leave_balance_rtt: 8 },
+    { id: "u-camille", email: "camille.moreau@humaine.fr", full_name: "Camille Moreau", job_title: "Directrice RH", department: "Ressources humaines", role: "creator", manager_id: "", matricule: "HUM-1001", leave_grade: "codir", shift_code: "cs", hired_at: "2018-03-01", leave_balance_cp: 30, leave_balance_rtt: 8 },
     { id: "u-thomas", email: "thomas.bernard@humaine.fr", full_name: "Thomas Bernard", job_title: "Responsable operations", department: "Operations", role: "manager", manager_id: "u-camille", matricule: "HUM-1042", leave_grade: "manager", shift_code: "cs", hired_at: "2020-01-15", leave_balance_cp: 24, leave_balance_rtt: 6 },
     { id: "u-sarah", email: "sarah.nguyen@humaine.fr", full_name: "Sarah Nguyen", job_title: "Responsable commercial", department: "Commercial", role: "manager", manager_id: "u-camille", matricule: "HUM-1088", leave_grade: "manager", shift_code: "cs", hired_at: "2019-09-01", leave_balance_cp: 24, leave_balance_rtt: 8 },
     { id: "u-lea", email: "lea.martin@humaine.fr", full_name: "Lea Martin", job_title: "Chargee de paie", department: "Ressources humaines", role: "employee", manager_id: "u-thomas", matricule: "HUM-1214", leave_grade: "employee", shift_code: "cs", hired_at: "2024-01-08", leave_balance_cp: 18, leave_balance_rtt: 5 },
@@ -5969,6 +5989,8 @@ function hydrateDemoWorkspace() {
   };
   appData.profile = profiles[0];
   appData.orgProfiles = profiles;
+  appData.navVisibility = normalizeNavVisibility(loadStore("navVisibility", null));
+  appData.studioCreators = normalizeStudioCreators(loadStore("studioCreators", [session.user.email]));
   const punches = [];
   profiles.forEach((profile, index) => {
     for (let daysAgo = 2; daysAgo >= 0; daysAgo -= 1) {
