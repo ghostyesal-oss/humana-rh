@@ -1,8 +1,53 @@
 -- Verrou GTA : un collaborateur ne peut plus s'auto-valider.
 -- A executer dans Supabase SQL Editor.
--- Ne supprime aucune demande. Change uniquement les droits UPDATE/INSERT.
+-- Cree les tables GTA si elles n'existent pas encore, puis pose les droits.
+-- Ne supprime aucune demande existante.
 
 begin;
+
+create table if not exists public.punch_corrections (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  punch_date date not null,
+  requested_time time,
+  reason text,
+  status text not null default 'A valider',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.overtime_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  work_date date not null,
+  hours numeric not null,
+  reason text,
+  status text not null default 'A valider',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.activity_entries (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  work_date date not null,
+  hours numeric not null,
+  category text not null,
+  comment text,
+  status text not null default 'A valider',
+  created_at timestamptz not null default now()
+);
+
+alter table public.punch_corrections
+  add column if not exists punch_kind text,
+  add column if not exists reviewed_by uuid,
+  add column if not exists reviewed_at timestamptz;
+
+alter table public.punch_corrections enable row level security;
+alter table public.overtime_requests enable row level security;
+alter table public.activity_entries enable row level security;
+
+grant select, insert, update, delete on public.punch_corrections to authenticated;
+grant select, insert, update, delete on public.overtime_requests to authenticated;
+grant select, insert, update, delete on public.activity_entries to authenticated;
 
 create or replace function public.humana_can_manage_gta(target uuid)
 returns boolean
@@ -198,5 +243,7 @@ create policy activity_manage_update on public.activity_entries
   for update
   using (public.humana_can_manage_gta(user_id))
   with check (public.humana_can_manage_gta(user_id));
+
+notify pgrst, 'reload schema';
 
 commit;
