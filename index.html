@@ -59,14 +59,14 @@
         <div class="brand brand-large"><span>H</span> Humana</div>
         <div class="login-message">
           <span class="eyebrow">Humana RH</span>
-          <h1>Gestion RH<br><em>simplifiee</em>.</h1>
-          <p>Pointage, conges, documents â€” un espace fiable pour votre quotidien professionnel.</p>
-          <div class="trust-row"><span>Heberge en France</span><span>Donnees chiffrees</span></div>
+          <h1>Gestion RH<br><em>simplifiée</em>.</h1>
+          <p>Pointage, congés, documents — un espace fiable pour votre quotidien professionnel.</p>
+          <div class="trust-row"><span>Hébergé en France</span><span>Données chiffrées</span></div>
         </div>
       </section>
       <section class="login-panel">
         <div class="login-theme-wrap">
-          <button type="button" class="theme-toggle" data-theme-toggle aria-label="Changer le theme">
+          <button type="button" class="theme-toggle" data-theme-toggle aria-label="Changer le thème">
             <span class="theme-toggle-track"><span class="theme-toggle-thumb"></span></span>
             <span class="theme-toggle-label" aria-hidden="true"></span>
           </button>
@@ -79,11 +79,11 @@
             <span class="microsoft-logo"><i></i><i></i><i></i><i></i></span>
             Continuer avec Microsoft
           </button>
-          <div id="config-note" class="config-note" hidden>Connexion en cours de preparation...</div>
+          <div id="config-note" class="config-note" hidden>Préparation de la connexion en cours...</div>
           <p id="login-error" class="error-message" hidden></p>
           <div class="separator"><span>ou</span></div>
-          <button id="demo-login" type="button" class="demo-button">Voir l'apercu de demonstration</button>
-          <small>En continuant, vous acceptez les conditions d'utilisation et la politique de confidentialite.</small>
+          <button id="demo-login" type="button" class="demo-button">Voir l'aperçu de démonstration</button>
+          <small>En continuant, vous acceptez les conditions d'utilisation et la politique de confidentialité.</small>
         </div>
       </section>
     </main>
@@ -134,13 +134,13 @@
       function formatOAuthError(message) {
         if (!message) return "Impossible de finaliser la connexion Microsoft.";
         if (message.indexOf("code verifier") !== -1 || message.indexOf("PKCE") !== -1) {
-          return "Connexion Microsoft interrompue : le retour OAuth n'est pas revenu sur la meme adresse (ex. localhost vs 127.0.0.1, ou local vs Vercel). Ajoutez " + getAuthRedirectTo() + " dans Supabase > Authentication > URL Configuration > Redirect URLs, puis reconnectez-vous depuis cette meme URL.";
+          return "Connexion Microsoft interrompue : le retour OAuth n'est pas revenu sur la même adresse (ex. localhost vs 127.0.0.1, ou local vs Vercel). Ajoutez " + getAuthRedirectTo() + " dans Supabase > Authentication > URL Configuration > Redirect URLs, puis reconnectez-vous depuis cette même URL.";
         }
         if (message.indexOf("Unable to exchange external code") !== -1) {
-          return "Configuration Microsoft incorrecte dans Supabase. Verifiez : (1) le Client Secret Azure = la Valeur, pas l'ID du secret, (2) l'URI de redirection Azure en type Web, (3) l'URL du tenant Azure dans Supabase.";
+          return "Configuration Microsoft incorrecte dans Supabase. Vérifiez : (1) le Client Secret Azure = la Valeur, pas l'ID du secret, (2) l'URI de redirection Azure en type Web, (3) l'URL du tenant Azure dans Supabase.";
         }
         if (message.indexOf("Error getting user email") !== -1) {
-          return "Microsoft n'a pas transmis l'email. Ajoutez les autorisations email/openid dans Azure et le scope email dans Supabase.";
+          return "Microsoft n'a pas transmis l'e-mail. Ajoutez les autorisations email/openid dans Azure et le scope email dans Supabase.";
         }
         return message;
       }
@@ -276,7 +276,7 @@
               if (tryDemo() || ++tries > 150) {
                 clearInterval(timer);
                 if (tries > 150) {
-                  showLoginError("Application non chargee. Videz le cache (Ctrl+Shift+R) et rechargez.");
+                  showLoginError("Application non chargée. Videz le cache (Ctrl+Shift+R) et rechargez.");
                 }
               }
             }, 100);
@@ -291,11 +291,11 @@
         var errorBox = document.getElementById("login-error");
         if (errorBox) {
           errorBox.hidden = false;
-          errorBox.textContent = "Erreur application: " + event.message;
+          errorBox.textContent = "Erreur application : " + event.message;
         }
       }
     }, true);
   </script>
-  <script src="app.js?v=81" charset="UTF-8"></script>
+  <script src="app.js?v=83" charset="UTF-8"></script>
 </body>
 </html>

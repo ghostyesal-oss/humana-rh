@@ -51,13 +51,13 @@ const roleLabels = {
   admin: "Administrateur",
   manager: "Manager",
   employee: "Collaborateur",
-  creator: "Createur"
+  creator: "Créateur"
 };
 
 const NAV_VISIBILITY_PAGES = [
-  { id: "leave", label: "Conges" },
+  { id: "leave", label: "Congés" },
   { id: "attestations", label: "Attestations" },
-  { id: "hierarchy", label: "Hierarchie" },
+  { id: "hierarchy", label: "Hiérarchie" },
   { id: "reports", label: "Rapports" },
   { id: "journal", label: "Journal" }
 ];
@@ -79,16 +79,16 @@ function getDefaultNavVisibility() {
 }
 
 const pages = {
-  home: ["Accueil", "Tout ce dont vous avez besoin, au meme endroit."],
-  pointeuse: ["Pointeuse", "Enregistrez vos arrivees et vos departs."],
-  journal: ["Journal", "Consultez l'historique des connexions et les details techniques."],
-  leave: ["Conges", "Demandes, soldes, validations et justificatifs."],
+  home: ["Accueil", "Tout ce dont vous avez besoin, au même endroit."],
+  pointeuse: ["Pointeuse", "Enregistrez vos arrivées et vos départs."],
+  journal: ["Journal", "Consultez l'historique des connexions et les détails techniques."],
+  leave: ["Congés", "Demandes, soldes, validations et justificatifs."],
   attestations: ["Attestations", "Demandez vos documents en quelques clics."],
-  hierarchy: ["Hierarchie", "Votre manager, votre equipe, l'organigramme."],
-  "team-punches": ["Pointages equipe", "Admin : tous les collaborateurs. Manager : son equipe directe."],
-  reports: ["Rapports EDS", "Temps, absences, retards et extract paie du 21 au 20."],
-  admin: ["Administration", "Gestion des comptes et des acces."],
-  creator: ["Studio createur", "Controlez la visibilite des onglets par profil."]
+  hierarchy: ["Hiérarchie", "Votre manager, votre équipe et l'organigramme."],
+  "team-punches": ["Pointages équipe", "Admin : tous les collaborateurs. Manager : son équipe directe."],
+  reports: ["Rapports EDS", "Temps, absences, retards et export paie du 21 au 20."],
+  admin: ["Administration", "Gestion des comptes et des accès."],
+  creator: ["Studio créateur", "Contrôlez la visibilité des onglets par profil."]
 };
 
 const THEME_KEY = "humana-theme";
@@ -171,9 +171,9 @@ function showMicrosoftWelcomePopup() {
       <article class="welcome-card">
         <div class="welcome-card-face">
           <span class="welcome-logo" aria-hidden="true"></span>
-          <p class="welcome-eyebrow">Connexion reussie</p>
+          <p class="welcome-eyebrow">Connexion réussie</p>
           <h2 id="welcome-title">${dayGreeting()}, <b>${firstName}</b></h2>
-          <p class="welcome-text">Bienvenue sur Humana. Votre espace RH est pret.</p>
+          <p class="welcome-text">Bienvenue sur Humana. Votre espace RH est prêt.</p>
           <button type="button" class="welcome-cta primary">Commencer</button>
         </div>
       </article>
@@ -220,7 +220,7 @@ function toggleTheme() {
 }
 
 function themeToggleMarkup() {
-  return `<button type="button" class="theme-toggle" data-theme-toggle aria-label="Changer le theme">
+  return `<button type="button" class="theme-toggle" data-theme-toggle aria-label="Changer le thème">
     <span class="theme-toggle-track"><span class="theme-toggle-thumb"></span></span>
     <span class="theme-toggle-label" aria-hidden="true"></span>
   </button>`;
@@ -237,9 +237,9 @@ function bindThemeToggle() {
 const navigation = [
   ["home", "Accueil"],
   ["pointeuse", "Pointeuse"],
-  ["leave", "Conges"],
+  ["leave", "Congés"],
   ["attestations", "Attestations"],
-  ["hierarchy", "Hierarchie"]
+  ["hierarchy", "Hiérarchie"]
 ];
 
 const HR_DOCUMENTS_BUCKET = "hr-documents";
@@ -258,64 +258,64 @@ const JOURNAL_COLUMNS = [
   { key: "sessionId", label: "ID_Session" },
   { key: "matricule", label: "Matricule" },
   { key: "name", label: "Nom_Collaborateur" },
-  { key: "department", label: "Departement" },
+  { key: "department", label: "Département" },
   { key: "dateIn", label: "Date_Connexion" },
   { key: "timeIn", label: "Heure_Connexion" },
-  { key: "dateOut", label: "Date_Deconnexion" },
-  { key: "timeOut", label: "Heure_Deconnexion" },
-  { key: "duration", label: "Duree_Session" },
+  { key: "dateOut", label: "Date_Déconnexion" },
+  { key: "timeOut", label: "Heure_Déconnexion" },
+  { key: "duration", label: "Durée_Session" },
   { key: "method", label: "Moyen_Connexion" },
-  { key: "os", label: "Systeme_Exploitation" },
+  { key: "os", label: "Système_Exploitation" },
   { key: "browser", label: "Navigateur_Application" },
   { key: "ip", label: "Adresse_IP" },
-  { key: "network", label: "Type_Reseau" },
+  { key: "network", label: "Type_Réseau" },
   { key: "location", label: "Localisation" },
   { key: "status", label: "Statut_Connexion" },
-  { key: "reason", label: "Raison_Deconnexion" }
+  { key: "reason", label: "Raison_Déconnexion" }
 ];
 const WORK_LOCATION_STORE_KEY = "workLocation";
 const WORK_LOCATIONS = {
   onsite: "Sur site",
-  remote: "Teletravail"
+  remote: "Télétravail"
 };
 
 const ABSENCE_CODES = [
-  { code: "Congés Payés", label: "Conges payes", key: "cp", group: "cp", attachment: false, grades: ["employee", "manager", "codir"] },
-  { code: "Congés Payés Responsable Département", label: "Conges payes responsable departement", key: "cp", group: "cp", attachment: false, grades: ["manager", "codir"] },
-  { code: "Congés Payés Management", label: "Conges payes management", key: "cp", group: "cp", attachment: false, grades: ["codir"] },
-  { code: "Récupération", label: "Recuperation", key: "recup", group: "recup", attachment: false },
-  { code: "Conge Maternite", label: "Conge maternite", key: "maternity", group: "family", attachment: true },
-  { code: "Conges Paternite", label: "Conge paternite", key: "paternity", group: "family", attachment: true },
+  { code: "Congés Payés", label: "Congés payés", key: "cp", group: "cp", attachment: false, grades: ["employee", "manager", "codir"] },
+  { code: "Congés Payés Responsable Département", label: "Congés payés responsable département", key: "cp", group: "cp", attachment: false, grades: ["manager", "codir"] },
+  { code: "Congés Payés Management", label: "Congés payés management", key: "cp", group: "cp", attachment: false, grades: ["codir"] },
+  { code: "Récupération", label: "Récupération", key: "recup", group: "recup", attachment: false },
+  { code: "Conge Maternite", label: "Congé maternité", key: "maternity", group: "family", attachment: true },
+  { code: "Conges Paternite", label: "Congé paternité", key: "paternity", group: "family", attachment: true },
   { code: "Circoncision", label: "Circoncision", key: "special", group: "event", attachment: true },
-  { code: "Décès 2 Jours", label: "Deces 2 jours", key: "special", group: "event", attachment: true, fixedDays: 2 },
-  { code: "Décès 3 Jours", label: "Deces 3 jours", key: "special", group: "event", attachment: true, fixedDays: 3 },
-  { code: "Mariage salarié", label: "Mariage salarie", key: "special", group: "event", attachment: true },
-  { code: "Opération conjoint / Enfant", label: "Operation conjoint / enfant", key: "special", group: "event", attachment: true },
-  { code: "Congé Sans Solde", label: "Conge sans solde", key: "unpaid", group: "unpaid", attachment: true },
-  { code: "ABS JUSTTIFIER", label: "Absence justifiee", key: "justified", group: "admin", attachment: true },
-  { code: "ABS INJUSTIFIER", label: "Absence injustifiee", key: "unjustified", group: "admin", attachment: false, adminOnly: true },
-  { code: "Déplacement", label: "Deplacement", key: "travel", group: "work", attachment: false },
+  { code: "Décès 2 Jours", label: "Décès — 2 jours", key: "special", group: "event", attachment: true, fixedDays: 2 },
+  { code: "Décès 3 Jours", label: "Décès — 3 jours", key: "special", group: "event", attachment: true, fixedDays: 3 },
+  { code: "Mariage salarié", label: "Mariage du salarié", key: "special", group: "event", attachment: true },
+  { code: "Opération conjoint / Enfant", label: "Opération du conjoint / enfant", key: "special", group: "event", attachment: true },
+  { code: "Congé Sans Solde", label: "Congé sans solde", key: "unpaid", group: "unpaid", attachment: true },
+  { code: "ABS JUSTTIFIER", label: "Absence justifiée", key: "justified", group: "admin", attachment: true },
+  { code: "ABS INJUSTIFIER", label: "Absence injustifiée", key: "unjustified", group: "admin", attachment: false, adminOnly: true },
+  { code: "Déplacement", label: "Déplacement", key: "travel", group: "work", attachment: false },
   { code: "RETARD", label: "Retard", key: "hours", group: "time", attachment: false, unit: "hours" },
-  { code: "DEPART", label: "Depart anticipe", key: "hours", group: "time", attachment: false, unit: "hours" },
-  { code: "MISE A PIED", label: "Mise a pied", key: "suspension", group: "admin", attachment: false, adminOnly: true }
+  { code: "DEPART", label: "Départ anticipé", key: "hours", group: "time", attachment: false, unit: "hours" },
+  { code: "MISE A PIED", label: "Mise à pied", key: "suspension", group: "admin", attachment: false, adminOnly: true }
 ];
 const ABSENCE_GROUP_LABELS = {
-  cp: "Conges payes",
-  recup: "Recuperation",
+  cp: "Congés payés",
+  recup: "Récupération",
   family: "Familial",
-  event: "Evenements",
+  event: "Événements",
   unpaid: "Sans solde",
   admin: "Absences / mesures RH",
-  work: "Deplacement",
-  time: "Retard / depart"
+  work: "Déplacement",
+  time: "Retard / départ"
 };
-const activityCategories = ["Production", "Reunion", "Formation", "Coaching", "Pause payee"];
+const activityCategories = ["Production", "Réunion", "Formation", "Coaching", "Pause payée"];
 const PUNCH_CORRECTION_QUOTA = 3;
 const PUNCH_KIND_OPTIONS = [
-  { value: "in", label: "Debut de shift (entree)" },
-  { value: "break_start", label: "Pause in (debut pause)" },
-  { value: "break_end", label: "Pause out (reprise)" },
-  { value: "out", label: "Delogue du shift (sortie)" }
+  { value: "in", label: "Début de service (entrée)" },
+  { value: "break_start", label: "Début de pause" },
+  { value: "break_end", label: "Fin de pause (reprise)" },
+  { value: "out", label: "Fin de service (sortie)" }
 ];
 const PUNCH_CORRECTION_FIELDS = ["punch_kind", "reviewed_by", "reviewed_at"];
 const SHIFT_PRESETS = {
@@ -352,7 +352,7 @@ const attestationTypes = [
   "Attestation employeur",
   "Certificat de travail",
   "Attestation de salaire",
-  "Attestation de conges"
+  "Attestation de congés"
 ];
 
 const avatarColors = ["violet", "blue", "orange", "green", "pink"];
@@ -373,7 +373,7 @@ function avatarForProfile(profile, index = 0, extraClass = "") {
 function profileRoleLabel(profile) {
   const parts = [];
   if (profile.department) parts.push(profile.department);
-  if (profile.role === "creator") parts.push("Createur");
+  if (profile.role === "creator") parts.push("Créateur");
   else if (profile.role === "admin") parts.push("Admin");
   else if (profile.role === "manager") parts.push("Manager");
   return parts.join(" · ");
@@ -389,7 +389,7 @@ function renderProfilePyramidCard(profile, index, options = {}) {
   } = options;
   const roleLabel = profileRoleLabel(profile);
   const expandControl = toggleId && hasTeam
-    ? `<button type="button" class="org-expand" data-org-toggle="${toggleId}" aria-expanded="${!collapsed}" aria-label="Afficher ou masquer l'equipe de ${escapeHtml(profile.full_name || "ce manager")}">
+    ? `<button type="button" class="org-expand" data-org-toggle="${toggleId}" aria-expanded="${!collapsed}" aria-label="Afficher ou masquer l'équipe de ${escapeHtml(profile.full_name || "ce manager")}">
         <span class="org-team-count">${teamCount}</span>
         <span class="org-toggle-icon" aria-hidden="true"></span>
       </button>`
@@ -418,7 +418,11 @@ function badge(value) {
     : normalized.includes("valid") || normalized.includes("cours") || normalized.includes("attente")
       ? "warning"
       : "neutral";
-  return `<span class="badge ${tone}">${value}</span>`;
+  const displayValue = String(value || "")
+    .replace(/^A valider\b/, "À valider")
+    .replace(/^Approuve\b/, "Approuvé")
+    .replace(/^Refuse\b/, "Refusé");
+  return `<span class="badge ${tone}">${escapeHtml(displayValue)}</span>`;
 }
 
 const cardHeading = (title, action = "") =>
@@ -462,7 +466,7 @@ function isStudioCreatorEmail(email) {
 function renderUserRolePills() {
   const pills = [];
   if (isAdmin()) pills.push(`<span class="admin-pill">Admin</span>`);
-  if (isCreator()) pills.push(`<span class="creator-pill">Createur</span>`);
+  if (isCreator()) pills.push(`<span class="creator-pill">Créateur</span>`);
   return pills.join("");
 }
 
@@ -518,7 +522,7 @@ async function loadNavVisibility() {
 
 async function saveNavVisibility(settings) {
   if (usesDatabase() && !isCreator()) {
-    throw new Error("Seul un createur peut modifier la visibilite des onglets.");
+    throw new Error("Seul un créateur peut modifier la visibilité des onglets.");
   }
   const normalized = normalizeNavVisibility(settings);
   if (!usesDatabase()) {
@@ -559,7 +563,7 @@ async function loadStudioCreators() {
 
 async function saveStudioCreators(emails) {
   if (usesDatabase() && !isCreator()) {
-    throw new Error("Seul un createur peut modifier les comptes createur.");
+    throw new Error("Seul un créateur peut modifier les comptes créateur.");
   }
   const normalized = normalizeStudioCreators(emails);
   if (!usesDatabase()) {
@@ -974,13 +978,13 @@ function exportTeamPunchesCsv() {
     : getDefaultTeamPunchRange();
   const dailyRows = summarizeTeamPunchesByDay(appData.teamPunches, range.start, range.end);
   if (!dailyRows.length) {
-    alert("Aucun pointage a exporter pour cette periode.");
+    alert("Aucun pointage à exporter pour cette période.");
     return;
   }
 
   downloadCsv(
     `pointages-equipe_${range.start}_${range.end}.csv`,
-    ["Matricule", "Nom", "Email", "Manager", "Date", "Lieu", "Debut", "Fin", "Pause dej", "Planifie", "Realise", "Retard min", "Manquant", "HS payables", "Log shift", "Heure rectifiee", "Modifie par", "Motif"],
+    ["Matricule", "Nom", "E-mail", "Manager", "Date", "Lieu", "Début", "Fin", "Pause déjeuner", "Planifié", "Réalisé", "Retard (min)", "Manquant", "HS payables", "Journal du service", "Heure rectifiée", "Modifié par", "Motif"],
     dailyRows.map((row) => {
       const stats = analyzeWorkedDay(row, profileById(row.userId) || {});
       const correction = formatDayCorrectionSummary(row.userId, row.dayKey);
@@ -1207,7 +1211,7 @@ function renderLeaveCalendar() {
   const weekdays = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
   const todayKey = toDateKey(new Date());
   const teamScope = canViewTeamLeaveCalendar();
-  const teamLabel = isAdmin() ? "toute l'organisation" : "votre equipe";
+  const teamLabel = isAdmin() ? "toute l'organisation" : "votre équipe";
 
   const dayCells = cells.map((date) => {
     if (!date) return `<div class="leave-cal-cell leave-cal-cell--empty" aria-hidden="true"></div>`;
@@ -1225,7 +1229,7 @@ function renderLeaveCalendar() {
           ${events.slice(0, 3).map((event) => `
             <span class="leave-cal-event ${leaveTypeColorClass(event.type)}${event.status === "A valider" ? " is-pending" : ""}"
               title="${escapeHtml(event.name)} · ${escapeHtml(event.type)} · ${formatDate(event.start)} - ${formatDate(event.end)}">
-              ${escapeHtml((event.name || "Conge").split(" ")[0])}
+              ${escapeHtml((event.name || "Congé").split(" ")[0])}
             </span>`).join("")}
           ${events.length > 3 ? `<span class="leave-cal-more">+${events.length - 3}</span>` : ""}
         </div>
@@ -1235,30 +1239,30 @@ function renderLeaveCalendar() {
   return `
     <article class="card leave-calendar-card page-spacer">
       <div class="card-heading leave-cal-heading">
-        <h3>${teamScope ? `Calendrier des conges — ${teamLabel}` : "Calendrier des conges"}</h3>
+        <h3>${teamScope ? `Calendrier des congés — ${teamLabel}` : "Calendrier des congés"}</h3>
         <div class="leave-cal-nav">
-          <button type="button" class="outline-button leave-cal-prev" aria-label="Mois precedent">‹</button>
+          <button type="button" class="outline-button leave-cal-prev" aria-label="Mois précédent">‹</button>
           <strong class="leave-cal-month">${monthLabel}</strong>
           <button type="button" class="outline-button leave-cal-next" aria-label="Mois suivant">›</button>
           <button type="button" class="outline-button leave-cal-today">Aujourd'hui</button>
         </div>
       </div>
       ${teamScope
-        ? `<p class="leave-cal-note">Les jours en surbrillance signalent plusieurs absences simultanees pour anticiper les conflits.</p>`
+        ? `<p class="leave-cal-note">Les jours en surbrillance signalent plusieurs absences simultanées afin d'anticiper les conflits.</p>`
         : ""}
-      <div class="leave-cal-grid" role="grid" aria-label="Calendrier des conges">
+      <div class="leave-cal-grid" role="grid" aria-label="Calendrier des congés">
         ${weekdays.map((weekday) => `<div class="leave-cal-weekday" role="columnheader">${weekday}</div>`).join("")}
         ${dayCells}
       </div>
       <div class="leave-cal-legend">
-        <span class="leave-cal-legend-item"><i class="leave-type-cp"></i> Conges payes</span>
-        <span class="leave-cal-legend-item"><i class="leave-type-special"></i> Evenements</span>
-        <span class="leave-cal-legend-item"><i class="leave-type-rtt"></i> Recuperation</span>
-        <span class="leave-cal-legend-item"><i class="leave-type-sick"></i> Justifiee / familial</span>
-        <span class="leave-cal-legend-item"><i class="leave-type-unpaid"></i> Sans solde / mise a pied</span>
-        <span class="leave-cal-legend-item"><i class="leave-type-unjustified"></i> Injustifiee</span>
+        <span class="leave-cal-legend-item"><i class="leave-type-cp"></i> Congés payés</span>
+        <span class="leave-cal-legend-item"><i class="leave-type-special"></i> Événements</span>
+        <span class="leave-cal-legend-item"><i class="leave-type-rtt"></i> Récupération</span>
+        <span class="leave-cal-legend-item"><i class="leave-type-sick"></i> Justifiée / familial</span>
+        <span class="leave-cal-legend-item"><i class="leave-type-unpaid"></i> Sans solde / mise à pied</span>
+        <span class="leave-cal-legend-item"><i class="leave-type-unjustified"></i> Injustifiée</span>
         <span class="leave-cal-legend-item leave-cal-legend-pending"><i></i> En attente</span>
-        ${teamScope ? `<span class="leave-cal-legend-item leave-cal-legend-conflict"><i></i> Conflit equipe</span>` : ""}
+        ${teamScope ? `<span class="leave-cal-legend-item leave-cal-legend-conflict"><i></i> Conflit d'équipe</span>` : ""}
       </div>
     </article>`;
 }
@@ -1457,7 +1461,7 @@ function getNavigationItems() {
   const items = navigation.filter(([pageId]) => isNavPageVisible(pageId));
   const pointeuseIndex = items.findIndex(([pageId]) => pageId === "pointeuse");
   if (canViewTeamPunches()) {
-    items.splice(pointeuseIndex + 1, 0, ["team-punches", "Pointages equipe"]);
+    items.splice(pointeuseIndex + 1, 0, ["team-punches", "Pointages équipe"]);
   }
   if (canViewReports()) {
     const teamIndex = items.findIndex(([pageId]) => pageId === "team-punches");
@@ -1470,7 +1474,7 @@ function getNavigationItems() {
   if (isAdmin()) {
     items.push(["admin", "Administration"]);
   }
-  if (isCreator()) items.push(["creator", "Studio createur"]);
+  if (isCreator()) items.push(["creator", "Studio créateur"]);
   return items;
 }
 
@@ -1529,7 +1533,7 @@ function getPendingCreatorInvites() {
 
 async function persistCreatorAccount({ email, fullName }) {
   if (usesDatabase() && !isCreator()) {
-    throw new Error("Seul un createur peut ajouter un compte createur.");
+    throw new Error("Seul un créateur peut ajouter un compte créateur.");
   }
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const payload = {
@@ -1545,7 +1549,7 @@ async function persistCreatorAccount({ email, fullName }) {
   const existing = appData.orgProfiles.find((profile) => profile.email?.toLowerCase() === normalizedEmail);
   if (existing) {
     if (existing.role === "creator" || isStudioCreatorEmail(existing.email)) {
-      throw new Error("Cette personne est deja createur.");
+      throw new Error("Cette personne est déjà créateur.");
     }
     if (!usesDatabase()) {
       existing.role = "admin";
@@ -1555,7 +1559,7 @@ async function persistCreatorAccount({ email, fullName }) {
     }
   } else if (!usesDatabase()) {
     if (getPendingCreatorInvites().some((invite) => invite.email?.toLowerCase() === normalizedEmail)) {
-      throw new Error("Une invitation createur existe deja pour cette adresse e-mail.");
+      throw new Error("Une invitation créateur existe déjà pour cette adresse e-mail.");
     }
     appData.pendingInvites.push({
       email: normalizedEmail,
@@ -1564,7 +1568,7 @@ async function persistCreatorAccount({ email, fullName }) {
     });
   } else {
     if (getPendingCreatorInvites().some((invite) => invite.email?.toLowerCase() === normalizedEmail)) {
-      throw new Error("Une invitation createur existe deja pour cette adresse e-mail.");
+      throw new Error("Une invitation créateur existe déjà pour cette adresse e-mail.");
     }
     const { error } = await supabaseClient.from("pending_invites").upsert({
       email: normalizedEmail,
@@ -1583,8 +1587,8 @@ function renderCreatorAccountsSection() {
 
   return `
     <article class="card form-card page-spacer">
-      ${cardHeading("Comptes createur")}
-      <p class="creator-intro">Votre compte createur reste actif. Ajoutez ici un second acces createur : la personne aura le role <strong>Administrateur</strong> et l'acces Studio createur.</p>
+      ${cardHeading("Comptes créateur")}
+      <p class="creator-intro">Votre compte créateur reste actif. Ajoutez ici un second accès créateur : la personne aura le rôle <strong>Administrateur</strong> et l'accès au Studio créateur.</p>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Nom</th><th>Email</th><th>Statut</th></tr></thead>
@@ -1604,7 +1608,7 @@ function renderCreatorAccountsSection() {
                 <td>${badge("En attente")}</td>
               </tr>`).join("")}
             ${!creators.length && !pendingCreators.length
-              ? `<tr><td colspan="3" class="empty-cell">Aucun compte createur pour le moment.</td></tr>`
+              ? `<tr><td colspan="3" class="empty-cell">Aucun compte créateur pour le moment.</td></tr>`
               : ""}
           </tbody>
         </table>
@@ -1617,12 +1621,12 @@ function renderCreatorAccountsSection() {
           </label>
           <label>
             Nom complet
-            <input type="text" name="full_name" required placeholder="Prenom Nom">
+            <input type="text" name="full_name" required placeholder="Prénom Nom">
           </label>
         </div>
-        <button type="submit" class="primary">Ajouter un compte createur</button>
+        <button type="submit" class="primary">Ajouter un compte créateur</button>
       </form>
-      <p class="hierarchy-meta">Si la personne n'a jamais connecte Humana, elle sera pre-enregistree comme administrateur createur. Sinon, son profil existant sera promu administrateur createur.</p>
+      <p class="hierarchy-meta">Si la personne ne s'est jamais connectée à Humana, elle sera préenregistrée comme administrateur créateur. Sinon, son profil existant sera promu administrateur créateur.</p>
     </article>`;
 }
 
@@ -1640,7 +1644,7 @@ function bindCreatorAccountsSection() {
     }
 
     if (email === session.user.email?.toLowerCase()) {
-      alert("Votre compte est deja createur.");
+      alert("Votre compte est déjà créateur.");
       return;
     }
 
@@ -1686,13 +1690,13 @@ async function persistWithGtaFallback(action, payload) {
 
 async function persistUserAccount({ email, profileId, inviteId, payload }) {
   if (usesDatabase() && !isAdmin()) {
-    throw new Error("Seul un administrateur peut gerer les comptes.");
+    throw new Error("Seul un administrateur peut gérer les comptes.");
   }
   if (profileId) {
     if (profileId === session.user.id && payload.role !== "admin" && appData.profile?.role === "admin") {
       const adminCount = appData.orgProfiles.filter((profile) => profile.role === "admin").length;
       if (adminCount <= 1) {
-        throw new Error("Vous etes le dernier administrateur. Ajoutez un autre admin avant de modifier votre role.");
+        throw new Error("Vous êtes le dernier administrateur. Ajoutez un autre admin avant de modifier votre rôle.");
       }
     }
     await persistWithGtaFallback((row) => supabaseClient.from("profiles").update(row).eq("id", profileId), payload);
@@ -1749,13 +1753,13 @@ function renderUserAccountSection() {
               <input type="text" name="job_title" value="${escapeHtml(editing?.job_title || "Collaborateur")}">
             </label>
             <label>
-              Equipe
+              Équipe
               <input type="text" name="department" value="${escapeHtml(editing?.department || "General")}">
             </label>
           </div>
           <div class="form-row">
             <label>
-              Role
+              Rôle
               <select name="role" required>${roleOptions(editing?.role || "employee")}</select>
             </label>
             <label>
@@ -1765,13 +1769,13 @@ function renderUserAccountSection() {
           </div>
           <div class="form-row">
             <label>
-              Solde conges payes (jours)
+              Solde de congés payés (jours)
               <input type="number" min="0" step="0.5" name="leave_balance_cp" value="${escapeHtml(editing?.leave_balance_cp ?? 25)}">
             </label>
           </div>
           <div class="form-row">
             <label>
-              Date d'entree
+              Date d'entrée
               <input type="date" name="hired_at" value="${escapeHtml(editing?.hired_at || "")}">
             </label>
             <label>
@@ -1783,7 +1787,7 @@ function renderUserAccountSection() {
             </label>
           </div>
           <label>
-            Grade conges
+            Grade de congés
             <select name="leave_grade">
               <option value="employee"${(editing?.leave_grade || "employee") === "employee" ? " selected" : ""}>Collaborateur — 1,5 j/mois</option>
               <option value="manager"${editing?.leave_grade === "manager" ? " selected" : ""}>Responsable — 2 j/mois</option>
@@ -1795,13 +1799,13 @@ function renderUserAccountSection() {
             ${editing ? `<button type="button" id="admin-cancel-edit" class="outline-button">Annuler</button>` : ""}
           </div>
         </form>
-        <p class="hierarchy-meta">Si la personne n'a jamais connecte Humana, elle sera pre-enregistree. A la premiere connexion Microsoft, son compte sera cree automatiquement.</p>
+        <p class="hierarchy-meta">Si la personne ne s'est jamais connectée à Humana, elle sera préenregistrée. À la première connexion Microsoft, son compte sera créé automatiquement.</p>
       </article>
       <article class="card table-card">
         <div class="toolbar"><h3>Utilisateurs actifs</h3></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Nom</th><th>Email</th><th>Role</th><th>Manager</th><th></th></tr></thead>
+            <thead><tr><th>Nom</th><th>E-mail</th><th>Rôle</th><th>Manager</th><th></th></tr></thead>
             <tbody>
               ${appData.orgProfiles.length
                 ? appData.orgProfiles.map((profile) => `
@@ -1810,7 +1814,7 @@ function renderUserAccountSection() {
                     <td>${escapeHtml(profile.email)}</td>
                     <td>${badge(roleLabels[profile.role] || profile.role)}</td>
                     <td>${escapeHtml(managerName(profile.manager_id))}</td>
-                    <td><button type="button" class="outline-button admin-edit-profile" data-profile-id="${profile.id}">Gerer</button></td>
+                    <td><button type="button" class="outline-button admin-edit-profile" data-profile-id="${profile.id}">Gérer</button></td>
                   </tr>`).join("")
                 : `<tr><td colspan="5" class="empty-cell">Aucun utilisateur actif.</td></tr>`}
             </tbody>
@@ -1822,7 +1826,7 @@ function renderUserAccountSection() {
       <div class="toolbar"><h3>Invitations en attente</h3></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Email</th><th>Nom</th><th>Role</th><th>Manager</th><th></th></tr></thead>
+          <thead><tr><th>E-mail</th><th>Nom</th><th>Rôle</th><th>Manager</th><th></th></tr></thead>
           <tbody>
             ${appData.pendingInvites.length
               ? appData.pendingInvites.map((invite) => `
@@ -1832,7 +1836,7 @@ function renderUserAccountSection() {
                   <td>${badge(roleLabels[invite.role] || invite.role)}</td>
                   <td>${escapeHtml(managerName(invite.manager_id))}</td>
                   <td class="admin-row-actions">
-                    <button type="button" class="outline-button admin-edit-invite" data-invite-id="${invite.id}">Gerer</button>
+                    <button type="button" class="outline-button admin-edit-invite" data-invite-id="${invite.id}">Gérer</button>
                     <button type="button" class="outline-button admin-delete-invite" data-invite-id="${invite.id}">Supprimer</button>
                   </td>
                 </tr>`).join("")
@@ -2160,10 +2164,10 @@ function formatDuration(ms) {
 
 function punchTypeLabel(type) {
   switch (type) {
-    case "in": return "Debut de shift";
-    case "out": return "Delogue du shift";
-    case "break_start": return "Pause in";
-    case "break_end": return "Pause out";
+    case "in": return "Début de service";
+    case "out": return "Fin de service";
+    case "break_start": return "Début de pause";
+    case "break_end": return "Fin de pause";
     default: return type || "Autre";
   }
 }
@@ -2179,13 +2183,13 @@ function formatDayPunchLog(row) {
   const pick = (type) => punches.find((punch) => punch.type === type);
   const lastOut = [...punches].reverse().find((punch) => punch.type === "out");
   const lines = [
-    ["Debut", pick("in")],
+    ["Début", pick("in")],
     ["Pause in", pick("break_start")],
     ["Pause out", pick("break_end")],
-    ["Delogue", lastOut]
+    ["Sortie", lastOut]
   ];
   return `<div class="punch-log">${lines.map(([label, punch]) => (
-    `<span><b>${label}</b> ${punch ? formatTime(punch.time) : (label === "Delogue" && row.hasStarted && !row.isDayClosed ? "en cours" : "—")}</span>`
+    `<span><b>${label}</b> ${punch ? formatTime(punch.time) : (label === "Sortie" && row.hasStarted && !row.isDayClosed ? "en cours" : "—")}</span>`
   )).join("")}</div>`;
 }
 
@@ -2194,10 +2198,10 @@ function formatDayPunchLogText(row) {
   const pick = (type) => punches.find((punch) => punch.type === type);
   const lastOut = [...punches].reverse().find((punch) => punch.type === "out");
   return [
-    `Debut ${pick("in") ? formatTime(pick("in").time) : "—"}`,
+    `Début ${pick("in") ? formatTime(pick("in").time) : "—"}`,
     `Pause in ${pick("break_start") ? formatTime(pick("break_start").time) : "—"}`,
     `Pause out ${pick("break_end") ? formatTime(pick("break_end").time) : "—"}`,
-    `Delogue ${lastOut ? formatTime(lastOut.time) : (row.hasStarted && !row.isDayClosed ? "en cours" : "—")}`
+    `Sortie ${lastOut ? formatTime(lastOut.time) : (row.hasStarted && !row.isDayClosed ? "en cours" : "—")}`
   ].join(" | ");
 }
 
@@ -2296,7 +2300,7 @@ function renderWorkLocationSelector(punches = getPunches()) {
       <span class="work-location-label">Lieu de travail</span>
       <div class="work-location-toggle">
         <button type="button" class="work-location-option${selected === "onsite" ? " is-active" : ""}" data-work-location="onsite">Sur site</button>
-        <button type="button" class="work-location-option${selected === "remote" ? " is-active" : ""}" data-work-location="remote">Teletravail</button>
+        <button type="button" class="work-location-option${selected === "remote" ? " is-active" : ""}" data-work-location="remote">Télétravail</button>
       </div>
     </div>`;
 }
@@ -2430,17 +2434,17 @@ function renderHomeShiftSummary(punches = getPunches()) {
   const summary = getTodayShiftSummary(punches);
 
   return `
-    <div class="home-shift-summary" aria-label="Resume de la journee">
+    <div class="home-shift-summary" aria-label="Résumé de la journée">
       <div class="home-shift-item">
-        <span>Debut</span>
+        <span>Début</span>
         <strong>${formatShiftTime(summary.startTime)}</strong>
       </div>
       <div class="home-shift-item">
-        <span>Pause dej</span>
+        <span>Pause déjeuner</span>
         <strong>${formatBreakSummary(summary)}</strong>
       </div>
       <div class="home-shift-item">
-        <span>Fin de shift</span>
+        <span>Fin de service</span>
         <strong>${formatEndShiftSummary(summary)}</strong>
       </div>
     </div>`;
@@ -2554,7 +2558,7 @@ function getLeaveBalances() {
   const remainingCp = Math.max(0, totals.cp - used.cp - pending.cp);
   return [
     {
-      label: "Conges payes",
+      label: "Congés payés",
       total: totals.cp,
       used: used.cp,
       pending: pending.cp,
@@ -2562,12 +2566,12 @@ function getLeaveBalances() {
       hint: `${LEAVE_ACCRUAL[getLeaveGrade(profile)]} j / mois · ${getLeaveGrade(profile)}`
     },
     {
-      label: "Recuperation",
+      label: "Récupération",
       total: totals.recup,
       used: used.recup,
       pending: pending.recup,
       remaining: Math.max(0, totals.recup - used.recup - pending.recup),
-      hint: "Ecart fériés FR vs MA"
+      hint: "Écart entre les jours fériés FR et MA"
     }
   ];
 }
@@ -2582,8 +2586,8 @@ function balanceCard(balance) {
       </div>
       <div class="balance-track"><i style="width:${usedPercent}%"></i></div>
       <div class="balance-meta">
-        <span>Alloue : <b>${balance.total} j</b></span>
-        <span>Utilise : <b>${balance.used} j</b></span>
+        <span>Alloué : <b>${balance.total} j</b></span>
+        <span>Utilisé : <b>${balance.used} j</b></span>
         <span>En attente : <b>${balance.pending} j</b></span>
       </div>
       ${balance.hint ? `<small class="hierarchy-meta">${escapeHtml(balance.hint)}</small>` : ""}
@@ -2625,10 +2629,10 @@ function getClockStatusCopy() {
 
   if (onBreak) {
     return {
-      title: "Pause dejeuner",
-      hint: "Votre pause est enregistree. Cliquez sur Reprise dej pour continuer.",
+      title: "Pause déjeuner",
+      hint: "Votre pause est enregistrée. Cliquez sur « Reprise après déjeuner » pour continuer.",
       tone: "break",
-      homeLine: "En pause dejeuner"
+      homeLine: "En pause déjeuner"
     };
   }
 
@@ -2668,14 +2672,14 @@ function renderClockActions() {
   if (onBreak) {
     return `
       <div class="clock-actions">
-        <button type="button" id="break-toggle" class="clock-button break-end">Reprise dej</button>
+        <button type="button" id="break-toggle" class="clock-button break-end">Reprise après déjeuner</button>
         <button type="button" id="clock-toggle" class="clock-button out clock-button-secondary">Je pars</button>
       </div>`;
   }
 
   return `
     <div class="clock-actions">
-      <button type="button" id="break-toggle" class="clock-button break-start">Pause dej</button>
+      <button type="button" id="break-toggle" class="clock-button break-start">Pause déjeuner</button>
       <button type="button" id="clock-toggle" class="clock-button out">Je pars</button>
     </div>`;
 }
@@ -2737,10 +2741,10 @@ function buildDemoPayslips() {
 }
 
 const demoHrDocuments = [
-  { id: "d1", title: "Reglement interieur", description: "Version 2026", category: "Politique", file_url: "#", published_at: "2026-01-15" },
-  { id: "d2", title: "Charte du teletravail", description: "Politique hybride", category: "Politique", file_url: "#", published_at: "2026-02-01" },
-  { id: "d3", title: "Guide des conges", description: "CP, RTT et absences", category: "Conges", file_url: "#", published_at: "2026-02-10" },
-  { id: "d4", title: "Note service Q1", description: "Actualites RH", category: "Communication", file_url: "#", published_at: "2026-03-01" }
+  { id: "d1", title: "Règlement intérieur", description: "Version 2026", category: "Politique", file_url: "#", published_at: "2026-01-15" },
+  { id: "d2", title: "Charte du télétravail", description: "Politique hybride", category: "Politique", file_url: "#", published_at: "2026-02-01" },
+  { id: "d3", title: "Guide des congés", description: "CP, RTT et absences", category: "Congés", file_url: "#", published_at: "2026-02-10" },
+  { id: "d4", title: "Note de service Q1", description: "Actualités RH", category: "Communication", file_url: "#", published_at: "2026-03-01" }
 ];
 
 function getHrDocuments() {
@@ -2778,7 +2782,7 @@ async function createPrivateFileUrl(fileRecord) {
     .from(HR_DOCUMENTS_BUCKET)
     .createSignedUrl(storagePath, PRIVATE_FILE_URL_TTL_SECONDS);
   if (error) throw error;
-  if (!data?.signedUrl) throw new Error("Impossible de generer le lien temporaire.");
+  if (!data?.signedUrl) throw new Error("Impossible de générer le lien temporaire.");
   return data.signedUrl;
 }
 
@@ -2848,7 +2852,7 @@ function homeBalanceSummary(balance) {
 function dayGreeting() {
   const hour = new Date().getHours();
   if (hour < 12) return "Bonjour";
-  if (hour < 18) return "Bon apres-midi";
+  if (hour < 18) return "Bon après-midi";
   return "Bonsoir";
 }
 
@@ -2875,7 +2879,7 @@ function homePage() {
       ${canViewHrAlerts() ? renderHrAlertsCard() : ""}
       <article class="card home-widget">
         <div class="card-heading">
-          <h3>Ma journee</h3>
+          <h3>Ma journée</h3>
           <button type="button" class="home-link" data-goto-page="pointeuse">Historique</button>
         </div>
         <div class="home-clock">
@@ -2890,7 +2894,7 @@ function homePage() {
       ${isNavPageVisible("leave") ? `
       <article class="card home-widget">
         <div class="card-heading">
-          <h3>Conges</h3>
+          <h3>Congés</h3>
           <button type="button" class="home-link" data-goto-page="leave">Faire une demande</button>
         </div>
         <div class="home-balance-list">
@@ -2904,12 +2908,12 @@ function homePage() {
           <h3>Rapports EDS</h3>
           <button type="button" class="home-link" data-goto-page="reports">Ouvrir</button>
         </div>
-        <p class="hierarchy-meta">Cycle paie du 21 au 20 : temps planifie, realise, retards, absences. Export CSV pour la paie.</p>
+        <p class="hierarchy-meta">Cycle de paie du 21 au 20 : temps planifié, réalisé, retards et absences. Export CSV pour la paie.</p>
       </article>` : ""}
 
       <article class="card home-widget">
         <div class="card-heading">
-          <h3>Documents partages</h3>
+          <h3>Documents partagés</h3>
         </div>
         <div class="home-doc-list">
           ${documents.length
@@ -2940,7 +2944,7 @@ function homePage() {
                 </div>
                 <a class="home-payslip-btn" ${privateFileLinkAttributes("payslip", slip)} target="_blank" rel="noopener noreferrer">Ouvrir</a>
               </div>`).join("")
-            : `<p class="empty-state">Vos bulletins apparaitront ici des qu'ils seront disponibles.</p>`}
+            : `<p class="empty-state">Vos bulletins apparaîtront ici dès qu'ils seront disponibles.</p>`}
         </div>
       </article>
     </section>`;
@@ -2959,9 +2963,9 @@ function renderGtaClockTools() {
     breakDurationMs: computeBreakDuration(getTodayPunches())
   }, appData.profile);
   return `
-    <p class="data-note">Vacation ${escapeHtml(shift.label)} · arrivee toleree jusqu'a ${shift.lateAfter} · ${shift.plannedHours} h planifiees · decalage FR/MA ${getFrMaOffsetHours()} h</p>
+    <p class="data-note">Horaire ${escapeHtml(shift.label)} · arrivée tolérée jusqu'à ${shift.lateAfter} · ${shift.plannedHours} h planifiées · décalage FR/MA : ${getFrMaOffsetHours()} h</p>
     <section class="hours-grid">
-      ${hoursCard("Planifie", stats.plannedMs)}
+      ${hoursCard("Planifié", stats.plannedMs)}
       ${hoursCard("Manquant", stats.missingMs)}
       ${hoursCard("HS payables", stats.payableOtMs)}
     </section>
@@ -2976,14 +2980,14 @@ function renderGtaClockTools() {
               ${PUNCH_KIND_OPTIONS.map((item) => `<option value="${item.value}">${item.label}</option>`).join("")}
             </select>
           </label>
-          <label>Heure demandee <input type="time" name="time" required></label>
-          <label>Motif <textarea name="reason" rows="2" required placeholder="Oubli de badge, pause non pointee..."></textarea></label>
+          <label>Heure demandée <input type="time" name="time" required></label>
+          <label>Motif <textarea name="reason" rows="2" required placeholder="Oubli de badge, pause non pointée..."></textarea></label>
           <button type="submit" class="primary" ${remaining ? "" : "disabled"}>Signaler l'anomalie</button>
         </form>
       </article>
       <article class="card form-card">
-        ${cardHeading("Heures supplementaires")}
-        <p class="hierarchy-meta">Sans validation prealable, les heures extra ne sont pas payees.</p>
+        ${cardHeading("Heures supplémentaires")}
+        <p class="hierarchy-meta">Sans validation préalable, les heures supplémentaires ne sont pas payées.</p>
         <form id="overtime-form" class="feature-form">
           <label>Date <input type="date" name="date" value="${today}" required></label>
           <label>Heures <input type="number" name="hours" min="0.5" step="0.5" value="1" required></label>
@@ -2995,12 +2999,12 @@ function renderGtaClockTools() {
         ${cardHeading("Feuille de temps / statuts")}
         <form id="activity-form" class="feature-form">
           <label>Date <input type="date" name="date" value="${today}" required></label>
-          <label>Categorie
+          <label>Catégorie
             <select name="category">${activityCategories.map((item) => `<option>${item}</option>`).join("")}</select>
           </label>
           <label>Heures <input type="number" name="hours" min="0.5" step="0.5" value="1" required></label>
-          <label>Commentaire <input type="text" name="comment" placeholder="Reunion, formation..."></label>
-          <button type="submit" class="primary">Declarer</button>
+          <label>Commentaire <input type="text" name="comment" placeholder="Réunion, formation..."></label>
+          <button type="submit" class="primary">Déclarer</button>
         </form>
       </article>
     </div>
@@ -3041,7 +3045,7 @@ function renderGtaOwnLists() {
       <div class="toolbar"><h3>Mes demandes GTA</h3></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Type</th><th>Date</th><th>Detail</th><th>Statut</th></tr></thead>
+          <thead><tr><th>Type</th><th>Date</th><th>Détail</th><th>Statut</th></tr></thead>
           <tbody>
             ${rows.length
               ? rows.map((row) => `
@@ -3051,7 +3055,7 @@ function renderGtaOwnLists() {
                   <td>${escapeHtml(row.detail)}</td>
                   <td>${badge(row.status)}</td>
                 </tr>`).join("")
-              : `<tr><td colspan="4" class="empty-cell">Aucune demande de correction, HS ou activite.</td></tr>`}
+              : `<tr><td colspan="4" class="empty-cell">Aucune demande de correction, d'heures supplémentaires ou d'activité.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -3069,12 +3073,12 @@ function renderGtaTeamInbox() {
   return `
     <article class="card table-card page-spacer">
       <div class="toolbar"><h3>Validations GTA</h3></div>
-      <p class="hierarchy-meta">Corrections de pointage, heures supplementaires et feuilles de temps. M-Work n'est pas connecte.</p>
+      <p class="hierarchy-meta">Corrections de pointage, heures supplémentaires et feuilles de temps. M-Work n'est pas connecté.</p>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Collaborateur</th><th>Date</th><th>Demande</th><th>Statut</th><th></th></tr></thead>
           <tbody>
-            ${renderGtaStatusRows(pending, "Aucune demande a valider.", (item) => {
+            ${renderGtaStatusRows(pending, "Aucune demande à valider.", (item) => {
               if (item._kind === "corrections") return `${formatPunchKind(item.punch_kind || item.punchKind)} ${item.time || item.requested_time || ""} — ${item.reason || ""}`;
               if (item._kind === "overtime") return `HS ${item.hours || 0} h — ${item.reason || ""}`;
               return `${item.category || "Activite"} · ${item.hours || 0} h`;
@@ -3093,7 +3097,7 @@ function pointeusePage() {
   const breakDuration = computeBreakDuration(todayPunches);
   const dbNote = usesDatabase()
     ? ""
-    : `<p class="data-note demo">Mode demo : donnees locales uniquement. Connectez-vous avec Microsoft pour sauvegarder.</p>`;
+    : `<p class="data-note demo">Mode démo : données locales uniquement. Connectez-vous avec Microsoft pour sauvegarder.</p>`;
 
   return `
     ${dbNote}
@@ -3232,7 +3236,7 @@ function buildSeedJournalRows(userId) {
       user_id: userId,
       punch_type: "out",
       punched_at: outTime.toISOString(),
-      disconnect_reason: sample.autoOut ? "Deconnexion automatique" : "Sortie manuelle",
+      disconnect_reason: sample.autoOut ? "Déconnexion automatique" : "Sortie manuelle",
       profiles: { full_name: profile.full_name || getUserName(), email: profile.email || "" }
     });
   });
@@ -3272,8 +3276,8 @@ function finalizeJournalSession(open, outRow) {
     storedReason.toLowerCase().includes("automat")
     || Math.abs(durationMs - AUTO_CLOCK_OUT_MS) < 120000
   );
-  const status = outTime ? "Deconnecte" : "Connecte";
-  const reason = !outTime ? "—" : (autoOut ? "Deconnexion automatique" : (storedReason || "Sortie manuelle"));
+  const status = outTime ? "Déconnecté" : "Connecté";
+  const reason = !outTime ? "—" : (autoOut ? "Déconnexion automatique" : (storedReason || "Sortie manuelle"));
   const locationValue = open.inRow.work_location;
   return {
     sessionId: makeSessionId(open.inRow),
@@ -3422,7 +3426,7 @@ async function loadJournalPunches(filters = journalFilters) {
 function exportJournalCsv() {
   const sessions = getJournalSessions();
   if (!sessions.length) {
-    alert("Aucune session a exporter pour cette periode.");
+    alert("Aucune session à exporter pour cette période.");
     return;
   }
   const range = getJournalRange();
@@ -3434,7 +3438,7 @@ function exportJournalCsv() {
 }
 
 function renderJournalStatus(status) {
-  const tone = status === "Connecte" ? "on" : "off";
+  const tone = status === "Connecté" ? "on" : "off";
   return `<span class="journal-status journal-status--${tone}">${escapeHtml(status)}</span>`;
 }
 
@@ -3456,7 +3460,7 @@ function renderJournalColumnMenu(column) {
 
 function journalPage() {
   if (!canViewJournal()) {
-    return `<article class="card"><p class="empty-state">Acces au journal non autorise pour votre profil.</p></article>`;
+    return `<article class="card"><p class="empty-state">Accès au journal non autorisé pour votre profil.</p></article>`;
   }
   if (!journalFilters.start || !journalFilters.end) {
     journalFilters = { ...journalFilters, ...getDefaultTeamPunchRange() };
@@ -3465,15 +3469,15 @@ function journalPage() {
   const range = getJournalRange();
   const sessions = getJournalSessions();
   const profiles = getJournalProfiles();
-  const openCount = sessions.filter((session) => session.status === "Connecte").length;
+  const openCount = sessions.filter((session) => session.status === "Connecté").length;
   const canFilterPeople = usesDatabase();
   let dbNote = "";
   if (!usesDatabase()) {
-    dbNote = `<p class="data-note demo">Mode demo : journal local. Connectez-vous avec Microsoft pour voir les sessions reelles.</p>`;
+    dbNote = `<p class="data-note demo">Mode démo : journal local. Connectez-vous avec Microsoft pour voir les sessions réelles.</p>`;
   } else if (appData.journalMetaMissing) {
-    dbNote = `<p class="data-note">Colonnes techniques absentes en base. Executez <code>supabase/time-punches-journal.sql</code> dans Supabase SQL Editor, puis refaites un pointage d'entree.</p>`;
+    dbNote = `<p class="data-note">Colonnes techniques absentes de la base. Exécutez <code>supabase/time-punches-journal.sql</code> dans Supabase SQL Editor, puis refaites un pointage d'entrée.</p>`;
   } else if (sessions.length && sessions.every((session) => session.method === "—" && session.os === "—" && session.browser === "—" && session.ip === "—")) {
-    dbNote = `<p class="data-note">Les sessions deja enregistrees n'ont pas IP / OS / navigateur. Ces details apparaitront au prochain pointage d'entree.</p>`;
+    dbNote = `<p class="data-note">Les sessions déjà enregistrées n'ont pas d'IP, d'OS ni de navigateur. Ces détails apparaîtront au prochain pointage d'entrée.</p>`;
   }
 
   return `
@@ -3516,7 +3520,7 @@ function journalPage() {
       <article class="hours-card team-punch-summary-card">
         <span>Sessions</span>
         <strong>${sessions.length}</strong>
-        <small>sur la periode</small>
+        <small>sur la période</small>
       </article>
       <article class="hours-card team-punch-summary-card">
         <span>En cours</span>
@@ -3524,7 +3528,7 @@ function journalPage() {
         <small>connexion active</small>
       </article>
       <article class="hours-card team-punch-summary-card">
-        <span>Deconnectees</span>
+        <span>Déconnectées</span>
         <strong>${sessions.length - openCount}</strong>
         <small>sessions closes</small>
       </article>
@@ -3570,7 +3574,7 @@ function journalPage() {
                   <td>${renderJournalStatus(session.status)}</td>
                   <td>${escapeHtml(session.reason)}</td>
                 </tr>`).join("")
-              : `<tr><td colspan="${JOURNAL_COLUMNS.length}" class="empty-cell">Aucune session pour cette periode. Ajustez les filtres ou pointez une entree.</td></tr>`}
+              : `<tr><td colspan="${JOURNAL_COLUMNS.length}" class="empty-cell">Aucune session pour cette période. Ajustez les filtres ou pointez une entrée.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -3579,11 +3583,11 @@ function journalPage() {
 
 function teamPunchesPage() {
   if (!usesDatabase() && !demoMode) {
-    return `<article class="card"><p class="empty-state">Connectez-vous avec Microsoft pour consulter les pointages de votre equipe.</p></article>`;
+    return `<article class="card"><p class="empty-state">Connectez-vous avec Microsoft pour consulter les pointages de votre équipe.</p></article>`;
   }
 
   if (!canViewTeamPunches()) {
-    return `<article class="card"><p class="empty-state">Acces reserve aux managers et administrateurs.</p></article>`;
+    return `<article class="card"><p class="empty-state">Accès réservé aux managers et aux administrateurs.</p></article>`;
   }
 
   const range = teamPunchFilters.start && teamPunchFilters.end
@@ -3599,21 +3603,21 @@ function teamPunchesPage() {
   const showLocationHint = dailyRows.some((row) => row.hasStarted)
     && !dailyRows.some((row) => resolveDailyRowWorkLocation(row));
   const scopeLabel = isAdmin()
-    ? (scope === "team" ? "mon equipe directe" : "tous les collaborateurs")
-    : "votre equipe directe";
+    ? (scope === "team" ? "mon équipe directe" : "tous les collaborateurs")
+    : "votre équipe directe";
   const directReports = getDirectReportProfiles();
 
   return `
-    <p class="data-note">Perimetre : ${scopeLabel} · ${profiles.length} collaborateur${profiles.length > 1 ? "s" : ""}</p>
+    <p class="data-note">Périmètre : ${scopeLabel} · ${profiles.length} collaborateur${profiles.length > 1 ? "s" : ""}</p>
     <article class="card form-card page-spacer">
       ${cardHeading("Filtres")}
       <form id="team-punches-filter" class="feature-form team-punches-filter">
         ${isAdmin() ? `
         <label>
-          Perimetre
+          Périmètre
           <select name="scope">
             <option value="all"${scope === "all" ? " selected" : ""}>Tous les collaborateurs</option>
-            <option value="team"${scope === "team" ? " selected" : ""}>Mon equipe directe${directReports.length ? ` (${directReports.length})` : ""}</option>
+            <option value="team"${scope === "team" ? " selected" : ""}>Mon équipe directe${directReports.length ? ` (${directReports.length})` : ""}</option>
           </select>
         </label>` : ""}
         <div class="form-row">
@@ -3650,14 +3654,14 @@ function teamPunchesPage() {
             <strong>${formatDuration(item.workedMs)}</strong>
             <small>${item.punchCount} pointage${item.punchCount > 1 ? "s" : ""}</small>
           </article>`).join("")
-        : `<article class="card"><p class="empty-state">Aucun collaborateur dans votre perimetre.</p></article>`}
+        : `<article class="card"><p class="empty-state">Aucun collaborateur dans votre périmètre.</p></article>`}
     </section>
     <article class="card table-card page-spacer">
       <div class="toolbar">
-        <h3>Detail des pointages</h3>
+        <h3>Détail des pointages</h3>
         <span class="hierarchy-result-count">${dailyRows.length} jour${dailyRows.length > 1 ? "s" : ""}</span>
       </div>
-      ${showLocationHint ? `<p class="data-note">Le lieu n'est renseigne que sur les pointages d'entree. Si la colonne est vide, executez <code>supabase/time-punches-location.sql</code> puis refaites un pointage d'entree.</p>` : ""}
+      ${showLocationHint ? `<p class="data-note">Le lieu n'est renseigné que sur les pointages d'entrée. Si la colonne est vide, exécutez <code>supabase/time-punches-location.sql</code>, puis refaites un pointage d'entrée.</p>` : ""}
       <div class="table-wrap">
         <table>
           <thead>
@@ -3665,17 +3669,17 @@ function teamPunchesPage() {
               <th>Collaborateur</th>
               <th>Date</th>
               <th>Lieu</th>
-              <th>Debut</th>
+              <th>Début</th>
               <th>Fin</th>
-              <th>Pause dej</th>
-              <th>Heures planifiees</th>
-              <th>Heures realisees</th>
+              <th>Pause déjeuner</th>
+              <th>Heures planifiées</th>
+              <th>Heures réalisées</th>
               <th>Retard</th>
               <th>Heures manquantes</th>
               <th>HS payables</th>
-              <th>Log shift</th>
-              <th>Heure rectifiee</th>
-              <th>Modifie par</th>
+              <th>Journal du service</th>
+              <th>Heure rectifiée</th>
+              <th>Modifié par</th>
               <th>Motif</th>
             </tr>
           </thead>
@@ -3704,7 +3708,7 @@ function teamPunchesPage() {
                   <td>${escapeHtml(correction.motif)}</td>
                 </tr>`;
                 }).join("")
-              : `<tr><td colspan="15" class="empty-cell">Aucun pointage pour cette periode. Ajustez les filtres puis actualisez.</td></tr>`}
+              : `<tr><td colspan="15" class="empty-cell">Aucun pointage pour cette période. Ajustez les filtres, puis actualisez.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -3713,7 +3717,7 @@ function teamPunchesPage() {
 
 function leavePage() {
   if (!isNavPageVisible("leave")) {
-    return `<article class="card"><p class="empty-state">L'onglet Conges n'est pas disponible pour votre profil.</p></article>`;
+    return `<article class="card"><p class="empty-state">L'onglet Congés n'est pas disponible pour votre profil.</p></article>`;
   }
 
   const requests = getLeaveRequests();
@@ -3725,21 +3729,21 @@ function leavePage() {
   const shift = getActiveShift();
 
   return `
-    ${carryFlag ? `<p class="data-note">Alerte report : plus de 3 jours de CP restants au 31/12. Le solde non consomme est reportable une seule annee.</p>` : ""}
-    ${months < 6 && !isAdmin() ? `<p class="data-note">Anciennete : ${months} mois. Le legal demande 6 mois, sauf derogation RH.</p>` : ""}
-    <p class="data-note">Horaire ${escapeHtml(shift.label)} · ${shift.start}–${shift.end} · pause ${shift.lunchMin} min (${shift.lunchFrom}–${shift.lunchTo}) · decalage FR/MA ${getFrMaOffsetHours()} h${isRamadanDay(toDateKey(new Date())) ? " · periode Ramadan" : ""}</p>
-    <p class="data-note">18 codes d'absence (paie) : CP selon le profil, recuperation, familial, deces, mariage, absences justifiee/injustifiee, retard, depart, deplacement, mise a pied.</p>
+    ${carryFlag ? `<p class="data-note">Alerte de report : plus de 3 jours de CP restants au 31/12. Le solde non consommé est reportable une seule année.</p>` : ""}
+    ${months < 6 && !isAdmin() ? `<p class="data-note">Ancienneté : ${months} mois. La durée légale requise est de 6 mois, sauf dérogation RH.</p>` : ""}
+    <p class="data-note">Horaire ${escapeHtml(shift.label)} · ${shift.start}–${shift.end} · pause ${shift.lunchMin} min (${shift.lunchFrom}–${shift.lunchTo}) · décalage FR/MA : ${getFrMaOffsetHours()} h${isRamadanDay(toDateKey(new Date())) ? " · période du Ramadan" : ""}</p>
+    <p class="data-note">18 codes d'absence (paie) : CP selon le profil, récupération, événements familiaux, décès, mariage, absences justifiées ou injustifiées, retard, départ, déplacement et mise à pied.</p>
     <section class="balance-grid">
       ${balances.map((balance) => balanceCard(balance)).join("")}
     </section>
     ${renderLeaveCalendar()}
     ${pending.length ? `
     <article class="card table-card page-spacer">
-      <div class="toolbar"><h3>Demandes a valider</h3></div>
+      <div class="toolbar"><h3>Demandes à valider</h3></div>
       <p class="hierarchy-meta">Circuit : ${chain.map((item) => item.role).join(" → ")}</p>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Collaborateur</th><th>Type</th><th>Periode</th><th>Statut</th><th></th></tr></thead>
+          <thead><tr><th>Collaborateur</th><th>Type</th><th>Période</th><th>Statut</th><th></th></tr></thead>
           <tbody>
             ${pending.map((request) => `
               <tr>
@@ -3768,7 +3772,7 @@ function leavePage() {
           </label>
           <div class="form-row">
             <label>
-              Date de debut
+              Date de début
               <input type="date" name="start" required>
             </label>
             <label>
@@ -3777,18 +3781,18 @@ function leavePage() {
             </label>
           </div>
           <label>
-            Duree
+            Durée
             <select name="unit">
-              <option value="days">Jours ouvres</option>
-              <option value="half">Demi-journee</option>
-              <option value="hours">Heures (retard / depart)</option>
+              <option value="days">Jours ouvrés</option>
+              <option value="half">Demi-journée</option>
+              <option value="hours">Heures (retard / départ)</option>
             </select>
           </label>
           <label id="leave-half-wrap" hidden>
-            Demi-journee
+            Demi-journée
             <select name="half_day">
               <option value="morning">Matin</option>
-              <option value="afternoon">Apres-midi</option>
+              <option value="afternoon">Après-midi</option>
             </select>
           </label>
           <label id="leave-hours-wrap" hidden>
@@ -3811,7 +3815,7 @@ function leavePage() {
         <div class="toolbar"><h3>Mes demandes</h3></div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Type</th><th>Periode</th><th>Duree</th><th>Justificatif</th><th>Statut</th></tr></thead>
+            <thead><tr><th>Type</th><th>Période</th><th>Durée</th><th>Justificatif</th><th>Statut</th></tr></thead>
             <tbody>${leaveRows(requests)}</tbody>
           </table>
         </div>
@@ -3821,13 +3825,13 @@ function leavePage() {
 
 function leaveRows(requests) {
   if (!requests.length) {
-    return `<tr><td colspan="5" class="empty-cell">Aucune demande de conge pour le moment.</td></tr>`;
+    return `<tr><td colspan="5" class="empty-cell">Aucune demande de congé pour le moment.</td></tr>`;
   }
   return requests.map((request) => `
     <tr>
       <td>${request.type}${request.motif ? `<br><small>${escapeHtml(request.motif)}</small>` : ""}</td>
       <td>${formatDate(request.start)} - ${formatDate(request.end)}</td>
-      <td>${leaveIsHoursUnit(request.type) ? `${request.hours || 0} h` : `${request.days} jour${Number(request.days) > 1 ? "s" : ""} ouvres`}</td>
+      <td>${leaveIsHoursUnit(request.type) ? `${request.hours || 0} h` : `${request.days} jour${Number(request.days) > 1 ? "s" : ""} ouvré${Number(request.days) > 1 ? "s" : ""}`}</td>
       <td>${escapeHtml(request.attachment_name || request.attachmentName || "—")}</td>
       <td>${badge(request.status)}</td>
     </tr>`).join("");
@@ -3945,7 +3949,7 @@ function renderOrgNode(node, options = {}) {
 
 function hierarchyPage() {
   if (!isNavPageVisible("hierarchy")) {
-    return `<article class="card"><p class="empty-state">L'onglet Hierarchie n'est pas disponible pour votre profil.</p></article>`;
+    return `<article class="card"><p class="empty-state">L'onglet Hiérarchie n'est pas disponible pour votre profil.</p></article>`;
   }
 
   if (!usesDatabase() && !demoMode) {
@@ -3981,14 +3985,14 @@ function hierarchyPage() {
           : `<p class="hierarchy-meta">Vous n'avez pas de manager assigne.</p>`}
       </article>
       <article class="card">
-        ${cardHeading("Mon equipe directe")}
+        ${cardHeading("Mon équipe directe")}
         <div class="team-grid">
           ${directReports.length
             ? directReports.map((profile, index) => `
               <div class="team-card-wrap">
                 ${renderProfilePyramidCard(profile, index, { isMe: profile.id === session.user.id })}
               </div>`).join("")
-            : `<p class="empty-inline">Aucun collaborateur rattache pour le moment.</p>`}
+            : `<p class="empty-inline">Aucun collaborateur rattaché pour le moment.</p>`}
         </div>
       </article>
     </section>
@@ -4010,23 +4014,23 @@ function hierarchyPage() {
       <div class="org-tree" id="org-tree">
         ${displayTree.length
           ? displayTree.map((node) => renderOrgNode(node, { forceExpand: searching })).join("")
-          : `<p class="empty-state">Aucun collaborateur ne correspond a votre recherche.</p>`}
+          : `<p class="empty-state">Aucun collaborateur ne correspond à votre recherche.</p>`}
       </div>
-      <p class="hierarchy-meta">${isAdmin() ? "Les administrateurs peuvent modifier la hierarchie dans Administration." : "Contactez un administrateur pour modifier la hierarchie."}</p>
+      <p class="hierarchy-meta">${isAdmin() ? "Les administrateurs peuvent modifier la hiérarchie dans Administration." : "Contactez un administrateur pour modifier la hiérarchie."}</p>
     </article>`;
 }
 
 function creatorPage() {
   if (!isCreator()) {
-    return `<article class="card"><p class="empty-state">Acces reserve au createur de l'application.</p></article>`;
+    return `<article class="card"><p class="empty-state">Accès réservé au créateur de l'application.</p></article>`;
   }
 
   const visibility = getNavVisibility();
 
   return `
     <article class="card form-card">
-      ${cardHeading("Visibilite des onglets")}
-      <p class="creator-intro">Activez ou masquez les onglets <strong>Conges</strong>, <strong>Attestations</strong>, <strong>Hierarchie</strong>, <strong>Rapports</strong> et <strong>Journal</strong> pour chaque type de profil.</p>
+      ${cardHeading("Visibilité des onglets")}
+      <p class="creator-intro">Activez ou masquez les onglets <strong>Congés</strong>, <strong>Attestations</strong>, <strong>Hiérarchie</strong>, <strong>Rapports</strong> et <strong>Journal</strong> pour chaque type de profil.</p>
       <form id="creator-nav-form" class="feature-form creator-nav-form">
         <div class="table-wrap">
           <table class="creator-nav-table">
@@ -4055,7 +4059,7 @@ function creatorPage() {
             </tbody>
           </table>
         </div>
-        <button type="submit" class="primary">Enregistrer les reglages</button>
+        <button type="submit" class="primary">Enregistrer les réglages</button>
       </form>
     </article>
     ${renderCreatorAccountsSection()}`;
@@ -4063,7 +4067,7 @@ function creatorPage() {
 
 function adminPage() {
   if (!isAdmin()) {
-    return `<article class="card"><p class="empty-state">Acces reserve aux administrateurs.</p></article>`;
+    return `<article class="card"><p class="empty-state">Accès réservé aux administrateurs.</p></article>`;
   }
 
   return `
@@ -4074,14 +4078,14 @@ function adminPage() {
         <form id="admin-hr-doc-form" class="feature-form" enctype="multipart/form-data">
           <label>
             Titre
-            <input type="text" name="title" required placeholder="Ex. Reglement interieur">
+            <input type="text" name="title" required placeholder="Ex. Règlement intérieur">
           </label>
           <label>
             Description
             <input type="text" name="description" placeholder="Courte description">
           </label>
           <label>
-            Categorie
+            Catégorie
             <input type="text" name="category" value="General">
           </label>
           <label class="file-upload">
@@ -4091,7 +4095,7 @@ function adminPage() {
           </label>
           <button type="submit" class="primary">Televerser et publier</button>
         </form>
-        ${usesDatabase() ? "" : `<p class="hierarchy-meta">Le televersement de fichiers est disponible apres connexion Microsoft.</p>`}
+        ${usesDatabase() ? "" : `<p class="hierarchy-meta">Le téléversement de fichiers est disponible après connexion à Microsoft.</p>`}
       </article>
       <article class="card form-card">
         ${cardHeading("Ajouter un bulletin de paie")}
@@ -4127,14 +4131,14 @@ function adminPage() {
           </label>
           <button type="submit" class="primary">Televerser le bulletin</button>
         </form>
-        ${usesDatabase() ? "" : `<p class="hierarchy-meta">Le televersement de fichiers est disponible apres connexion Microsoft.</p>`}
+        ${usesDatabase() ? "" : `<p class="hierarchy-meta">Le téléversement de fichiers est disponible après connexion à Microsoft.</p>`}
       </article>
     </div>
     <article class="card table-card page-spacer">
-      <div class="toolbar"><h3>Documents RH publies</h3></div>
+      <div class="toolbar"><h3>Documents RH publiés</h3></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Document</th><th>Categorie</th><th>Date</th><th>Fichier</th><th></th></tr></thead>
+          <thead><tr><th>Document</th><th>Catégorie</th><th>Date</th><th>Fichier</th><th></th></tr></thead>
           <tbody>
             ${getHrDocuments().length
               ? getHrDocuments().map((doc) => `
@@ -4145,7 +4149,7 @@ function adminPage() {
                   <td><a ${privateFileLinkAttributes("hr-document", doc)} target="_blank" rel="noopener noreferrer">Ouvrir</a></td>
                   <td><button type="button" class="outline-button admin-delete-hr-doc" data-doc-id="${doc.id}" data-storage-path="${escapeHtml(doc.storage_path || "")}">Supprimer</button></td>
                 </tr>`).join("")
-              : `<tr><td colspan="5" class="empty-cell">Aucun document publie.</td></tr>`}
+              : `<tr><td colspan="5" class="empty-cell">Aucun document publié.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -4219,27 +4223,27 @@ function buildEdsRows() {
 
 function reportsPage() {
   if (!canViewReports()) {
-    return `<article class="card"><p class="empty-state">Acces aux rapports non autorise pour votre profil.</p></article>`;
+    return `<article class="card"><p class="empty-state">Accès aux rapports non autorisé pour votre profil.</p></article>`;
   }
   const range = getEdsRange();
   const rows = buildEdsRows();
   const teamScope = canViewTeamPunches() || isAdmin();
   return `
-    <p class="data-note">Cycle paie EDS : du ${formatDate(range.start)} au ${formatDate(range.end)} (21 du mois precedent → 20 du mois en cours). ${teamScope ? "Vue equipe." : "Votre temps uniquement."} M-Work n'est pas connecte, volontairement.</p>
+    <p class="data-note">Cycle de paie EDS : du ${formatDate(range.start)} au ${formatDate(range.end)} (du 21 du mois précédent au 20 du mois en cours). ${teamScope ? "Vue équipe." : "Votre temps uniquement."} M-Work n'est volontairement pas connecté.</p>
     ${renderGtaTeamInbox()}
     <article class="card form-card page-spacer">
       ${cardHeading("Exports")}
       <div class="team-punches-actions">
         <button type="button" id="export-eds" class="primary">Export EDS consolide</button>
-        <button type="button" id="export-absences" class="outline-button">Absences / conges</button>
+        <button type="button" id="export-absences" class="outline-button">Absences / congés</button>
         <button type="button" id="export-retards" class="outline-button">Retards et heures manquantes</button>
       </div>
     </article>
     <article class="card table-card page-spacer">
-      <div class="toolbar"><h3>Apercu EDS</h3></div>
+      <div class="toolbar"><h3>Aperçu EDS</h3></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Collaborateur</th><th>Planifie</th><th>Realise</th><th>Retard</th><th>Manquant</th><th>HS</th><th>CP</th><th>Sans solde</th><th>Maladie</th></tr></thead>
+          <thead><tr><th>Collaborateur</th><th>Planifié</th><th>Réalisé</th><th>Retard</th><th>Manquant</th><th>HS</th><th>CP</th><th>Sans solde</th><th>Maladie</th></tr></thead>
           <tbody>
             ${rows.length
               ? rows.map((row) => `
@@ -4254,7 +4258,7 @@ function reportsPage() {
                   <td>${row.unpaid}</td>
                   <td>${row.sick}</td>
                 </tr>`).join("")
-              : `<tr><td colspan="9" class="empty-cell">Aucune donnee sur le cycle.</td></tr>`}
+              : `<tr><td colspan="9" class="empty-cell">Aucune donnée pour ce cycle.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -4263,13 +4267,13 @@ function reportsPage() {
 
 function pageContent() {
   if (appData.loading) {
-    return `<div class="boot-message"><span class="loader" aria-hidden="true"></span>Chargement des donnees...</div>`;
+    return `<div class="boot-message"><span class="loader" aria-hidden="true"></span>Chargement des données...</div>`;
   }
   if (appData.error) {
     return `
       <article class="card error-card">
         <p class="error-message">${appData.error}</p>
-        <button type="button" id="retry-load" class="primary">Reessayer</button>
+        <button type="button" id="retry-load" class="primary">Réessayer</button>
       </article>`;
   }
   return {
@@ -4294,53 +4298,53 @@ function isJwtClockError(error) {
 function formatAppError(error) {
   const message = (error?.message || "").toLowerCase();
   if (isJwtClockError(error)) {
-    return "Synchronisation de session en cours. Cliquez sur Reessayer ou attendez quelques secondes. Verifiez aussi que l'heure de votre ordinateur est correcte.";
+    return "Synchronisation de la session en cours. Cliquez sur Réessayer ou attendez quelques secondes. Vérifiez également que l'heure de votre ordinateur est correcte.";
   }
   if (message.includes("does not exist") || (message.includes("relation") && message.includes("profiles"))) {
-    return "Base Supabase non configuree. Executez supabase/schema.sql puis supabase/admin.sql dans SQL Editor.";
+    return "Base Supabase non configurée. Exécutez supabase/schema.sql puis supabase/admin.sql dans SQL Editor.";
   }
   if (message.includes("bucket") || message.includes("storage")) {
-    return "Stockage Supabase non configure. Executez supabase/storage-hr-documents.sql dans SQL Editor.";
+    return "Stockage Supabase non configuré. Exécutez supabase/storage-hr-documents.sql dans SQL Editor.";
   }
   if (message.includes("punch_corrections") || message.includes("overtime_requests") || message.includes("activity_entries") || message.includes("shift_code") || message.includes("workflow_step")) {
-    return "Module Cegid GTA non configure. Executez supabase/cegid-gta.sql dans SQL Editor.";
+    return "Module Cegid GTA non configuré. Exécutez supabase/cegid-gta.sql dans SQL Editor.";
   }
   if (JOURNAL_META_FIELDS.some((field) => message.includes(field))) {
-    return "Colonnes du Journal non configurees. Executez supabase/time-punches-journal.sql dans SQL Editor, puis refaites un pointage d'entree.";
+    return "Colonnes du Journal non configurées. Exécutez supabase/time-punches-journal.sql dans SQL Editor, puis refaites un pointage d'entrée.";
   }
   if (message.includes("work_location") || (message.includes("column") && message.includes("time_punches"))) {
-    return "Lieu de travail non configure. Executez supabase/time-punches-location.sql dans SQL Editor, puis refaites un pointage d'entree.";
+    return "Lieu de travail non configuré. Exécutez supabase/time-punches-location.sql dans SQL Editor, puis refaites un pointage d'entrée.";
   }
   if (message.includes("permission") || message.includes("policy") || message.includes("row-level")) {
     if (message.includes("leave_requests")) {
-      return "Acces au calendrier des conges equipe refuse. Executez supabase/leave-requests-access.sql dans SQL Editor.";
+      return "Accès au calendrier des congés de l'équipe refusé. Exécutez supabase/leave-requests-access.sql dans SQL Editor.";
     }
     if (message.includes("time_punches")) {
-      return "Acces refuse aux pointages equipe. Executez supabase/time-punches-access.sql dans SQL Editor.";
+      return "Accès refusé aux pointages de l'équipe. Exécutez supabase/time-punches-access.sql dans SQL Editor.";
     }
-    return "Acces refuse aux pointages equipe. Executez supabase/time-punches-access.sql dans SQL Editor.";
+    return "Accès refusé aux pointages de l'équipe. Exécutez supabase/time-punches-access.sql dans SQL Editor.";
   }
   if (message.includes("hr_alerts") || message.includes("process_auto_clock_outs") || message.includes("notify_auto_clock_out")) {
-    return "Alertes RH non configurees. Executez supabase/auto-clock-out.sql puis supabase/hr-alerts-delete.sql dans SQL Editor.";
+    return "Alertes RH non configurées. Exécutez supabase/auto-clock-out.sql puis supabase/hr-alerts-delete.sql dans SQL Editor.";
   }
   if (message.includes("app_settings")) {
-    return "Studio createur non configure. Executez supabase/creator-nav-settings.sql dans SQL Editor.";
+    return "Studio créateur non configuré. Exécutez supabase/creator-nav-settings.sql dans SQL Editor.";
   }
   if (message.includes("pending_invites") && message.includes("check")) {
-    return "Role createur non autorise dans les invitations. Executez supabase/creator-accounts.sql dans SQL Editor.";
+    return "Rôle créateur non autorisé dans les invitations. Exécutez supabase/creator-accounts.sql dans SQL Editor.";
   }
-  return error?.message || "Impossible de charger les donnees Supabase.";
+  return error?.message || "Impossible de charger les données Supabase.";
 }
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function withTimeout(promise, ms, label = "Requete") {
+function withTimeout(promise, ms, label = "Requête") {
   return Promise.race([
     promise,
     new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`${label} trop longue. Reessayez.`)), ms);
+      setTimeout(() => reject(new Error(`${label} trop longue. Réessayez.`)), ms);
     })
   ]);
 }
@@ -4413,7 +4417,7 @@ async function refreshAppData() {
         supabaseClient.from("profiles").select("*").eq("id", userId).maybeSingle()
       ]),
       12000,
-      "Chargement des donnees"
+      "Chargement des données"
     );
 
     if (punchesRes.error) throw punchesRes.error;
@@ -4594,9 +4598,9 @@ function renderLogin(error = "") {
           <div class="brand brand-large"><span>H</span> Humana</div>
           <div class="login-message">
             <span class="eyebrow">Humana RH</span>
-            <h1>Gestion RH<br><em>simplifiee</em>.</h1>
-            <p>Pointage, conges, documents — un espace fiable pour votre quotidien professionnel.</p>
-            <div class="trust-row"><span>Heberge en France</span><span>Donnees chiffrees</span></div>
+            <h1>Gestion RH<br><em>simplifiée</em>.</h1>
+            <p>Pointage, congés, documents — un espace fiable pour votre quotidien professionnel.</p>
+            <div class="trust-row"><span>Hébergé en France</span><span>Données chiffrées</span></div>
           </div>
         </section>
         <section class="login-panel">
@@ -4609,11 +4613,11 @@ function renderLogin(error = "") {
               <span class="microsoft-logo"><i></i><i></i><i></i><i></i></span>
               Continuer avec Microsoft
             </button>
-            <div id="config-note" class="config-note">Connexion en cours de preparation...</div>
+            <div id="config-note" class="config-note">Préparation de la connexion en cours...</div>
             <p id="login-error" class="error-message" hidden></p>
             <div class="separator"><span>ou</span></div>
-            <button id="demo-login" type="button" class="demo-button">Voir l'apercu de demonstration</button>
-            <small>En continuant, vous acceptez les conditions d'utilisation et la politique de confidentialite.</small>
+            <button id="demo-login" type="button" class="demo-button">Voir l'aperçu de démonstration</button>
+            <small>En continuant, vous acceptez les conditions d'utilisation et la politique de confidentialité.</small>
           </div>
         </section>
       </main>`;
@@ -4670,7 +4674,7 @@ function renderApp() {
   app.innerHTML = `
     <div class="app-shell" data-current-page="${currentPage}">
       <aside class="sidebar">
-        <button type="button" class="brand brand-home" id="brand-home" aria-label="Retour a l'accueil">
+        <button type="button" class="brand brand-home" id="brand-home" aria-label="Retour à l'accueil">
           <span>H</span> Humana
         </button>
         <button class="close-menu" type="button" aria-label="Fermer"></button>
@@ -4679,7 +4683,7 @@ function renderApp() {
             ${item[1]}${navBadge(item[0])}
           </button>`).join("")}</nav>
         <div class="sidebar-bottom">
-          <div class="user-card"><span class="avatar avatar-sidebar-user" aria-hidden="true">${initials}</span><div class="user-card-text"><strong title="${name}">${name}</strong><span class="user-card-email" title="${email}">${email}</span>${renderUserRolePills()}</div><button type="button" id="logout" class="logout-btn" aria-label="Se deconnecter">Sortir</button></div>
+          <div class="user-card"><span class="avatar avatar-sidebar-user" aria-hidden="true">${initials}</span><div class="user-card-text"><strong title="${name}">${name}</strong><span class="user-card-email" title="${email}">${email}</span>${renderUserRolePills()}</div><button type="button" id="logout" class="logout-btn" aria-label="Se déconnecter">Sortir</button></div>
         </div>
       </aside>
       <button class="backdrop" type="button" aria-label="Fermer le menu"></button>
@@ -4691,7 +4695,7 @@ function renderApp() {
         <header class="topbar">
           <button class="menu-button" type="button" aria-label="Menu"></button>
           <div class="topbar-page">${pages[currentPage][0]}</div>
-          <div class="topbar-actions">${demoMode ? `<span class="demo-pill">Mode demo</span>` : ""}${themeToggleMarkup()}</div>
+          <div class="topbar-actions">${demoMode ? `<span class="demo-pill">Mode démo</span>` : ""}${themeToggleMarkup()}</div>
         </header>
         <div class="page">
           <header class="page-heading">
@@ -5228,12 +5232,12 @@ function bindPageEvents() {
     const rows = buildEdsRows();
     const range = getEdsRange();
     downloadCsv(`eds_${range.start}_${range.end}.csv`,
-      ["Matricule", "Nom", "Planifie", "Realise", "Retard_min", "Manquant", "HS", "CP", "Sans_solde", "Maladie"],
+      ["Matricule", "Nom", "Planifié", "Réalisé", "Retard_min", "Manquant", "HS", "CP", "Sans_solde", "Maladie"],
       rows.map((row) => [row.matricule, row.name, formatDuration(row.planned), formatDuration(row.realized), row.delay, formatDuration(row.missing), formatDuration(row.ot), row.cp, row.unpaid, row.sick]));
   });
   document.querySelector("#export-absences")?.addEventListener("click", () => {
     const requests = [...getLeaveRequests(), ...(appData.teamLeaveRequests || [])];
-    downloadCsv("absences.csv", ["Nom", "Type", "Debut", "Fin", "Duree", "Statut"],
+    downloadCsv("absences.csv", ["Nom", "Type", "Début", "Fin", "Durée", "Statut"],
       requests.map((item) => [item.name || getUserName(), item.type, item.start, item.end, item.days || item.hours, item.status]));
   });
   document.querySelector("#export-retards")?.addEventListener("click", () => {
@@ -5267,7 +5271,7 @@ function bindPageEvents() {
         : `${profiles.length} collaborateurs`;
       tree.innerHTML = displayTree.length
         ? displayTree.map((node) => renderOrgNode(node, { forceExpand: Boolean(query) })).join("")
-        : `<p class="empty-state">Aucun collaborateur ne correspond a votre recherche.</p>`;
+        : `<p class="empty-state">Aucun collaborateur ne correspond à votre recherche.</p>`;
       bindHierarchyOrgEvents();
     });
   }
@@ -5293,7 +5297,7 @@ function bindPageEvents() {
         scope: isAdmin() ? (data.get("scope") || "all") : "team"
       };
       if (new Date(teamPunchFilters.end) < new Date(teamPunchFilters.start)) {
-        alert("La date de fin doit etre apres la date de debut.");
+        alert("La date de fin doit être postérieure à la date de début.");
         return;
       }
       withAction(() => loadTeamPunches());
@@ -5336,7 +5340,7 @@ function bindPageEvents() {
         query: data.get("query") || ""
       };
       if (new Date(journalFilters.end) < new Date(journalFilters.start)) {
-        alert("La date de fin doit etre apres la date de debut.");
+        alert("La date de fin doit être postérieure à la date de début.");
         return;
       }
       journalPunchesInitialLoadDone = true;
@@ -5555,11 +5559,11 @@ function bindPageEvents() {
       ? "hours"
       : (def?.fixedDays ? "days" : String(data.get("unit") || "days"));
     if (def?.adminOnly && !isAdmin()) {
-      alert("Ce code d'absence est reserve aux RH.");
+      alert("Ce code d'absence est réservé aux RH.");
       return;
     }
     if (def?.grades && !isAdmin() && !def.grades.includes(getLeaveGrade())) {
-      alert("Ce code de conges payes n'est pas disponible pour votre profil.");
+      alert("Ce code de congés payés n'est pas disponible pour votre profil.");
       return;
     }
     let end = data.get("end");
@@ -5567,7 +5571,7 @@ function bindPageEvents() {
       end = addWorkingDaysKey(start, def.fixedDays);
     }
     if (new Date(end) < new Date(start)) {
-      alert("La date de fin doit etre apres la date de debut.");
+      alert("La date de fin doit être postérieure à la date de début.");
       return;
     }
     if (hasOverlappingLeave(start, end)) {
@@ -5575,12 +5579,12 @@ function bindPageEvents() {
       return;
     }
     if (seniorityMonths() < 6 && !isAdmin() && leaveTypeKey(type) === "cp") {
-      alert("Anciennete minimale de 6 mois pour poser des conges payes, sauf derogation RH.");
+      alert("Une ancienneté minimale de 6 mois est requise pour poser des congés payés, sauf dérogation RH.");
       return;
     }
     const days = unit === "hours" ? 0 : (def?.fixedDays || (unit === "half" ? 0.5 : daysBetween(start, end)));
     if (unit !== "hours" && days <= 0) {
-      alert("La periode ne contient aucun jour ouvré.");
+      alert("La période ne contient aucun jour ouvré.");
       return;
     }
     if (leaveNeedsAttachment(type) && !data.get("file")?.name) {
@@ -5684,7 +5688,7 @@ function bindPageEvents() {
       };
 
       if (usesDatabase()) {
-        if (!fileEntry) throw new Error("Selectionnez un fichier a televerser.");
+        if (!fileEntry) throw new Error("Sélectionnez un fichier à téléverser.");
         if (fileEntry.size > HR_DOCUMENT_MAX_BYTES) {
           throw new Error("Fichier trop volumineux. Taille maximum : 10 Mo.");
         }
@@ -5693,7 +5697,7 @@ function bindPageEvents() {
         const { error } = await supabaseClient.from("hr_documents").insert(payload);
         if (error) throw error;
       } else {
-        if (!fileEntry) throw new Error("Selectionnez un fichier ou connectez-vous avec Microsoft.");
+        if (!fileEntry) throw new Error("Sélectionnez un fichier ou connectez-vous avec Microsoft.");
         const docs = loadStore("hrDocuments", demoHrDocuments);
         docs.unshift({
           id: `local-${Date.now()}`,
@@ -5755,7 +5759,7 @@ function bindPageEvents() {
       };
 
       if (usesDatabase()) {
-        if (!fileEntry) throw new Error("Selectionnez un fichier PDF a televerser.");
+        if (!fileEntry) throw new Error("Sélectionnez un fichier PDF à téléverser.");
         if (fileEntry.size > HR_DOCUMENT_MAX_BYTES) {
           throw new Error("Fichier trop volumineux. Taille maximum : 10 Mo.");
         }
@@ -5776,7 +5780,7 @@ function bindPageEvents() {
           await supabaseClient.storage.from(HR_DOCUMENTS_BUCKET).remove([existing.storage_path]);
         }
       } else if (userId === session?.user?.id || demoMode) {
-        if (!fileEntry) throw new Error("Selectionnez un fichier ou connectez-vous avec Microsoft.");
+        if (!fileEntry) throw new Error("Sélectionnez un fichier ou connectez-vous avec Microsoft.");
         const slips = loadStore("payslips", buildDemoPayslips());
         slips.unshift({
           id: `local-${Date.now()}`,
@@ -6059,10 +6063,10 @@ window.humanaRender = async function (authSession) {
 function hydrateDemoWorkspace() {
   const profiles = [
     { id: "u-camille", email: "camille.moreau@humaine.fr", full_name: "Camille Moreau", job_title: "Directrice RH", department: "Ressources humaines", role: "creator", manager_id: "", matricule: "HUM-1001", leave_grade: "codir", shift_code: "cs", hired_at: "2018-03-01", leave_balance_cp: 30, leave_balance_rtt: 8 },
-    { id: "u-thomas", email: "thomas.bernard@humaine.fr", full_name: "Thomas Bernard", job_title: "Responsable operations", department: "Operations", role: "manager", manager_id: "u-camille", matricule: "HUM-1042", leave_grade: "manager", shift_code: "cs", hired_at: "2020-01-15", leave_balance_cp: 24, leave_balance_rtt: 6 },
+    { id: "u-thomas", email: "thomas.bernard@humaine.fr", full_name: "Thomas Bernard", job_title: "Responsable opérations", department: "Opérations", role: "manager", manager_id: "u-camille", matricule: "HUM-1042", leave_grade: "manager", shift_code: "cs", hired_at: "2020-01-15", leave_balance_cp: 24, leave_balance_rtt: 6 },
     { id: "u-sarah", email: "sarah.nguyen@humaine.fr", full_name: "Sarah Nguyen", job_title: "Responsable commercial", department: "Commercial", role: "manager", manager_id: "u-camille", matricule: "HUM-1088", leave_grade: "manager", shift_code: "cs", hired_at: "2019-09-01", leave_balance_cp: 24, leave_balance_rtt: 8 },
-    { id: "u-lea", email: "lea.martin@humaine.fr", full_name: "Lea Martin", job_title: "Chargee de paie", department: "Ressources humaines", role: "employee", manager_id: "u-thomas", matricule: "HUM-1214", leave_grade: "employee", shift_code: "cs", hired_at: "2024-01-08", leave_balance_cp: 18, leave_balance_rtt: 5 },
-    { id: "u-hugo", email: "hugo.petit@humaine.fr", full_name: "Hugo Petit", job_title: "Ingenieur R&D", department: "R&D", role: "employee", manager_id: "u-thomas", matricule: "HUM-1307", leave_grade: "employee", shift_code: "rnd", hired_at: "2023-06-12", leave_balance_cp: 18, leave_balance_rtt: 8 },
+    { id: "u-lea", email: "lea.martin@humaine.fr", full_name: "Léa Martin", job_title: "Chargée de paie", department: "Ressources humaines", role: "employee", manager_id: "u-thomas", matricule: "HUM-1214", leave_grade: "employee", shift_code: "cs", hired_at: "2024-01-08", leave_balance_cp: 18, leave_balance_rtt: 5 },
+    { id: "u-hugo", email: "hugo.petit@humaine.fr", full_name: "Hugo Petit", job_title: "Ingénieur R&D", department: "R&D", role: "employee", manager_id: "u-thomas", matricule: "HUM-1307", leave_grade: "employee", shift_code: "rnd", hired_at: "2023-06-12", leave_balance_cp: 18, leave_balance_rtt: 8 },
     { id: "u-nina", email: "nina.rossi@humaine.fr", full_name: "Nina Rossi", job_title: "Commerciale", department: "Commercial", role: "employee", manager_id: "u-sarah", matricule: "HUM-1420", leave_grade: "employee", shift_code: "cs", hired_at: "2025-11-02", leave_balance_cp: 4, leave_balance_rtt: 2 }
   ];
   session = {
@@ -6100,7 +6104,7 @@ function hydrateDemoWorkspace() {
     id: "leave-demo-1",
     userId: "u-lea",
     name: "Lea Martin",
-    type: "Conges payes",
+    type: "Congés payés",
     start: toDateKey(new Date(Date.now() + 86400000 * 7)),
     end: toDateKey(new Date(Date.now() + 86400000 * 9)),
     days: 3,
@@ -6115,7 +6119,7 @@ function hydrateDemoWorkspace() {
     date: todayKey,
     time: "09:12",
     punchKind: "in",
-    reason: "Oubli de badge a l'arrivee",
+    reason: "Oubli de badge à l'arrivée",
     status: "Approuve",
     reviewedBy: "u-camille",
     reviewedByName: "Camille Moreau",
@@ -6126,7 +6130,7 @@ function hydrateDemoWorkspace() {
     date: todayKey,
     time: "12:40",
     punchKind: "break_start",
-    reason: "Pause dej non pointee",
+    reason: "Pause déjeuner non pointée",
     status: "A valider",
     created: new Date().toISOString()
   }]);
