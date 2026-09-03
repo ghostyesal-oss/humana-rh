@@ -19,6 +19,8 @@ let journalColumnFilters = {};
 let journalOpenColumn = "";
 let journalPunchesInitialLoadDone = false;
 let journalMetaColumnsEnabled = true;
+let journalFullscreen = false;
+let journalFullscreenListenerBound = false;
 let leaveCalendarMonth = null;
 let initialAuthHandled = false;
 
@@ -3423,6 +3425,80 @@ async function loadJournalPunches(filters = journalFilters) {
   return appData.journalPunches;
 }
 
+function getJournalFullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+function requestJournalFullscreen(element) {
+  if (element.requestFullscreen) return element.requestFullscreen();
+  if (element.webkitRequestFullscreen) return element.webkitRequestFullscreen();
+  return Promise.reject(new Error("unsupported"));
+}
+
+function exitJournalFullscreen() {
+  if (document.exitFullscreen) return document.exitFullscreen();
+  if (document.webkitExitFullscreen) return document.webkitExitFullscreen();
+  return Promise.resolve();
+}
+
+function applyJournalFullscreenUi() {
+  const card = document.querySelector(".journal-card");
+  const button = document.querySelector("#journal-fullscreen");
+  const active = Boolean(journalFullscreen && card);
+  document.body.classList.toggle("journal-expanded-open", active);
+  card?.classList.toggle("is-journal-expanded", active);
+  if (button) {
+    button.textContent = active ? "Fermer le plein écran" : "Ouvrir en plein écran";
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  }
+}
+
+function closeJournalFullscreen() {
+  journalFullscreen = false;
+  applyJournalFullscreenUi();
+  if (getJournalFullscreenElement()) {
+    exitJournalFullscreen().catch(() => {});
+  }
+}
+
+function bindJournalFullscreen() {
+  const card = document.querySelector(".journal-card");
+  const button = document.querySelector("#journal-fullscreen");
+  if (!card || !button) {
+    if (currentPage !== "journal") closeJournalFullscreen();
+    return;
+  }
+
+  applyJournalFullscreenUi();
+
+  button.addEventListener("click", async () => {
+    journalFullscreen = !journalFullscreen;
+    applyJournalFullscreenUi();
+    try {
+      if (journalFullscreen) await requestJournalFullscreen(card);
+      else if (getJournalFullscreenElement()) await exitJournalFullscreen();
+    } catch {
+      /* Le mode CSS reste actif si l'API plein écran est refusée. */
+    }
+  });
+
+  if (journalFullscreenListenerBound) return;
+  journalFullscreenListenerBound = true;
+  const onFullscreenChange = () => {
+    if (getJournalFullscreenElement()) return;
+    if (!document.querySelector(".journal-card")?.classList.contains("is-journal-expanded")) {
+      journalFullscreen = false;
+      applyJournalFullscreenUi();
+    }
+  };
+  document.addEventListener("fullscreenchange", onFullscreenChange);
+  document.addEventListener("webkitfullscreenchange", onFullscreenChange);
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !journalFullscreen) return;
+    closeJournalFullscreen();
+  });
+}
+
 function exportJournalCsv() {
   const sessions = getJournalSessions();
   if (!sessions.length) {
@@ -3536,7 +3612,12 @@ function journalPage() {
     <article class="card table-card page-spacer journal-card">
       <div class="toolbar">
         <h3>Journal</h3>
-        <span class="hierarchy-result-count">${sessions.length} ligne${sessions.length > 1 ? "s" : ""}</span>
+        <div class="toolbar-actions">
+          <span class="hierarchy-result-count">${sessions.length} ligne${sessions.length > 1 ? "s" : ""}</span>
+          <button type="button" id="journal-fullscreen" class="outline-button" aria-pressed="${journalFullscreen ? "true" : "false"}">
+            ${journalFullscreen ? "Fermer le plein écran" : "Ouvrir en plein écran"}
+          </button>
+        </div>
       </div>
       <div class="table-wrap journal-table-wrap">
         <table class="journal-table">
@@ -5373,6 +5454,8 @@ function bindPageEvents() {
     exportJournalCsv();
   });
 
+  bindJournalFullscreen();
+
   document.querySelectorAll("[data-journal-col]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -5844,6 +5927,8 @@ function bindAppEvents() {
       }
       if (nextPage === "journal") {
         journalPunchesInitialLoadDone = false;
+      } else if (currentPage === "journal") {
+        closeJournalFullscreen();
       }
       currentPage = nextPage;
       document.querySelector(".sidebar")?.classList.remove("open");
@@ -5869,6 +5954,7 @@ function bindAppEvents() {
     initialAuthHandled = false;
     teamPunchesInitialLoadDone = false;
     journalPunchesInitialLoadDone = false;
+    journalFullscreen = false;
     journalFilters = { start: "", end: "", userId: "", query: "" };
     journalColumnFilters = {};
     journalOpenColumn = "";

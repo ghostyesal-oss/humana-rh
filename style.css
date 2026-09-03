@@ -1435,6 +1435,13 @@ button.brand:focus-visible {
   color: var(--text);
 }
 
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .punch-log {
   display: grid;
   gap: 2px;
@@ -3950,6 +3957,37 @@ tbody tr:hover td { background: var(--surface-2); }
 
 .journal-card .table-wrap {
   max-height: min(70vh, 720px);
+}
+
+.journal-card.is-journal-expanded,
+.journal-card:fullscreen,
+.journal-card:-webkit-full-screen {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  border-radius: 0;
+  background: var(--surface);
+}
+
+.journal-card.is-journal-expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+}
+
+.journal-card.is-journal-expanded .table-wrap,
+.journal-card:fullscreen .table-wrap,
+.journal-card:-webkit-full-screen .table-wrap {
+  max-height: none;
+  flex: 1;
+  min-height: 0;
+}
+
+body.journal-expanded-open {
+  overflow: hidden;
 }
 
 .journal-table {
