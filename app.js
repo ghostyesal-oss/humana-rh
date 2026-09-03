@@ -14,7 +14,7 @@ const collapsedOrgNodes = new Set();
 let teamPunchFilters = { start: "", end: "", userId: "", scope: "all" };
 let teamPunchesInitialLoadDone = false;
 let journalFilters = { start: "", end: "", userId: "", query: "" };
-let journalSort = { key: "occurredAt", dir: "desc" };
+let journalSort = { key: "connectedAt", dir: "desc" };
 let journalColumnFilters = {};
 let journalOpenColumn = "";
 let journalPunchesInitialLoadDone = false;
@@ -261,9 +261,10 @@ const JOURNAL_COLUMNS = [
   { key: "matricule", label: "Matricule", short: "Matricule" },
   { key: "name", label: "Nom_Collaborateur", short: "Collaborateur" },
   { key: "department", label: "Département", short: "Dépt" },
-  { key: "event", label: "Type_Evenement", short: "Événement" },
-  { key: "date", label: "Date", short: "Date" },
-  { key: "time", label: "Heure", short: "Heure" },
+  { key: "dateIn", label: "Date_Connexion", short: "Date in" },
+  { key: "timeIn", label: "Heure_Connexion", short: "Heure in" },
+  { key: "dateOut", label: "Date_Déconnexion", short: "Date out" },
+  { key: "timeOut", label: "Heure_Déconnexion", short: "Heure out" },
   { key: "duration", label: "Durée_Session", short: "Durée" },
   { key: "method", label: "Moyen_Connexion", short: "Moyen" },
   { key: "os", label: "Système_Exploitation", short: "OS" },
@@ -1346,8 +1347,7 @@ async function processAutoClockOutForUser(userId, punches) {
   const { error } = await supabaseClient.from("time_punches").insert({
     user_id: userId,
     punch_type: "out",
-    punched_at: autoOutTime.toISOString(),
-    disconnect_reason: "Déconnexion automatique"
+    punched_at: autoOutTime.toISOString()
   });
   if (error) throw error;
 
@@ -2155,19 +2155,15 @@ async function collectJournalMeta() {
   return { ...env, ip };
 }
 
-function applyJournalEnvMeta(target, meta) {
-  if (!target || !meta) return target;
-  target.connection_method = meta.method;
-  target.operating_system = meta.os;
-  target.browser_application = meta.browser;
-  if (meta.ip) target.ip_address = meta.ip;
-  target.network_type = meta.network;
-  return target;
-}
-
 function applyJournalMetaToPayload(payload, meta, punchType) {
   if (!meta || !journalMetaColumnsEnabled) return payload;
-  applyJournalEnvMeta(payload, meta);
+  if (punchType === "in") {
+    payload.connection_method = meta.method;
+    payload.operating_system = meta.os;
+    payload.browser_application = meta.browser;
+    if (meta.ip) payload.ip_address = meta.ip;
+    payload.network_type = meta.network;
+  }
   if (punchType === "out") {
     payload.disconnect_reason = payload.disconnect_reason || "Sortie manuelle";
   }
@@ -2176,12 +2172,18 @@ function applyJournalMetaToPayload(payload, meta, punchType) {
 
 function applyJournalMetaToDemoPunch(punch, meta, punchType) {
   if (!meta) return punch;
-  applyJournalEnvMeta(punch, meta);
-  punch.method = meta.method;
-  punch.os = meta.os;
-  punch.browser = meta.browser;
-  punch.ip = meta.ip || "";
-  punch.network = meta.network;
+  if (punchType === "in") {
+    punch.connection_method = meta.method;
+    punch.operating_system = meta.os;
+    punch.browser_application = meta.browser;
+    punch.ip_address = meta.ip || "";
+    punch.network_type = meta.network;
+    punch.method = meta.method;
+    punch.os = meta.os;
+    punch.browser = meta.browser;
+    punch.ip = meta.ip || "";
+    punch.network = meta.network;
+  }
   if (punchType === "out") punch.disconnect_reason = "Sortie manuelle";
   return punch;
 }
@@ -2342,13 +2344,13 @@ function buildClockPunchPayload(punchType) {
     punch_type: punchType,
     punched_at: new Date().toISOString()
   };
-  if (punchType === "in" || punchType === "out") payload.work_location = getPreferredWorkLocation();
+  if (punchType === "in") payload.work_location = getPreferredWorkLocation();
   return payload;
 }
 
 function buildDemoClockPunch(punchType) {
   const punch = { type: punchType, time: new Date().toISOString() };
-  if (punchType === "in" || punchType === "out") punch.workLocation = getPreferredWorkLocation();
+  if (punchType === "in") punch.workLocation = getPreferredWorkLocation();
   return punch;
 }
 
@@ -3267,12 +3269,6 @@ function buildSeedJournalRows(userId) {
       user_id: userId,
       punch_type: "out",
       punched_at: outTime.toISOString(),
-      work_location: sample.location,
-      connection_method: meta.method,
-      operating_system: meta.os,
-      browser_application: meta.browser,
-      ip_address: sample.autoOut ? "" : `176.129.20.${10 + index}`,
-      network_type: sample.location === "remote" ? "Wi-Fi" : "LAN",
       disconnect_reason: sample.autoOut ? "Déconnexion automatique" : "Sortie manuelle",
       profiles: { full_name: profile.full_name || getUserName(), email: profile.email || "" }
     });
@@ -3303,12 +3299,6 @@ function displayOrDash(value) {
   return text ? text : "—";
 }
 
-function punchLocationLabel(row, fallback) {
-  const value = row?.work_location;
-  if (value) return workLocationLabel(value);
-  return fallback || "—";
-}
-
 function finalizeJournalSession(open, outRow) {
   const profile = profileById(open.userId) || open.inRow.profiles || appData.profile || {};
   const inTime = open.inRow.punched_at;
@@ -3319,7 +3309,9 @@ function finalizeJournalSession(open, outRow) {
     storedReason.toLowerCase().includes("automat")
     || Math.abs(durationMs - AUTO_CLOCK_OUT_MS) < 120000
   );
+  const status = outTime ? "Déconnecté" : "Connecté";
   const reason = !outTime ? "—" : (autoOut ? "Déconnexion automatique" : (storedReason || "Sortie manuelle"));
+  const locationValue = open.inRow.work_location;
   return {
     sessionId: makeSessionId(open.inRow),
     matricule: displayOrDash(getProfileMatricule(open.userId)),
@@ -3327,51 +3319,22 @@ function finalizeJournalSession(open, outRow) {
     department: displayOrDash(profile.department),
     connectedAt: inTime,
     disconnectedAt: outTime,
+    dateIn: formatDate(inTime),
+    timeIn: formatTimeSeconds(inTime),
+    dateOut: outTime ? formatDate(outTime) : "—",
+    timeOut: outTime ? formatTimeSeconds(outTime) : "—",
     duration: formatDuration(durationMs),
     durationMs,
+    method: displayOrDash(open.inRow.connection_method),
+    os: displayOrDash(open.inRow.operating_system),
+    browser: displayOrDash(open.inRow.browser_application),
+    ip: displayOrDash(open.inRow.ip_address),
+    network: displayOrDash(open.inRow.network_type),
+    location: locationValue ? workLocationLabel(locationValue) : "—",
+    status,
     reason,
-    userId: open.userId,
-    inRow: open.inRow,
-    outRow: outRow || null
+    userId: open.userId
   };
-}
-
-function toJournalEventRow(session, kind) {
-  const isOut = kind === "out";
-  const source = isOut ? session.outRow : session.inRow;
-  const occurredAt = isOut ? session.disconnectedAt : session.connectedAt;
-  return {
-    sessionId: session.sessionId,
-    matricule: session.matricule,
-    name: session.name,
-    department: session.department,
-    event: isOut ? "Déconnexion" : "Connexion",
-    eventKey: kind,
-    date: occurredAt ? formatDate(occurredAt) : "—",
-    time: occurredAt ? formatTimeSeconds(occurredAt) : "—",
-    occurredAt,
-    duration: isOut || !session.disconnectedAt ? session.duration : "—",
-    durationMs: isOut || !session.disconnectedAt ? session.durationMs : 0,
-    method: displayOrDash(source?.connection_method),
-    os: displayOrDash(source?.operating_system),
-    browser: displayOrDash(source?.browser_application),
-    ip: displayOrDash(source?.ip_address),
-    network: displayOrDash(source?.network_type),
-    location: punchLocationLabel(source, isOut ? punchLocationLabel(session.inRow) : "—"),
-    status: isOut ? "Déconnecté" : "Connecté",
-    reason: isOut ? session.reason : "—",
-    userId: session.userId,
-    connectedAt: session.connectedAt,
-    disconnectedAt: session.disconnectedAt
-  };
-}
-
-function expandJournalEventRows(sessions) {
-  return sessions.flatMap((session) => {
-    const rows = [toJournalEventRow(session, "in")];
-    if (session.disconnectedAt) rows.push(toJournalEventRow(session, "out"));
-    return rows;
-  });
 }
 
 function buildPunchSessions(punchRows) {
@@ -3408,18 +3371,11 @@ function getJournalRange() {
     : getDefaultTeamPunchRange();
 }
 
-function dateInJournalRange(dateValue, range) {
-  if (!dateValue) return false;
-  const dayKey = toDateKey(new Date(dateValue));
-  return dayKey >= range.start && dayKey <= range.end;
-}
-
 function getUnfilteredJournalSessions() {
   const range = getJournalRange();
   return buildPunchSessions(getJournalPunchSource()).filter((session) => {
-    const inRange = dateInJournalRange(session.connectedAt, range)
-      || dateInJournalRange(session.disconnectedAt, range);
-    if (!inRange) return false;
+    const dayKey = toDateKey(new Date(session.connectedAt));
+    if (dayKey < range.start || dayKey > range.end) return false;
     if (journalFilters.userId && session.userId !== journalFilters.userId) return false;
     return true;
   });
@@ -3427,7 +3383,7 @@ function getUnfilteredJournalSessions() {
 
 function getJournalSessions() {
   const query = (journalFilters.query || "").trim().toLowerCase();
-  let sessions = expandJournalEventRows(getUnfilteredJournalSessions());
+  let sessions = getUnfilteredJournalSessions();
 
   if (query) {
     sessions = sessions.filter((session) => JOURNAL_COLUMNS.some((column) =>
@@ -3441,13 +3397,12 @@ function getJournalSessions() {
   });
 
   const dir = journalSort.dir === "asc" ? 1 : -1;
-  const key = journalSort.key || "occurredAt";
+  const key = journalSort.key || "connectedAt";
   sessions.sort((a, b) => {
-    if (key === "occurredAt" || key === "date" || key === "time" || key === "connectedAt" || key === "disconnectedAt") {
-      const aTime = a.occurredAt ? new Date(a.occurredAt).getTime() : 0;
-      const bTime = b.occurredAt ? new Date(b.occurredAt).getTime() : 0;
-      if (aTime !== bTime) return (aTime - bTime) * dir;
-      return String(a.eventKey || "").localeCompare(String(b.eventKey || "")) * dir;
+    if (key === "connectedAt" || key === "disconnectedAt") {
+      const aTime = a[key] ? new Date(a[key]).getTime() : 0;
+      const bTime = b[key] ? new Date(b[key]).getTime() : 0;
+      return (aTime - bTime) * dir;
     }
     if (key === "duration") return ((a.durationMs || 0) - (b.durationMs || 0)) * dir;
     return String(a[key] || "").localeCompare(String(b[key] || ""), "fr", { numeric: true }) * dir;
@@ -3456,7 +3411,7 @@ function getJournalSessions() {
 }
 
 function uniqueJournalValues(key) {
-  return [...new Set(expandJournalEventRows(getUnfilteredJournalSessions()).map((session) => String(session[key] || "—")))]
+  return [...new Set(getUnfilteredJournalSessions().map((session) => String(session[key] || "—")))]
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }));
 }
@@ -3599,27 +3554,6 @@ function renderJournalStatus(status) {
   return `<span class="journal-status journal-status--${tone}">${escapeHtml(status)}</span>`;
 }
 
-function renderJournalEventCell(row, column) {
-  const value = displayOrDash(row[column.key]);
-  const text = escapeHtml(value);
-  if (column.key === "sessionId" || column.key === "ip") {
-    return `<td title="${text}"><code class="journal-id">${text}</code></td>`;
-  }
-  if (column.key === "name") {
-    return `<td title="${text}"><strong>${text}</strong></td>`;
-  }
-  if (column.key === "event") {
-    return `<td title="${text}"><span class="journal-event journal-event--${escapeHtml(row.eventKey || "in")}">${text}</span></td>`;
-  }
-  if (column.key === "status") {
-    return `<td title="${text}">${renderJournalStatus(row.status)}</td>`;
-  }
-  if (column.key === "duration") {
-    return `<td title="${text}"><strong>${text}</strong></td>`;
-  }
-  return `<td title="${text}">${text}</td>`;
-}
-
 function renderJournalColumnMenu(column) {
   if (journalOpenColumn !== column.key) return "";
   const values = uniqueJournalValues(column.key);
@@ -3647,9 +3581,7 @@ function journalPage() {
   const range = getJournalRange();
   const sessions = getJournalSessions();
   const profiles = getJournalProfiles();
-  const sessionCount = new Set(sessions.map((row) => row.sessionId)).size;
-  const inCount = sessions.filter((row) => row.eventKey === "in").length;
-  const outCount = sessions.filter((row) => row.eventKey === "out").length;
+  const openCount = sessions.filter((session) => session.status === "Connecté").length;
   const canFilterPeople = usesDatabase();
   let dbNote = "";
   if (!usesDatabase()) {
@@ -3657,7 +3589,7 @@ function journalPage() {
   } else if (appData.journalMetaMissing) {
     dbNote = `<p class="data-note">Colonnes techniques absentes de la base. Exécutez <code>supabase/time-punches-journal.sql</code> dans Supabase SQL Editor, puis refaites un pointage d'entrée.</p>`;
   } else if (sessions.length && sessions.every((session) => session.method === "—" && session.os === "—" && session.browser === "—" && session.ip === "—")) {
-    dbNote = `<p class="data-note">Les sessions déjà enregistrées n'ont pas d'IP, d'OS ni de navigateur. Ces détails apparaîtront au prochain pointage d'entrée ou de sortie.</p>`;
+    dbNote = `<p class="data-note">Les sessions déjà enregistrées n'ont pas d'IP, d'OS ni de navigateur. Ces détails apparaîtront au prochain pointage d'entrée.</p>`;
   }
 
   return `
@@ -3699,18 +3631,18 @@ function journalPage() {
     <section class="team-punches-summary page-spacer">
       <article class="hours-card team-punch-summary-card">
         <span>Sessions</span>
-        <strong>${sessionCount}</strong>
+        <strong>${sessions.length}</strong>
         <small>sur la période</small>
       </article>
       <article class="hours-card team-punch-summary-card">
-        <span>Connexions</span>
-        <strong>${inCount}</strong>
-        <small>lignes d'entrée</small>
+        <span>En cours</span>
+        <strong>${openCount}</strong>
+        <small>connexion active</small>
       </article>
       <article class="hours-card team-punch-summary-card">
-        <span>Déconnexions</span>
-        <strong>${outCount}</strong>
-        <small>lignes de sortie</small>
+        <span>Déconnectées</span>
+        <strong>${sessions.length - openCount}</strong>
+        <small>sessions closes</small>
       </article>
     </section>
     <div class="journal-table-host">
@@ -3728,8 +3660,8 @@ function journalPage() {
         <table class="journal-table">
           <colgroup>
             <col class="journal-col-id"><col class="journal-col-mat"><col class="journal-col-name"><col class="journal-col-dept">
-            <col class="journal-col-event"><col class="journal-col-date"><col class="journal-col-time"><col class="journal-col-dur">
-            <col class="journal-col-method"><col class="journal-col-os"><col class="journal-col-browser">
+            <col class="journal-col-date"><col class="journal-col-time"><col class="journal-col-date"><col class="journal-col-time">
+            <col class="journal-col-dur"><col class="journal-col-method"><col class="journal-col-os"><col class="journal-col-browser">
             <col class="journal-col-ip"><col class="journal-col-net"><col class="journal-col-loc"><col class="journal-col-status"><col class="journal-col-reason">
           </colgroup>
           <thead>
@@ -3747,9 +3679,25 @@ function journalPage() {
           <tbody>
             ${sessions.length
               ? sessions.map((session) => `
-                <tr class="journal-row journal-row--${session.eventKey || "in"}">
-                  ${JOURNAL_COLUMNS.map((column) => renderJournalEventCell(session, column)).join("")}
-                </tr>`).join("")}
+                <tr>
+                  <td title="${escapeHtml(session.sessionId)}"><code class="journal-id">${escapeHtml(session.sessionId)}</code></td>
+                  <td title="${escapeHtml(session.matricule)}">${escapeHtml(session.matricule)}</td>
+                  <td title="${escapeHtml(session.name)}"><strong>${escapeHtml(session.name)}</strong></td>
+                  <td title="${escapeHtml(session.department)}">${escapeHtml(session.department)}</td>
+                  <td title="${escapeHtml(session.dateIn)}">${escapeHtml(session.dateIn)}</td>
+                  <td title="${escapeHtml(session.timeIn)}">${escapeHtml(session.timeIn)}</td>
+                  <td title="${escapeHtml(session.dateOut)}">${escapeHtml(session.dateOut)}</td>
+                  <td title="${escapeHtml(session.timeOut)}">${escapeHtml(session.timeOut)}</td>
+                  <td title="${escapeHtml(session.duration)}"><strong>${escapeHtml(session.duration)}</strong></td>
+                  <td title="${escapeHtml(session.method)}">${escapeHtml(session.method)}</td>
+                  <td title="${escapeHtml(session.os)}">${escapeHtml(session.os)}</td>
+                  <td title="${escapeHtml(session.browser)}">${escapeHtml(session.browser)}</td>
+                  <td title="${escapeHtml(session.ip)}"><code class="journal-id">${escapeHtml(session.ip)}</code></td>
+                  <td title="${escapeHtml(session.network)}">${escapeHtml(session.network)}</td>
+                  <td title="${escapeHtml(session.location)}">${escapeHtml(session.location)}</td>
+                  <td title="${escapeHtml(session.status)}">${renderJournalStatus(session.status)}</td>
+                  <td title="${escapeHtml(session.reason)}">${escapeHtml(session.reason)}</td>
+                </tr>`).join("")
               : `<tr><td colspan="${JOURNAL_COLUMNS.length}" class="empty-cell">Aucune session pour cette période. Ajustez les filtres ou pointez une entrée.</td></tr>`}
           </tbody>
         </table>
