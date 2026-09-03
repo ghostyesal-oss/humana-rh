@@ -1287,6 +1287,53 @@ button.brand:focus-visible {
 
 .table-card { padding: 0; overflow: hidden; }
 
+.table-wrap {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-width: 100%;
+  padding-bottom: 10px;
+  cursor: grab;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+  scrollbar-color: color-mix(in srgb, var(--forest) 70%, #8eb0e0) var(--surface-2);
+}
+
+.table-wrap.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.table-wrap::-webkit-scrollbar {
+  width: 12px;
+  height: 14px;
+}
+
+.table-wrap::-webkit-scrollbar-track {
+  background: var(--surface-2);
+  border-radius: 999px;
+  margin: 0 12px 4px;
+}
+
+.table-wrap::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--forest) 62%, #93b4e4);
+  border-radius: 999px;
+  border: 3px solid var(--surface-2);
+}
+
+.table-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--forest-mid);
+}
+
+.table-wrap table {
+  width: max-content;
+  min-width: 100%;
+}
+
+.table-wrap th,
+.table-wrap td {
+  white-space: nowrap;
+}
+
 .toolbar {
   display: flex;
   align-items: center;
@@ -1303,7 +1350,19 @@ button.brand:focus-visible {
   color: var(--text);
 }
 
-.table-wrap { overflow-x: auto; }
+.punch-log {
+  display: grid;
+  gap: 2px;
+  min-width: 148px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.punch-log b {
+  color: var(--text);
+  font-weight: 600;
+}
 
 table { width: 100%; border-collapse: collapse; }
 
@@ -1509,6 +1568,9 @@ tbody tr:hover td { background: var(--surface-2); }
 .leave-cal-event.leave-type-rtt { background: #2563eb; }
 .leave-cal-event.leave-type-sick { background: #b45309; }
 .leave-cal-event.leave-type-unpaid { background: #6b7280; }
+.leave-cal-event.leave-type-unjustified { background: #b91c1c; }
+.leave-cal-event.leave-type-travel { background: #0f766e; }
+.leave-cal-event.leave-type-hours { background: #c2410c; }
 
 .leave-cal-event.is-pending {
   background-image: repeating-linear-gradient(
@@ -1551,6 +1613,10 @@ tbody tr:hover td { background: var(--surface-2); }
 .leave-cal-legend-item .leave-type-cp { background: #2f6f4f; }
 .leave-cal-legend-item .leave-type-rtt { background: #2563eb; }
 .leave-cal-legend-item .leave-type-sick { background: #b45309; }
+.leave-cal-legend-item .leave-type-special { background: #7c3aed; }
+.leave-cal-legend-item .leave-type-unjustified { background: #b91c1c; }
+.leave-cal-legend-item .leave-type-travel { background: #0f766e; }
+.leave-cal-legend-item .leave-type-hours { background: #c2410c; }
 
 .leave-cal-legend-pending i {
   background: #2f6f4f;
