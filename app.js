@@ -3844,13 +3844,10 @@ function leavePage() {
   const months = seniorityMonths();
   const carryFlag = balances[0] && balances[0].remaining > 3 && new Date().getMonth() === 11;
   const chain = getLeaveValidatorChain(session?.user?.id);
-  const shift = getActiveShift();
 
   return `
     ${carryFlag ? `<p class="data-note">Alerte de report : plus de 3 jours de CP restants au 31/12. Le solde non consommé est reportable une seule année.</p>` : ""}
     ${months < 6 && !isAdmin() ? `<p class="data-note">Ancienneté : ${months} mois. La durée légale requise est de 6 mois, sauf dérogation RH.</p>` : ""}
-    <p class="data-note">Horaire ${escapeHtml(shift.label)} · ${shift.start}–${shift.end} · pause ${shift.lunchMin} min (${shift.lunchFrom}–${shift.lunchTo}) · décalage FR/MA : ${getFrMaOffsetHours()} h${isRamadanDay(toDateKey(new Date())) ? " · période du Ramadan" : ""}</p>
-    <p class="data-note">18 codes d'absence (paie) : CP selon le profil, récupération, événements familiaux, décès, mariage, absences justifiées ou injustifiées, retard, départ, déplacement et mise à pied.</p>
     <section class="balance-grid">
       ${balances.map((balance) => balanceCard(balance)).join("")}
     </section>
