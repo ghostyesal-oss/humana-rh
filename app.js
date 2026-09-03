@@ -257,23 +257,23 @@ const JOURNAL_META_FIELDS = [
   "disconnect_reason"
 ];
 const JOURNAL_COLUMNS = [
-  { key: "sessionId", label: "ID_Session" },
-  { key: "matricule", label: "Matricule" },
-  { key: "name", label: "Nom_Collaborateur" },
-  { key: "department", label: "Département" },
-  { key: "dateIn", label: "Date_Connexion" },
-  { key: "timeIn", label: "Heure_Connexion" },
-  { key: "dateOut", label: "Date_Déconnexion" },
-  { key: "timeOut", label: "Heure_Déconnexion" },
-  { key: "duration", label: "Durée_Session" },
-  { key: "method", label: "Moyen_Connexion" },
-  { key: "os", label: "Système_Exploitation" },
-  { key: "browser", label: "Navigateur_Application" },
-  { key: "ip", label: "Adresse_IP" },
-  { key: "network", label: "Type_Réseau" },
-  { key: "location", label: "Localisation" },
-  { key: "status", label: "Statut_Connexion" },
-  { key: "reason", label: "Raison_Déconnexion" }
+  { key: "sessionId", label: "ID_Session", short: "ID" },
+  { key: "matricule", label: "Matricule", short: "Matricule" },
+  { key: "name", label: "Nom_Collaborateur", short: "Collaborateur" },
+  { key: "department", label: "Département", short: "Dépt" },
+  { key: "dateIn", label: "Date_Connexion", short: "Date in" },
+  { key: "timeIn", label: "Heure_Connexion", short: "Heure in" },
+  { key: "dateOut", label: "Date_Déconnexion", short: "Date out" },
+  { key: "timeOut", label: "Heure_Déconnexion", short: "Heure out" },
+  { key: "duration", label: "Durée_Session", short: "Durée" },
+  { key: "method", label: "Moyen_Connexion", short: "Moyen" },
+  { key: "os", label: "Système_Exploitation", short: "OS" },
+  { key: "browser", label: "Navigateur_Application", short: "Navigateur" },
+  { key: "ip", label: "Adresse_IP", short: "IP" },
+  { key: "network", label: "Type_Réseau", short: "Réseau" },
+  { key: "location", label: "Localisation", short: "Lieu" },
+  { key: "status", label: "Statut_Connexion", short: "Statut" },
+  { key: "reason", label: "Raison_Déconnexion", short: "Raison" }
 ];
 const WORK_LOCATION_STORE_KEY = "workLocation";
 const WORK_LOCATIONS = {
@@ -2057,15 +2057,46 @@ function parseClientEnvironment() {
   return { method, os, browser, network };
 }
 
-async function getPublicIpAddress() {
+const PUBLIC_IP_CACHE_KEY = "humana_public_ip";
+const PUBLIC_IP_CACHE_AT_KEY = "humana_public_ip_at";
+
+function readCachedPublicIp() {
   try {
-    const cached = sessionStorage.getItem("humana_public_ip");
-    if (cached) return cached;
+    return sessionStorage.getItem(PUBLIC_IP_CACHE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeCachedPublicIp(ip) {
+  try {
+    sessionStorage.setItem(PUBLIC_IP_CACHE_KEY, ip);
+    sessionStorage.setItem(PUBLIC_IP_CACHE_AT_KEY, String(Date.now()));
   } catch {
     /* ignore */
   }
+}
 
-  const withTimeout = async (factory, ms = 1500) => {
+function clearCachedPublicIp() {
+  try {
+    sessionStorage.removeItem(PUBLIC_IP_CACHE_KEY);
+    sessionStorage.removeItem(PUBLIC_IP_CACHE_AT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function bindPublicIpRefresh() {
+  if (window.__humanaIpRefreshBound) return;
+  window.__humanaIpRefreshBound = true;
+  window.addEventListener("online", clearCachedPublicIp);
+  navigator.connection?.addEventListener?.("change", clearCachedPublicIp);
+}
+
+async function getPublicIpAddress() {
+  bindPublicIpRefresh();
+
+  const withTimeout = async (factory, ms = 2500) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), ms);
     try {
@@ -2077,16 +2108,16 @@ async function getPublicIpAddress() {
 
   const sources = [
     async (signal) => {
-      const response = await fetch("https://api.ipify.org?format=json", { signal });
+      const response = await fetch("https://api.ipify.org?format=json", { cache: "no-store", signal });
       const data = await response.json();
       return data?.ip || "";
     },
     async (signal) => {
-      const response = await fetch("https://ipv4.icanhazip.com", { signal });
+      const response = await fetch("https://ipv4.icanhazip.com", { cache: "no-store", signal });
       return (await response.text()).trim();
     },
     async (signal) => {
-      const response = await fetch("https://www.cloudflare.com/cdn-cgi/trace", { signal });
+      const response = await fetch("https://www.cloudflare.com/cdn-cgi/trace", { cache: "no-store", signal });
       const text = await response.text();
       const match = text.match(/^ip=([^\s]+)$/m);
       return match ? match[1] : "";
@@ -2097,14 +2128,14 @@ async function getPublicIpAddress() {
     try {
       const ip = (await withTimeout(source)).replace(/[^0-9a-fA-F:.]/g, "");
       if (ip) {
-        try { sessionStorage.setItem("humana_public_ip", ip); } catch { /* ignore */ }
+        writeCachedPublicIp(ip);
         return ip;
       }
     } catch {
       /* essayer la source suivante */
     }
   }
-  return "";
+  return readCachedPublicIp();
 }
 
 async function collectJournalMeta() {
@@ -3621,12 +3652,18 @@ function journalPage() {
       </div>
       <div class="table-wrap journal-table-wrap">
         <table class="journal-table">
+          <colgroup>
+            <col class="journal-col-id"><col class="journal-col-mat"><col class="journal-col-name"><col class="journal-col-dept">
+            <col class="journal-col-date"><col class="journal-col-time"><col class="journal-col-date"><col class="journal-col-time">
+            <col class="journal-col-dur"><col class="journal-col-method"><col class="journal-col-os"><col class="journal-col-browser">
+            <col class="journal-col-ip"><col class="journal-col-net"><col class="journal-col-loc"><col class="journal-col-status"><col class="journal-col-reason">
+          </colgroup>
           <thead>
             <tr>
               ${JOURNAL_COLUMNS.map((column) => `
                 <th class="journal-th${journalSort.key === column.key ? " is-sorted" : ""}${journalColumnFilters[column.key] ? " is-filtered" : ""}">
-                  <button type="button" class="journal-th-btn" data-journal-col="${column.key}" aria-haspopup="true" aria-expanded="${journalOpenColumn === column.key}">
-                    <span>${column.label}</span>
+                  <button type="button" class="journal-th-btn" data-journal-col="${column.key}" title="${escapeHtml(column.label)}" aria-haspopup="true" aria-expanded="${journalOpenColumn === column.key}">
+                    <span>${column.short || column.label}</span>
                     <span class="journal-th-arrow" aria-hidden="true"></span>
                   </button>
                   ${renderJournalColumnMenu(column)}
@@ -3637,23 +3674,23 @@ function journalPage() {
             ${sessions.length
               ? sessions.map((session) => `
                 <tr>
-                  <td><code class="journal-id">${escapeHtml(session.sessionId)}</code></td>
-                  <td>${escapeHtml(session.matricule)}</td>
-                  <td><strong>${escapeHtml(session.name)}</strong></td>
-                  <td>${escapeHtml(session.department)}</td>
-                  <td>${escapeHtml(session.dateIn)}</td>
-                  <td>${escapeHtml(session.timeIn)}</td>
-                  <td>${escapeHtml(session.dateOut)}</td>
-                  <td>${escapeHtml(session.timeOut)}</td>
-                  <td><strong>${escapeHtml(session.duration)}</strong></td>
-                  <td>${escapeHtml(session.method)}</td>
-                  <td>${escapeHtml(session.os)}</td>
-                  <td>${escapeHtml(session.browser)}</td>
-                  <td><code class="journal-id">${escapeHtml(session.ip)}</code></td>
-                  <td>${escapeHtml(session.network)}</td>
-                  <td>${escapeHtml(session.location)}</td>
-                  <td>${renderJournalStatus(session.status)}</td>
-                  <td>${escapeHtml(session.reason)}</td>
+                  <td title="${escapeHtml(session.sessionId)}"><code class="journal-id">${escapeHtml(session.sessionId)}</code></td>
+                  <td title="${escapeHtml(session.matricule)}">${escapeHtml(session.matricule)}</td>
+                  <td title="${escapeHtml(session.name)}"><strong>${escapeHtml(session.name)}</strong></td>
+                  <td title="${escapeHtml(session.department)}">${escapeHtml(session.department)}</td>
+                  <td title="${escapeHtml(session.dateIn)}">${escapeHtml(session.dateIn)}</td>
+                  <td title="${escapeHtml(session.timeIn)}">${escapeHtml(session.timeIn)}</td>
+                  <td title="${escapeHtml(session.dateOut)}">${escapeHtml(session.dateOut)}</td>
+                  <td title="${escapeHtml(session.timeOut)}">${escapeHtml(session.timeOut)}</td>
+                  <td title="${escapeHtml(session.duration)}"><strong>${escapeHtml(session.duration)}</strong></td>
+                  <td title="${escapeHtml(session.method)}">${escapeHtml(session.method)}</td>
+                  <td title="${escapeHtml(session.os)}">${escapeHtml(session.os)}</td>
+                  <td title="${escapeHtml(session.browser)}">${escapeHtml(session.browser)}</td>
+                  <td title="${escapeHtml(session.ip)}"><code class="journal-id">${escapeHtml(session.ip)}</code></td>
+                  <td title="${escapeHtml(session.network)}">${escapeHtml(session.network)}</td>
+                  <td title="${escapeHtml(session.location)}">${escapeHtml(session.location)}</td>
+                  <td title="${escapeHtml(session.status)}">${renderJournalStatus(session.status)}</td>
+                  <td title="${escapeHtml(session.reason)}">${escapeHtml(session.reason)}</td>
                 </tr>`).join("")
               : `<tr><td colspan="${JOURNAL_COLUMNS.length}" class="empty-cell">Aucune session pour cette période. Ajustez les filtres ou pointez une entrée.</td></tr>`}
           </tbody>
@@ -5081,6 +5118,7 @@ function bindHierarchyOrgEvents() {
 
 function bindTablePan() {
   document.querySelectorAll(".table-wrap").forEach((wrap) => {
+    if (wrap.classList.contains("journal-table-wrap")) return;
     if (wrap.dataset.humanaPanBound) return;
     wrap.dataset.humanaPanBound = "1";
     let dragging = false;
