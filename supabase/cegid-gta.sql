@@ -80,8 +80,17 @@ alter table public.overtime_requests enable row level security;
 alter table public.activity_entries enable row level security;
 
 drop policy if exists punch_corrections_own on public.punch_corrections;
-create policy punch_corrections_own on public.punch_corrections
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists punch_corrections_own_select on public.punch_corrections;
+drop policy if exists punch_corrections_own_insert on public.punch_corrections;
+drop policy if exists punch_corrections_own_update on public.punch_corrections;
+create policy punch_corrections_own_select on public.punch_corrections
+  for select using (auth.uid() = user_id);
+create policy punch_corrections_own_insert on public.punch_corrections
+  for insert with check (auth.uid() = user_id and lower(coalesce(status, '')) like 'a valider%');
+create policy punch_corrections_own_update on public.punch_corrections
+  for update
+  using (auth.uid() = user_id and lower(coalesce(status, '')) like 'a valider%')
+  with check (auth.uid() = user_id and lower(coalesce(status, '')) like 'a valider%');
 
 drop policy if exists punch_corrections_manage_select on public.punch_corrections;
 create policy punch_corrections_manage_select on public.punch_corrections
@@ -93,8 +102,17 @@ create policy punch_corrections_manage_update on public.punch_corrections
   with check (public.humana_can_manage_gta(user_id));
 
 drop policy if exists overtime_own on public.overtime_requests;
-create policy overtime_own on public.overtime_requests
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists overtime_own_select on public.overtime_requests;
+drop policy if exists overtime_own_insert on public.overtime_requests;
+drop policy if exists overtime_own_update on public.overtime_requests;
+create policy overtime_own_select on public.overtime_requests
+  for select using (auth.uid() = user_id);
+create policy overtime_own_insert on public.overtime_requests
+  for insert with check (auth.uid() = user_id and lower(coalesce(status, '')) like 'a valider%');
+create policy overtime_own_update on public.overtime_requests
+  for update
+  using (auth.uid() = user_id and lower(coalesce(status, '')) like 'a valider%')
+  with check (auth.uid() = user_id and lower(coalesce(status, '')) like 'a valider%');
 
 drop policy if exists overtime_manage_select on public.overtime_requests;
 create policy overtime_manage_select on public.overtime_requests
@@ -106,8 +124,17 @@ create policy overtime_manage_update on public.overtime_requests
   with check (public.humana_can_manage_gta(user_id));
 
 drop policy if exists activity_own on public.activity_entries;
-create policy activity_own on public.activity_entries
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists activity_own_select on public.activity_entries;
+drop policy if exists activity_own_insert on public.activity_entries;
+drop policy if exists activity_own_update on public.activity_entries;
+create policy activity_own_select on public.activity_entries
+  for select using (auth.uid() = user_id);
+create policy activity_own_insert on public.activity_entries
+  for insert with check (auth.uid() = user_id and lower(coalesce(status, '')) like 'a valider%');
+create policy activity_own_update on public.activity_entries
+  for update
+  using (auth.uid() = user_id and lower(coalesce(status, '')) like 'a valider%')
+  with check (auth.uid() = user_id and lower(coalesce(status, '')) like 'a valider%');
 
 drop policy if exists activity_manage_select on public.activity_entries;
 create policy activity_manage_select on public.activity_entries
