@@ -312,6 +312,71 @@ const ABSENCE_GROUP_LABELS = {
   time: "Retard / départ"
 };
 const activityCategories = ["Production", "Réunion", "Formation", "Coaching", "Pause payée"];
+
+const WORK_STATUSES = [
+  { value: "production",  label: "Production",  color: "#1e3a8a" },
+  { value: "reunion",     label: "Réunion",     color: "#7c3aed" },
+  { value: "formation",   label: "Formation",   color: "#0891b2" },
+  { value: "coaching",    label: "Coaching",     color: "#059669" }
+];
+
+function getCurrentWorkStatus() {
+  try { return sessionStorage.getItem("humana_work_status") || "production"; } catch (_) { return "production"; }
+}
+
+function setCurrentWorkStatus(value) {
+  try { sessionStorage.setItem("humana_work_status", value); } catch (_) { /* ignore */ }
+}
+
+function workStatusDef(value) {
+  return WORK_STATUSES.find((s) => s.value === value) || WORK_STATUSES[0];
+}
+
+function workStatusPickerMarkup() {
+  const current = workStatusDef(getCurrentWorkStatus());
+  const options = WORK_STATUSES.map((s) =>
+    `<option value="${s.value}" ${s.value === current.value ? "selected" : ""}>${s.label}</option>`
+  ).join("");
+  return `<div class="work-status-picker">
+    <span class="work-status-dot" style="background:${current.color}"></span>
+    <select id="work-status-select" aria-label="Statut de travail">${options}</select>
+  </div>`;
+}
+
+function bindWorkStatusPicker() {
+  const select = document.getElementById("work-status-select");
+  if (!select || select.dataset.humanaBound) return;
+  select.dataset.humanaBound = "1";
+  select.addEventListener("change", () => {
+    const newStatus = select.value;
+    const oldStatus = getCurrentWorkStatus();
+    setCurrentWorkStatus(newStatus);
+    const dot = select.closest(".work-status-picker")?.querySelector(".work-status-dot");
+    if (dot) dot.style.background = workStatusDef(newStatus).color;
+
+    // Enregistrer le changement de statut seulement si on est en poste
+    const { isIn } = getClockState();
+    if (!isIn || newStatus === oldStatus) return;
+
+    const punchData = { type: "status_change", time: new Date().toISOString(), workStatus: newStatus, prevWorkStatus: oldStatus };
+    if (usesDatabase()) {
+      withAction(async () => {
+        const { error } = await supabaseClient.from("time_punches").insert({
+          user_id: session.user.id,
+          punch_type: "status_change",
+          punched_at: punchData.time,
+          work_status: newStatus
+        });
+        if (error) throw error;
+      });
+    } else {
+      const punches = loadStore("punches", []);
+      punches.push(punchData);
+      saveStore("punches", punches);
+      renderApp();
+    }
+  });
+}
 const PUNCH_CORRECTION_QUOTA = 3;
 const PUNCH_KIND_OPTIONS = [
   { value: "in", label: "Début de service (entrée)" },
@@ -2170,6 +2235,7 @@ function punchTypeLabel(type) {
     case "out": return "Fin de service";
     case "break_start": return "Début de pause";
     case "break_end": return "Fin de pause";
+    case "status_change": return "Chgmt activité";
     default: return type || "Autre";
   }
 }
@@ -2314,12 +2380,16 @@ function buildClockPunchPayload(punchType) {
     punched_at: new Date().toISOString()
   };
   if (punchType === "in") payload.work_location = getPreferredWorkLocation();
+  // Toujours sauvegarder le statut de travail actif
+  payload.work_status = getCurrentWorkStatus();
   return payload;
 }
 
 function buildDemoClockPunch(punchType) {
   const punch = { type: punchType, time: new Date().toISOString() };
   if (punchType === "in") punch.workLocation = getPreferredWorkLocation();
+  // Toujours sauvegarder le statut de travail actif
+  punch.workStatus = getCurrentWorkStatus();
   return punch;
 }
 
@@ -2448,6 +2518,180 @@ function renderHomeShiftSummary(punches = getPunches()) {
       <div class="home-shift-item">
         <span>Fin de service</span>
         <strong>${formatEndShiftSummary(summary)}</strong>
+      </div>
+    </div>`;
+}
+
+/* ──────────────────────────────────────────────────────────
+   TIMELINE JOURNEE — barre visuelle type "filmstrip"
+   ────────────────────────────────────────────────────────── */
+function renderDayTimeline(punches, profile) {
+  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+  const startPunch = sorted.find((p) => p.type === "in");
+  if (!sorted.length) return "";
+
+  const shift = getActiveShift(profile);
+  const shiftStartMin = minutesFromHhmm(shift.start);
+  const shiftEndMin   = minutesFromHhmm(shift.end);
+  const lateAfterMin  = minutesFromHhmm(shift.lateAfter);
+
+  // Plage d'affichage : 1 h avant le début prévu … fin de service + 1 h
+  const dispStart = Math.max(0, shiftStartMin - 60);
+  const dispEnd   = shiftEndMin + 60;
+  const dispRange = dispEnd - dispStart;
+
+  const toPercent = (min) => `${Math.min(100, Math.max(0, ((min - dispStart) / dispRange) * 100)).toFixed(3)}%`;
+
+  // Convertit un timestamp en minute de la journée
+  const toMin = (t) => {
+    const d = new Date(t);
+    return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+  };
+
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+
+  /* ------ Construire les segments ------- */
+  const segments = [];
+
+  // Heure off : de dispStart jusqu'au premier IN
+  const inPunch = sorted.find((p) => p.type === "in");
+  const inMin   = inPunch ? toMin(inPunch.time) : nowMin;
+
+  // Avant arrivée
+  if (inPunch) {
+    segments.push({ from: dispStart, to: inMin, type: "off" });
+  }
+
+  // Retard si arrivée après lateAfter
+  if (inPunch && inMin > lateAfterMin) {
+    // On corrige : la partie "off" s'arrête à lateAfter, le retard commence là
+    const lastOff = segments.pop();
+    segments.push({ from: dispStart, to: lateAfterMin, type: "off" });
+    segments.push({ from: lateAfterMin, to: inMin, type: "late" });
+  }
+
+  // Parcourir les pointages pour construire les segments de travail et de pause
+  let workStart = inPunch ? inMin : null;
+  let breakStart = null;
+
+  sorted.forEach((p) => {
+    const min = toMin(p.time);
+    if (p.type === "in") { workStart = min; }
+    else if (p.type === "break_start" && workStart !== null) {
+      segments.push({ from: workStart, to: min, type: "work" });
+      breakStart = min;
+      workStart = null;
+    } else if ((p.type === "break_end") && breakStart !== null) {
+      segments.push({ from: breakStart, to: min, type: "lunch" });
+      breakStart = null;
+      workStart = min;
+    } else if (p.type === "out") {
+      if (breakStart !== null) {
+        segments.push({ from: breakStart, to: min, type: "lunch" });
+        breakStart = null;
+      } else if (workStart !== null) {
+        segments.push({ from: workStart, to: min, type: "work" });
+        workStart = null;
+      }
+      segments.push({ from: min, to: dispEnd, type: "off" });
+    }
+  });
+
+  // Si la journée est encore ouverte
+  if (workStart !== null) {
+    segments.push({ from: workStart, to: nowMin, type: "work" });
+    segments.push({ from: nowMin, to: dispEnd, type: "future" });
+  } else if (breakStart !== null) {
+    segments.push({ from: breakStart, to: nowMin, type: "lunch" });
+    segments.push({ from: nowMin, to: dispEnd, type: "future" });
+  }
+
+  // Fusionner les segments adjacents de même type
+  const merged = [];
+  segments.forEach((seg) => {
+    if (seg.from >= seg.to) return;
+    const last = merged[merged.length - 1];
+    if (last && last.type === seg.type && last.to === seg.from) {
+      last.to = seg.to;
+    } else {
+      merged.push({ ...seg });
+    }
+  });
+
+  /* ------ Markers horaires ------- */
+  // Afficher des repères toutes les heures entre dispStart et dispEnd
+  const markerMins = [];
+  const firstHour = Math.ceil(dispStart / 60) * 60;
+  for (let m = firstHour; m <= dispEnd; m += 60) {
+    markerMins.push(m);
+  }
+
+  /* ------ Statistiques résumées ------- */
+  const workMs    = merged.filter((s) => s.type === "work").reduce((sum, s) => sum + (s.to - s.from) * 60000, 0);
+  const lunchMs   = merged.filter((s) => s.type === "lunch").reduce((sum, s) => sum + (s.to - s.from) * 60000, 0);
+  const lateMs    = merged.filter((s) => s.type === "late").reduce((sum, s) => sum + (s.to - s.from) * 60000, 0);
+  const lateMin   = Math.round(lateMs / 60000);
+
+  const fmtMs = (ms) => {
+    const total = Math.round(ms / 60000);
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    return h > 0 ? `${h}h${String(m).padStart(2, "0")}` : `${m}min`;
+  };
+
+  /* ------ Étiquettes positionnées sur les keypoints ------- */
+  const keyLabels = [];
+  const labeledMins = new Set();
+  merged.forEach((seg) => {
+    [seg.from, seg.to].forEach((min) => {
+      if (min <= dispStart || min >= dispEnd) return;
+      if (labeledMins.has(min)) return;
+      if (seg.type === "off" || seg.type === "future") return;
+      labeledMins.add(min);
+      const h = Math.floor(min / 60);
+      const m = min % 60;
+      const label = m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, "0")}`;
+      keyLabels.push({ min, label });
+    });
+  });
+
+  const segmentMarkup = merged.map((s) => `
+    <div class="dtl-seg dtl-seg--${s.type}" style="left:${toPercent(s.from)};width:${((s.to - s.from) / dispRange * 100).toFixed(3)}%" aria-label="${s.type}"></div>`).join("");
+
+  const markerMarkup = markerMins.map((m) => {
+    const h = Math.floor(m / 60);
+    const label = `${h}h`;
+    return `<div class="dtl-marker" style="left:${toPercent(m)}"><span>${label}</span></div>`;
+  }).join("");
+
+  const keyLabelMarkup = keyLabels.map((kl) => {
+    const segHere = merged.find((s) => s.from === kl.min || s.to === kl.min);
+    const cls = segHere && (segHere.type === "late" || (segHere.to === kl.min && merged.find((s) => s.from === kl.min)?.type === "late")) ? "dtl-key-label--late" : "";
+    return `<div class="dtl-key-label ${cls}" style="left:${toPercent(kl.min)}"><span>${kl.label}</span></div>`;
+  }).join("");
+
+  const lateBlock = lateMin > 0 ? `<div class="dtl-stat dtl-stat--late">Total retards <strong>${lateMin}min</strong></div>` : "";
+  const lunchBlock = lunchMs > 0 ? `<div class="dtl-stat dtl-stat--lunch">Durée pause déjeuner : <strong>${fmtMs(lunchMs)}</strong></div>` : "";
+  const workBlock  = workMs > 0  ? `<div class="dtl-stat">Durée de travail <strong>${fmtMs(workMs)}</strong></div>` : "";
+
+  return `
+    <div class="day-timeline" aria-label="Chronologie de la journée">
+      <div class="dtl-labels-row">${keyLabelMarkup}</div>
+      <div class="dtl-bar-wrap">
+        <div class="dtl-bar">${segmentMarkup}</div>
+        <div class="dtl-markers-row">${markerMarkup}</div>
+      </div>
+      <div class="dtl-legend">
+        <span class="dtl-legend-item dtl-legend--work">En poste</span>
+        <span class="dtl-legend-item dtl-legend--lunch">Pause dej</span>
+        <span class="dtl-legend-item dtl-legend--off">Hors poste</span>
+        ${lateMin > 0 ? `<span class="dtl-legend-item dtl-legend--late">Retard</span>` : ""}
+      </div>
+      <div class="dtl-stats">
+        ${lateBlock}
+        ${lunchBlock}
+        ${workBlock}
       </div>
     </div>`;
 }
@@ -2606,7 +2850,7 @@ function hoursCard(label, value) {
 
 function getClockState() {
   const punches = getPunches();
-  const last = punches[punches.length - 1];
+  const last = [...punches].reverse().find((p) => p.type !== "status_change") || punches[punches.length - 1];
   const lastType = last?.type;
   const onBreak = lastType === "break_start";
   const isWorking = lastType === "in" || lastType === "break_end";
@@ -2997,18 +3241,7 @@ function renderGtaClockTools() {
           <button type="submit" class="primary">Demander validation</button>
         </form>
       </article>
-      <article class="card form-card">
-        ${cardHeading("Feuille de temps / statuts")}
-        <form id="activity-form" class="feature-form">
-          <label>Date <input type="date" name="date" value="${today}" required></label>
-          <label>Catégorie
-            <select name="category">${activityCategories.map((item) => `<option>${item}</option>`).join("")}</select>
-          </label>
-          <label>Heures <input type="number" name="hours" min="0.5" step="0.5" value="1" required></label>
-          <label>Commentaire <input type="text" name="comment" placeholder="Réunion, formation..."></label>
-          <button type="submit" class="primary">Déclarer</button>
-        </form>
-      </article>
+      <!-- Feuille de temps retirée — statut déplacé dans la topbar -->
     </div>
     ${renderGtaOwnLists()}`;
 }
@@ -3103,7 +3336,11 @@ function pointeusePage() {
 
   return `
     ${dbNote}
-    <section class="hours-grid">
+    <article class="card">
+      ${cardHeading("Chronologie du jour")}
+      ${renderDayTimeline(todayPunches, appData.profile || {})}
+    </article>
+    <section class="hours-grid page-spacer">
       ${hoursCard("Aujourd'hui", hours.today)}
       ${hoursCard("Pause dej", breakDuration)}
       ${hoursCard("Cette semaine", hours.week)}
@@ -3135,17 +3372,41 @@ function pointeusePage() {
       ${cardHeading("Historique recent")}
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Date</th><th>Type</th><th>Lieu</th><th>Heure</th></tr></thead>
+          <thead><tr><th>Date</th><th>Type</th><th>Lieu</th><th>Heure</th><th>Activité</th><th>Durée activité</th></tr></thead>
           <tbody>
             ${punches.length
-              ? [...punches].reverse().slice(0, 10).map((punch) => `
-                <tr>
-                  <td>${formatDate(punch.time)}</td>
-                  <td>${punchTypeLabel(punch.type)}</td>
-                  <td>${punch.type === "in" ? workLocationLabel(punch.workLocation) : "—"}</td>
-                  <td>${formatTime(punch.time)}</td>
-                </tr>`).join("")
-              : `<tr><td colspan="4" class="empty-cell">Aucun historique pour le moment.</td></tr>`}
+              ? (() => {
+                  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+                  const recent = [...sorted].reverse().slice(0, 10);
+                  return recent.map((punch) => {
+                    // Durée jusqu'au prochain pointage (ou maintenant si en cours)
+                    const idx = sorted.indexOf(punch);
+                    const next = sorted[idx + 1];
+                    const durationMs = next
+                      ? new Date(next.time) - new Date(punch.time)
+                      : (punch.type === "out" ? 0 : Date.now() - new Date(punch.time));
+                    const durationLabel = durationMs > 0 ? formatDuration(durationMs) : "—";
+
+                    // Statut de travail enregistré au moment du pointage
+                    const wsKey = punch.workStatus || punch.work_status || null;
+                    let wsBadge = "—";
+                    if (wsKey && punch.type !== "out") {
+                      const def = workStatusDef(wsKey);
+                      wsBadge = `<span class="punch-status-badge punch-ws-badge" style="background:${def.color}20;color:${def.color}">${def.label}</span>`;
+                    }
+
+                    return `
+                    <tr>
+                      <td>${formatDate(punch.time)}</td>
+                      <td>${punchTypeLabel(punch.type)}</td>
+                      <td>${punch.type === "in" ? workLocationLabel(punch.workLocation) : "—"}</td>
+                      <td>${formatTime(punch.time)}</td>
+                      <td>${wsBadge}</td>
+                      <td>${punch.type !== "out" && durationMs > 0 ? durationLabel : "—"}</td>
+                    </tr>`;
+                  }).join("");
+                })()
+              : `<tr><td colspan="6" class="empty-cell">Aucun historique pour le moment.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -4781,7 +5042,7 @@ function renderApp() {
         <header class="topbar">
           <button class="menu-button" type="button" aria-label="Menu"></button>
           <div class="topbar-page">${pages[currentPage][0]}</div>
-          <div class="topbar-actions">${demoMode ? `<span class="demo-pill">Mode démo</span>` : ""}${themeToggleMarkup()}</div>
+          <div class="topbar-actions">${demoMode ? `<span class="demo-pill">Mode démo</span>` : ""}${workStatusPickerMarkup()}${themeToggleMarkup()}</div>
         </header>
         <div class="page">
           <header class="page-heading">
@@ -5152,16 +5413,18 @@ function bindPageEvents() {
     withAction(async () => {
       const { onBreak } = getClockState();
       const punchType = onBreak ? "break_end" : "break_start";
+      const ws = getCurrentWorkStatus();
       if (usesDatabase()) {
         const { error } = await supabaseClient.from("time_punches").insert({
           user_id: session.user.id,
           punch_type: punchType,
-          punched_at: new Date().toISOString()
+          punched_at: new Date().toISOString(),
+          work_status: ws
         });
         if (error) throw error;
       } else {
         const punches = loadStore("punches", []);
-        punches.push({ type: punchType, time: new Date().toISOString() });
+        punches.push({ type: punchType, time: new Date().toISOString(), workStatus: ws });
         saveStore("punches", punches);
       }
     });
@@ -5900,6 +6163,7 @@ function bindPrivateFileLinks() {
 
 function bindAppEvents() {
   bindThemeToggle();
+  bindWorkStatusPicker();
   bindPrivateFileLinks();
 
   document.querySelector("#brand-home")?.addEventListener("click", () => {

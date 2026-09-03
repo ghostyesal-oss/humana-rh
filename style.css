@@ -1104,6 +1104,42 @@ button.brand:focus-visible {
   margin-left: auto;
 }
 
+/* Sélecteur statut de travail (topbar) */
+.work-status-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.work-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.work-status-picker select {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 14px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23666'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0 center;
+}
+
 .menu-button { display: none; }
 
 .demo-pill {
@@ -1540,6 +1576,121 @@ tbody tr:hover td { background: var(--surface-2); }
   gap: var(--s3);
 }
 
+/* ── Timeline journée (pointeuse) ──────────────────────── */
+.day-timeline {
+  padding: var(--s4) 0 var(--s3);
+}
+
+.dtl-bar-wrap {
+  position: relative;
+  margin: 0 0 var(--s3);
+}
+
+.dtl-bar {
+  display: flex;
+  height: 28px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface-2);
+  position: relative;
+}
+
+.dtl-seg {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  min-width: 2px;
+}
+
+.dtl-seg--work   { background: #1e3a8a; }   /* En poste     – bleu foncé  */
+.dtl-seg--lunch  { background: #bae6fd; }   /* Pause dej    – bleu clair  */
+.dtl-seg--off    { background: #e0f2fe; }   /* Hors poste   – bleu pâle   */
+.dtl-seg--future { background: #f1f5f9; }   /* Non écoulé   – gris pâle   */
+.dtl-seg--late   { background: #ef4444; }   /* Retard       – rouge       */
+
+.dtl-markers-row {
+  position: relative;
+  height: 20px;
+  margin-top: 2px;
+}
+
+.dtl-marker {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  top: 0;
+}
+
+.dtl-labels-row {
+  position: relative;
+  height: 18px;
+  margin-bottom: 4px;
+}
+
+.dtl-key-label {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 600;
+  color: #2563eb;
+  white-space: nowrap;
+}
+
+.dtl-key-label--late span { color: #ef4444; }
+
+.dtl-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s4);
+  margin-bottom: var(--s3);
+}
+
+.dtl-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.dtl-legend-item::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.dtl-legend--work::before   { background: #1e3a8a; }
+.dtl-legend--lunch::before  { background: #bae6fd; border: 1px solid #7dd3fc; }
+.dtl-legend--off::before    { background: #e0f2fe; border: 1px solid #bae6fd; }
+.dtl-legend--late::before   { background: #ef4444; }
+
+.dtl-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+
+.dtl-stat {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.dtl-stat strong { font-weight: 700; color: var(--text); }
+.dtl-stat--late strong  { color: #ef4444; }
+.dtl-stat--lunch strong { color: #0284c7; }
+
+[data-theme="dark"] .dtl-seg--work   { background: #3b82f6; }
+[data-theme="dark"] .dtl-seg--lunch  { background: #1e40af; }
+[data-theme="dark"] .dtl-seg--off    { background: #1e293b; }
+[data-theme="dark"] .dtl-seg--future { background: #0f172a; }
+[data-theme="dark"] .dtl-key-label   { color: #60a5fa; }
+
+/* ── Fin Timeline journée ───────────────────────────────── */
+
 .leave-calendar-card {
   padding: 0;
   overflow: hidden;
@@ -1928,6 +2079,20 @@ tbody tr:hover td { background: var(--surface-2); }
 .punch-type.out { background: var(--surface); color: var(--text-secondary); }
 .punch-type.break_start { background: rgba(245, 158, 11, 0.16); color: #b45309; }
 .punch-type.break_end { background: rgba(16, 185, 129, 0.16); color: #047857; }
+
+/* Badges statut dans le tableau Historique récent */
+.punch-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.punch-status--in     { background: rgba(30,58,138,.12); color: #1e3a8a; }
+.punch-status--out    { background: var(--surface-2);    color: var(--text-secondary); }
+.punch-status--break  { background: rgba(245,158,11,.14); color: #b45309; }
+.punch-status--resume { background: rgba(16,185,129,.14); color: #047857; }
 
 .punch-item-main {
   display: flex;
