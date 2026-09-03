@@ -3425,28 +3425,51 @@ async function loadJournalPunches(filters = journalFilters) {
   return appData.journalPunches;
 }
 
-function getJournalFullscreenElement() {
-  return document.fullscreenElement || document.webkitFullscreenElement || null;
+function getJournalFsRoot() {
+  let root = document.getElementById("journal-fs-root");
+  if (!root) {
+    root = document.createElement("div");
+    root.id = "journal-fs-root";
+    root.className = "journal-fs-root";
+    root.hidden = true;
+    document.body.appendChild(root);
+  }
+  return root;
 }
 
-function requestJournalFullscreen(element) {
-  if (element.requestFullscreen) return element.requestFullscreen();
-  if (element.webkitRequestFullscreen) return element.webkitRequestFullscreen();
-  return Promise.reject(new Error("unsupported"));
+function clearJournalFsRoot() {
+  const root = document.getElementById("journal-fs-root");
+  if (!root) return;
+  root.replaceChildren();
+  root.hidden = true;
 }
 
-function exitJournalFullscreen() {
-  if (document.exitFullscreen) return document.exitFullscreen();
-  if (document.webkitExitFullscreen) return document.webkitExitFullscreen();
-  return Promise.resolve();
+function refreshPageContent() {
+  clearJournalFsRoot();
+  const content = document.querySelector("#page-content");
+  if (!content) return;
+  content.innerHTML = pageContent();
+  bindPageEvents();
 }
 
 function applyJournalFullscreenUi() {
-  const card = document.querySelector(".journal-card");
-  const button = document.querySelector("#journal-fullscreen");
+  const root = getJournalFsRoot();
+  const host = document.querySelector(".journal-table-host");
+  const card = root.querySelector(".journal-card") || document.querySelector(".journal-card");
+  const button = card?.querySelector("#journal-fullscreen");
   const active = Boolean(journalFullscreen && card);
+
   document.body.classList.toggle("journal-expanded-open", active);
   card?.classList.toggle("is-journal-expanded", active);
+
+  if (active) {
+    root.hidden = false;
+    if (card.parentElement !== root) root.appendChild(card);
+  } else {
+    root.hidden = true;
+    if (card && host && card.parentElement !== host) host.appendChild(card);
+  }
+
   if (button) {
     button.textContent = active ? "Fermer le plein écran" : "Ouvrir en plein écran";
     button.setAttribute("aria-pressed", active ? "true" : "false");
@@ -3456,9 +3479,6 @@ function applyJournalFullscreenUi() {
 function closeJournalFullscreen() {
   journalFullscreen = false;
   applyJournalFullscreenUi();
-  if (getJournalFullscreenElement()) {
-    exitJournalFullscreen().catch(() => {});
-  }
 }
 
 function bindJournalFullscreen() {
@@ -3471,28 +3491,13 @@ function bindJournalFullscreen() {
 
   applyJournalFullscreenUi();
 
-  button.addEventListener("click", async () => {
+  button.addEventListener("click", () => {
     journalFullscreen = !journalFullscreen;
     applyJournalFullscreenUi();
-    try {
-      if (journalFullscreen) await requestJournalFullscreen(card);
-      else if (getJournalFullscreenElement()) await exitJournalFullscreen();
-    } catch {
-      /* Le mode CSS reste actif si l'API plein écran est refusée. */
-    }
   });
 
   if (journalFullscreenListenerBound) return;
   journalFullscreenListenerBound = true;
-  const onFullscreenChange = () => {
-    if (getJournalFullscreenElement()) return;
-    if (!document.querySelector(".journal-card")?.classList.contains("is-journal-expanded")) {
-      journalFullscreen = false;
-      applyJournalFullscreenUi();
-    }
-  };
-  document.addEventListener("fullscreenchange", onFullscreenChange);
-  document.addEventListener("webkitfullscreenchange", onFullscreenChange);
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape" || !journalFullscreen) return;
     closeJournalFullscreen();
@@ -3609,7 +3614,8 @@ function journalPage() {
         <small>sessions closes</small>
       </article>
     </section>
-    <article class="card table-card page-spacer journal-card">
+    <div class="journal-table-host">
+    <article class="card table-card page-spacer journal-card${journalFullscreen ? " is-journal-expanded" : ""}">
       <div class="toolbar">
         <h3>Journal</h3>
         <div class="toolbar-actions">
@@ -3659,7 +3665,8 @@ function journalPage() {
           </tbody>
         </table>
       </div>
-    </article>`;
+    </article>
+    </div>`;
 }
 
 function teamPunchesPage() {
@@ -4745,6 +4752,7 @@ function playViewAnimations() {
 
 function renderApp() {
   ensureAccessiblePage();
+  clearJournalFsRoot();
   const name = getUserName();
   const email = session?.user?.email || "collaborateur@entreprise.fr";
   const initials = profileInitials(name);
@@ -5435,11 +5443,7 @@ function bindPageEvents() {
     loadJournalPunches()
       .then(() => {
         if (currentPage !== "journal") return;
-        const content = document.querySelector("#page-content");
-        if (content) {
-          content.innerHTML = pageContent();
-          bindPageEvents();
-        }
+        refreshPageContent();
       })
       .catch((error) => {
         appData.error = formatAppError(error);
@@ -5458,11 +5462,7 @@ function bindPageEvents() {
       event.stopPropagation();
       const key = button.dataset.journalCol;
       journalOpenColumn = journalOpenColumn === key ? "" : key;
-      const content = document.querySelector("#page-content");
-      if (content) {
-        content.innerHTML = pageContent();
-        bindPageEvents();
-      }
+      refreshPageContent();
     });
   });
 
@@ -5474,11 +5474,7 @@ function bindPageEvents() {
         dir: button.dataset.journalDir || (journalSort.key === button.dataset.journalSort && journalSort.dir === "desc" ? "asc" : "desc")
       };
       journalOpenColumn = "";
-      const content = document.querySelector("#page-content");
-      if (content) {
-        content.innerHTML = pageContent();
-        bindPageEvents();
-      }
+      refreshPageContent();
     });
   });
 
@@ -5490,11 +5486,7 @@ function bindPageEvents() {
       if (value) journalColumnFilters[key] = value;
       else delete journalColumnFilters[key];
       journalOpenColumn = "";
-      const content = document.querySelector("#page-content");
-      if (content) {
-        content.innerHTML = pageContent();
-        bindPageEvents();
-      }
+      refreshPageContent();
     });
   });
 
