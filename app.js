@@ -4543,11 +4543,13 @@ function renderLogin(error = "") {
             <span class="eyebrow">Humana RH</span>
             <h1>Gestion RH<br><em>simplifiee</em>.</h1>
             <p>Pointage, conges, documents — un espace fiable pour votre quotidien professionnel.</p>
+            <div class="trust-row"><span>Heberge en France</span><span>Donnees chiffrees</span></div>
           </div>
         </section>
         <section class="login-panel">
           <div class="login-theme-wrap">${themeToggleMarkup()}</div>
           <div class="login-card">
+            <div class="mobile-brand brand"><span>H</span> Humana</div>
             <h2>Connexion</h2>
             <p>Utilisez votre compte Microsoft professionnel.</p>
             <button id="microsoft-login" type="button" class="microsoft-button" disabled>
@@ -4556,7 +4558,9 @@ function renderLogin(error = "") {
             </button>
             <div id="config-note" class="config-note">Connexion en cours de preparation...</div>
             <p id="login-error" class="error-message" hidden></p>
+            <div class="separator"><span>ou</span></div>
             <button id="demo-login" type="button" class="demo-button">Voir l'apercu de demonstration</button>
+            <small>En continuant, vous acceptez les conditions d'utilisation et la politique de confidentialite.</small>
           </div>
         </section>
       </main>`;
