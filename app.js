@@ -2720,7 +2720,7 @@ function renderDayTimeline(punches, profile) {
     return `<div class="dtl-key-label ${cls}" style="left:${toPercent(kl.min)}"><span>${kl.label}</span></div>`;
   }).join("");
 
-  const lateBlock = lateMin > 0 ? `<div class="dtl-stat dtl-stat--late">Total retards <strong>${lateMin}min</strong></div>` : "";
+  const lateBlock = lateMin > 0 ? `<div class="dtl-stat dtl-stat--late">Total retards <strong>${fmtMs(lateMs)}</strong></div>` : "";
   const lunchBlock = lunchMs > 0 ? `<div class="dtl-stat dtl-stat--lunch">Durée pause déjeuner : <strong>${fmtMs(lunchMs)}</strong></div>` : "";
   const workBlock  = workMs > 0  ? `<div class="dtl-stat">Durée de travail <strong>${fmtMs(workMs)}</strong></div>` : "";
 
