@@ -19,6 +19,8 @@ let journalColumnFilters = {};
 let journalOpenColumn = "";
 let journalPunchesInitialLoadDone = false;
 let journalMetaColumnsEnabled = true;
+let workLocationColumnEnabled = true;
+let workStatusColumnEnabled = false;
 let journalFullscreen = false;
 let journalFullscreenListenerBound = false;
 let leaveCalendarMonth = null;
@@ -360,21 +362,16 @@ function bindWorkStatusPicker() {
 
     const punchData = { type: "status_change", time: new Date().toISOString(), workStatus: newStatus, prevWorkStatus: oldStatus };
     if (usesDatabase()) {
-      withAction(async () => {
-        const { error } = await supabaseClient.from("time_punches").insert({
-          user_id: session.user.id,
-          punch_type: "status_change",
-          punched_at: punchData.time,
-          work_status: newStatus
-        });
-        if (error) throw error;
-      });
-    } else {
-      const punches = loadStore("punches", []);
-      punches.push(punchData);
-      saveStore("punches", punches);
+      const rows = loadStore("workStatusPunches", []);
+      rows.push(punchData);
+      saveStore("workStatusPunches", rows);
       renderApp();
+      return;
     }
+    const punches = loadStore("punches", []);
+    punches.push(punchData);
+    saveStore("punches", punches);
+    renderApp();
   });
 }
 const PUNCH_CORRECTION_QUOTA = 3;
@@ -754,13 +751,17 @@ function resolveWorkLocationLabel(row) {
   return workLocationLabel(resolveDailyRowWorkLocation(row));
 }
 
+function isMissingColumnError(error) {
+  const message = (error?.message || error?.details || "").toLowerCase();
+  return message.includes("does not exist")
+    || message.includes("schema cache")
+    || message.includes("could not find the")
+    || (message.includes("column") && message.includes("time_punches"));
+}
+
 function isMissingWorkLocationColumnError(error) {
   const message = (error?.message || "").toLowerCase();
-  return message.includes("work_location") && (
-    message.includes("does not exist")
-    || message.includes("column")
-    || message.includes("schema cache")
-  );
+  return message.includes("work_location") && isMissingColumnError(error);
 }
 
 function isMissingJournalColumnError(error) {
@@ -776,26 +777,70 @@ function stripJournalMetaFields(payload) {
   return next;
 }
 
-async function insertTimePunch(payload) {
-  const attempt = journalMetaColumnsEnabled ? { ...payload } : stripJournalMetaFields(payload);
-  const { error } = await supabaseClient.from("time_punches").insert(attempt);
-  if (!error) return;
+function optionalPunchFields() {
+  return ["work_location", "work_status", ...JOURNAL_META_FIELDS];
+}
 
-  if (payload.work_location && isMissingWorkLocationColumnError(error)) {
-    const migrationError = new Error("work_location column missing");
-    migrationError.details = error.message;
-    throw migrationError;
-  }
+function stripOptionalPunchFields(payload) {
+  return stripFields(payload, optionalPunchFields());
+}
 
-  if (journalMetaColumnsEnabled && isMissingJournalColumnError(error)) {
+function disableOptionalPunchField(field) {
+  if (field === "work_location") workLocationColumnEnabled = false;
+  if (field === "work_status") workStatusColumnEnabled = false;
+  if (JOURNAL_META_FIELDS.includes(field)) {
     journalMetaColumnsEnabled = false;
     appData.journalMetaMissing = true;
-    const retry = await supabaseClient.from("time_punches").insert(stripJournalMetaFields(attempt));
-    if (!retry.error) return;
-    throw retry.error;
+  }
+}
+
+function preparePunchPayload(payload) {
+  let next = { ...payload };
+  if (!journalMetaColumnsEnabled) next = stripJournalMetaFields(next);
+  if (!workLocationColumnEnabled) delete next.work_location;
+  if (!workStatusColumnEnabled) delete next.work_status;
+  return next;
+}
+
+function corePunchPayload(payload) {
+  return {
+    user_id: payload.user_id,
+    punch_type: payload.punch_type,
+    punched_at: payload.punched_at
+  };
+}
+
+async function insertTimePunch(payload) {
+  const full = preparePunchPayload(payload);
+  const attempts = [full, stripOptionalPunchFields(full), corePunchPayload(payload)];
+  const seen = new Set();
+  let lastError = null;
+
+  for (const attempt of attempts) {
+    const key = JSON.stringify(attempt);
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const { error } = await supabaseClient.from("time_punches").insert(attempt);
+    if (!error) {
+      optionalPunchFields().forEach((field) => {
+        if (full[field] !== undefined && attempt[field] === undefined) {
+          disableOptionalPunchField(field);
+        }
+      });
+      return;
+    }
+
+    lastError = error;
+    const message = (error?.message || error?.details || error?.code || "").toLowerCase();
+    const schemaIssue = isMissingColumnError(error)
+      || optionalPunchFields().some((field) => message.includes(field))
+      || message.includes("pgrst")
+      || message.includes("42703");
+    if (!schemaIssue) throw error;
   }
 
-  throw error;
+  throw lastError;
 }
 
 const LEAVE_GTA_FIELDS = ["unit", "half_day", "hours", "motif", "attachment_name", "workflow_step"];
@@ -2016,11 +2061,14 @@ function formatTimeSeconds(value) {
 
 function getPunches() {
   if (usesDatabase()) {
-    return appData.punches.map((punch) => ({
+    const fromDb = (appData.punches || []).map((punch) => ({
       type: punch.punch_type,
       time: punch.punched_at,
-      workLocation: punch.work_location || null
+      workLocation: punch.work_location || null,
+      workStatus: punch.work_status || punch.workStatus || null
     }));
+    const localStatus = loadStore("workStatusPunches", []);
+    return [...fromDb, ...localStatus].sort((a, b) => new Date(a.time) - new Date(b.time));
   }
   return loadStore("punches", []);
 }
@@ -4643,9 +4691,15 @@ function isJwtClockError(error) {
 }
 
 function formatAppError(error) {
-  const message = (error?.message || "").toLowerCase();
+  const message = `${error?.message || ""} ${error?.details || ""} ${error?.hint || ""} ${error?.code || ""}`.toLowerCase();
   if (isJwtClockError(error)) {
     return "Synchronisation de la session en cours. Cliquez sur Réessayer ou attendez quelques secondes. Vérifiez également que l'heure de votre ordinateur est correcte.";
+  }
+  if (message.includes("work_location") || message.includes("work_status") || (message.includes("column") && message.includes("time_punches")) || message.includes("pgrst204")) {
+    return "Le pointage n'a pas pu enregistrer un champ optionnel. Rechargez la page (Ctrl+F5) puis réessayez : l'arrivée s'enregistre sans ces colonnes.";
+  }
+  if (JOURNAL_META_FIELDS.some((field) => message.includes(field))) {
+    return "Colonnes du Journal non configurées. Exécutez supabase/time-punches-journal.sql dans SQL Editor, puis refaites un pointage d'entrée.";
   }
   if (message.includes("does not exist") || (message.includes("relation") && message.includes("profiles"))) {
     return "Base Supabase non configurée. Exécutez supabase/schema.sql puis supabase/admin.sql dans SQL Editor.";
@@ -4655,12 +4709,6 @@ function formatAppError(error) {
   }
   if (message.includes("punch_corrections") || message.includes("overtime_requests") || message.includes("activity_entries") || message.includes("shift_code") || message.includes("workflow_step")) {
     return "Module Cegid GTA non configuré. Exécutez supabase/cegid-gta.sql dans SQL Editor.";
-  }
-  if (JOURNAL_META_FIELDS.some((field) => message.includes(field))) {
-    return "Colonnes du Journal non configurées. Exécutez supabase/time-punches-journal.sql dans SQL Editor, puis refaites un pointage d'entrée.";
-  }
-  if (message.includes("work_location") || (message.includes("column") && message.includes("time_punches"))) {
-    return "Lieu de travail non configuré. Exécutez supabase/time-punches-location.sql dans SQL Editor, puis refaites un pointage d'entrée.";
   }
   if (message.includes("permission") || message.includes("policy") || message.includes("row-level")) {
     if (message.includes("leave_requests")) {
@@ -5416,13 +5464,12 @@ function bindPageEvents() {
       const punchType = onBreak ? "break_end" : "break_start";
       const ws = getCurrentWorkStatus();
       if (usesDatabase()) {
-        const { error } = await supabaseClient.from("time_punches").insert({
+        await insertTimePunch({
           user_id: session.user.id,
           punch_type: punchType,
           punched_at: new Date().toISOString(),
           work_status: ws
         });
-        if (error) throw error;
       } else {
         const punches = loadStore("punches", []);
         punches.push({ type: punchType, time: new Date().toISOString(), workStatus: ws });
