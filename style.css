@@ -539,9 +539,12 @@ html.auth-booting #app {
   flex: 1;
   min-width: 0;
   min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   margin-left: var(--sidebar-width);
   position: relative;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .main-bg {
@@ -620,7 +623,12 @@ html.auth-booting #app {
   animation: blobFloat1 16s ease-in-out infinite reverse;
 }
 
-.main-content .topbar,
+.main-content .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
 .main-content .page {
   position: relative;
   z-index: 1;
@@ -1075,7 +1083,9 @@ button.brand:focus-visible {
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 40;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .topbar-page {
