@@ -85,6 +85,7 @@ function getDefaultNavVisibility() {
 const pages = {
   home: ["Accueil", "Tout ce dont vous avez besoin, au même endroit."],
   pointeuse: ["Pointeuse", "Enregistrez vos arrivées et vos départs."],
+  global: ["Global", "Tableau de bord synthétique des pointages : KPI, tendances, top retards."],
   journal: ["Journal", "Consultez l'historique des connexions et les détails techniques."],
   leave: ["Congés", "Demandes, soldes, validations et justificatifs."],
   attestations: ["Attestations", "Demandez vos documents en quelques clics."],
@@ -704,6 +705,10 @@ function canViewJournal() {
 
 function canViewTeamPunches() {
   return demoMode || (usesDatabase() && (isAdmin() || hasDirectReports()));
+}
+
+function canViewGlobal() {
+  return canViewTeamPunches();
 }
 
 function canViewReports() {
@@ -1601,8 +1606,12 @@ function escapeHtml(value) {
 function getNavigationItems() {
   const items = navigation.filter(([pageId]) => isNavPageVisible(pageId));
   const pointeuseIndex = items.findIndex(([pageId]) => pageId === "pointeuse");
+  if (canViewGlobal()) {
+    items.splice(pointeuseIndex + 1, 0, ["global", "Global"]);
+  }
   if (canViewTeamPunches()) {
-    items.splice(pointeuseIndex + 1, 0, ["team-punches", "Pointages équipe"]);
+    const insertAfter = items.findIndex(([pageId]) => pageId === "global");
+    items.splice((insertAfter >= 0 ? insertAfter : pointeuseIndex) + 1, 0, ["team-punches", "Pointages équipe"]);
   }
   if (canViewReports()) {
     const teamIndex = items.findIndex(([pageId]) => pageId === "team-punches");
@@ -5005,6 +5014,394 @@ function reportsPage() {
     </article>`;
 }
 
+function buildGlobalDashboardData() {
+  const range = teamPunchFilters.start && teamPunchFilters.end
+    ? teamPunchFilters
+    : getDefaultTeamPunchRange();
+  const scope = getTeamPunchScope();
+  const profiles = getTeamPunchProfiles(scope);
+  const dailyRows = summarizeTeamPunchesByDay(appData.teamPunches || [], range.start, range.end);
+
+  const rowsWithStats = dailyRows
+    .filter((row) => row.hasStarted)
+    .map((row) => {
+      const profile = profileById(row.userId) || {};
+      const stats = analyzeWorkedDay(row, profile);
+      return {
+        row,
+        profile,
+        stats
+      };
+    });
+
+  const totals = rowsWithStats.reduce((acc, item) => {
+    acc.plannedMs += item.stats.plannedMs;
+    acc.realizedMs += item.stats.realizedMs;
+    acc.payableOtMs += item.stats.payableOtMs;
+    acc.delayMin += item.stats.delayMin;
+    acc.missingMs += item.stats.missingMs;
+    return acc;
+  }, { plannedMs: 0, realizedMs: 0, payableOtMs: 0, delayMin: 0, missingMs: 0 });
+
+  const activeUserIds = new Set(rowsWithStats.map((item) => item.row.userId));
+  const daysWorking = new Set();
+  const startDate = parseLocalDate(range.start);
+  const endDate = parseLocalDate(range.end);
+  const cursor = new Date(startDate);
+  while (cursor <= endDate) {
+    const key = toDateKey(cursor);
+    if (isWorkingDayKey(key)) daysWorking.add(key);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  const dailyBuckets = new Map();
+  daysWorking.forEach((key) => dailyBuckets.set(key, { workedMs: 0, plannedMs: 0, delayMin: 0, presentUsers: new Set() }));
+  rowsWithStats.forEach((item) => {
+    const key = item.row.dayKey;
+    if (!dailyBuckets.has(key)) dailyBuckets.set(key, { workedMs: 0, plannedMs: 0, delayMin: 0, presentUsers: new Set() });
+    const bucket = dailyBuckets.get(key);
+    bucket.workedMs += item.stats.realizedMs;
+    bucket.plannedMs += item.stats.plannedMs;
+    bucket.delayMin += item.stats.delayMin;
+    bucket.presentUsers.add(item.row.userId);
+  });
+
+  const locationCounts = { onsite: 0, remote: 0, unknown: 0 };
+  rowsWithStats.forEach((item) => {
+    const loc = resolveDailyRowWorkLocation(item.row);
+    if (loc === "onsite") locationCounts.onsite += 1;
+    else if (loc === "remote") locationCounts.remote += 1;
+    else locationCounts.unknown += 1;
+  });
+
+  const byDelay = new Map();
+  rowsWithStats.forEach((item) => {
+    if (!item.stats.delayMin) return;
+    const cur = byDelay.get(item.row.userId) || { userId: item.row.userId, name: item.row.name, totalDelay: 0, occurrences: 0 };
+    cur.totalDelay += item.stats.delayMin;
+    cur.occurrences += 1;
+    byDelay.set(item.row.userId, cur);
+  });
+  const topDelays = [...byDelay.values()].sort((a, b) => b.totalDelay - a.totalDelay).slice(0, 5);
+
+  const byDept = new Map();
+  rowsWithStats.forEach((item) => {
+    const dept = item.profile.department || "Sans département";
+    const cur = byDept.get(dept) || { department: dept, workedMs: 0, users: new Set() };
+    cur.workedMs += item.stats.realizedMs;
+    cur.users.add(item.row.userId);
+    byDept.set(dept, cur);
+  });
+  const departmentRows = [...byDept.values()]
+    .map((entry) => ({ department: entry.department, workedMs: entry.workedMs, headcount: entry.users.size }))
+    .sort((a, b) => b.workedMs - a.workedMs);
+
+  return {
+    range,
+    scope,
+    profiles,
+    totals,
+    activeUsers: activeUserIds.size,
+    daysCount: daysWorking.size,
+    dailyBuckets,
+    locationCounts,
+    topDelays,
+    departmentRows,
+    sampleSize: rowsWithStats.length
+  };
+}
+
+function delaySeverityLevel(minutes) {
+  if (!minutes) return "ok";
+  if (minutes <= 15) return "info";
+  if (minutes <= 45) return "warn";
+  if (minutes <= 120) return "high";
+  return "critical";
+}
+
+function delaySeverityLabel(level) {
+  switch (level) {
+    case "ok": return "Ponctuel";
+    case "info": return "Léger";
+    case "warn": return "À surveiller";
+    case "high": return "Élevé";
+    case "critical": return "Critique";
+    default: return "";
+  }
+}
+
+function renderDelayBadge(minutes, occurrences = null) {
+  const level = delaySeverityLevel(minutes);
+  const label = delaySeverityLabel(level);
+  const count = occurrences != null
+    ? `<small>${occurrences} occ.</small>`
+    : "";
+  return `
+    <span class="delay-badge delay-badge--${level}" title="${label}">
+      <span class="delay-badge-dot" aria-hidden="true"></span>
+      <strong>${minutes} min</strong>
+      ${count}
+      <em>${label}</em>
+    </span>`;
+}
+
+function renderGlobalKpiCards(data) {
+  const workingHours = data.totals.realizedMs / 3600000;
+  const plannedHours = data.totals.plannedMs / 3600000;
+  const completion = plannedHours ? Math.min(999, Math.round((workingHours / plannedHours) * 100)) : 0;
+  const otHours = data.totals.payableOtMs / 3600000;
+  const totalPresenceSlots = data.activeUsers * data.daysCount;
+  const presenceRate = totalPresenceSlots
+    ? Math.round((data.sampleSize / totalPresenceSlots) * 100)
+    : 0;
+  const delayLevel = delaySeverityLevel(data.totals.delayMin);
+  const delayLabel = delaySeverityLabel(delayLevel);
+  const delayOccurrences = data.topDelays.reduce((sum, item) => sum + item.occurrences, 0);
+
+  return `
+    <section class="global-kpi-grid">
+      <article class="global-kpi-card global-kpi-card--primary">
+        <span class="global-kpi-label">Heures réalisées</span>
+        <strong class="global-kpi-value">${workingHours.toFixed(1)} h</strong>
+        <span class="global-kpi-sub">sur ${plannedHours.toFixed(1)} h planifiées · ${completion}%</span>
+      </article>
+      <article class="global-kpi-card">
+        <span class="global-kpi-label">Collaborateurs actifs</span>
+        <strong class="global-kpi-value">${data.activeUsers}</strong>
+        <span class="global-kpi-sub">sur ${data.profiles.length} dans le périmètre</span>
+      </article>
+      <article class="global-kpi-card">
+        <span class="global-kpi-label">Taux de présence</span>
+        <strong class="global-kpi-value">${presenceRate} %</strong>
+        <span class="global-kpi-sub">${data.sampleSize} jours pointés · ${data.daysCount} jours ouvrés</span>
+      </article>
+      <article class="global-kpi-card global-kpi-card--delay global-kpi-card--delay-${delayLevel}">
+        <span class="global-kpi-label">Retards cumulés</span>
+        <div class="global-kpi-delay-row">
+          <strong class="global-kpi-value">${data.totals.delayMin} min</strong>
+          <span class="delay-index delay-index--${delayLevel}" title="Indice retards ${delayLabel.toLowerCase()}">
+            <span class="delay-index-dot" aria-hidden="true"></span>
+            ${delayLabel}
+          </span>
+        </div>
+        <span class="global-kpi-sub">${delayOccurrences} occurrence${delayOccurrences > 1 ? "s" : ""} · ${data.topDelays.length} collaborateur${data.topDelays.length > 1 ? "s" : ""} concerné${data.topDelays.length > 1 ? "s" : ""}</span>
+      </article>
+      <article class="global-kpi-card global-kpi-card--accent">
+        <span class="global-kpi-label">Heures supp. payables</span>
+        <strong class="global-kpi-value">${otHours.toFixed(1)} h</strong>
+        <span class="global-kpi-sub">demandes approuvées</span>
+      </article>
+    </section>`;
+}
+
+function renderGlobalDailyChart(data) {
+  const entries = [...data.dailyBuckets.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  if (!entries.length) {
+    return `<article class="card global-chart-card"><p class="empty-state">Aucune donnée sur cette période.</p></article>`;
+  }
+  const maxHours = Math.max(1, ...entries.map(([, b]) => b.workedMs / 3600000), ...entries.map(([, b]) => b.plannedMs / 3600000));
+  const width = 100;
+  const barGap = 0.6;
+  const colWidth = (width - barGap * (entries.length + 1)) / entries.length;
+
+  const bars = entries.map(([key, bucket], index) => {
+    const workedHours = bucket.workedMs / 3600000;
+    const plannedHours = bucket.plannedMs / 3600000;
+    const workedHeight = (workedHours / maxHours) * 100;
+    const plannedHeight = (plannedHours / maxHours) * 100;
+    const x = barGap + index * (colWidth + barGap);
+    const dayShort = new Date(`${key}T00:00:00`).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+    return `
+      <g class="global-bar-group" data-day="${key}">
+        <rect class="global-bar-planned" x="${x + colWidth * 0.15}" y="${100 - plannedHeight}" width="${colWidth * 0.7}" height="${plannedHeight}" rx="1"></rect>
+        <rect class="global-bar-worked" x="${x + colWidth * 0.15}" y="${100 - workedHeight}" width="${colWidth * 0.7}" height="${workedHeight}" rx="1"></rect>
+        <title>${dayShort} · réalisé ${workedHours.toFixed(1)} h / planifié ${plannedHours.toFixed(1)} h</title>
+      </g>`;
+  }).join("");
+
+  const labelStep = Math.max(1, Math.round(entries.length / 12));
+  const labels = entries.map(([key], index) => {
+    if (index % labelStep !== 0 && index !== entries.length - 1) return "";
+    const x = barGap + index * (colWidth + barGap) + colWidth / 2;
+    const dayLabel = new Date(`${key}T00:00:00`).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+    return `<text class="global-bar-label" x="${x}" y="105">${dayLabel}</text>`;
+  }).join("");
+
+  return `
+    <article class="card global-chart-card">
+      <div class="global-chart-heading">
+        <div>
+          <h3>Charge journalière</h3>
+          <p>Heures réalisées vs planifiées sur la période.</p>
+        </div>
+        <div class="global-legend">
+          <span class="global-legend-item"><i class="global-swatch global-swatch--planned"></i>Planifié</span>
+          <span class="global-legend-item"><i class="global-swatch global-swatch--worked"></i>Réalisé</span>
+        </div>
+      </div>
+      <div class="global-chart-wrap">
+        <svg class="global-chart-svg" viewBox="0 0 100 110" preserveAspectRatio="none" role="img" aria-label="Charge journalière">
+          ${bars}
+          ${labels}
+        </svg>
+      </div>
+    </article>`;
+}
+
+function renderGlobalDonut(data) {
+  const total = data.locationCounts.onsite + data.locationCounts.remote + data.locationCounts.unknown;
+  if (!total) {
+    return `<article class="card global-donut-card"><p class="empty-state">Aucun lieu enregistré.</p></article>`;
+  }
+  const parts = [
+    { key: "onsite", label: "Sur site", value: data.locationCounts.onsite, color: "var(--forest-mid)" },
+    { key: "remote", label: "Télétravail", value: data.locationCounts.remote, color: "#f59e0b" },
+    { key: "unknown", label: "Non renseigné", value: data.locationCounts.unknown, color: "#94a3b8" }
+  ];
+  const circumference = 2 * Math.PI * 32;
+  let offset = 0;
+  const segments = parts.filter((part) => part.value > 0).map((part) => {
+    const length = (part.value / total) * circumference;
+    const segment = `<circle class="global-donut-seg" r="32" cx="60" cy="60" stroke="${part.color}" stroke-width="18" fill="none" stroke-dasharray="${length} ${circumference}" stroke-dashoffset="${-offset}"></circle>`;
+    offset += length;
+    return segment;
+  }).join("");
+
+  const legend = parts.map((part) => `
+    <li class="global-legend-row">
+      <span class="global-legend-dot" style="background:${part.color}"></span>
+      <span>${part.label}</span>
+      <strong>${part.value}</strong>
+      <small>${Math.round((part.value / total) * 100)} %</small>
+    </li>`).join("");
+
+  return `
+    <article class="card global-donut-card">
+      <h3>Répartition sur site / télétravail</h3>
+      <div class="global-donut-body">
+        <svg class="global-donut-svg" viewBox="0 0 120 120" role="img" aria-label="Répartition sur site vs télétravail">
+          <circle r="32" cx="60" cy="60" stroke="var(--surface-2)" stroke-width="18" fill="none"></circle>
+          ${segments}
+          <text class="global-donut-total" x="60" y="58" text-anchor="middle">${total}</text>
+          <text class="global-donut-caption" x="60" y="74" text-anchor="middle">jours pointés</text>
+        </svg>
+        <ul class="global-donut-legend">${legend}</ul>
+      </div>
+    </article>`;
+}
+
+function renderGlobalTopDelays(data) {
+  if (!data.topDelays.length) {
+    return `
+      <article class="card global-top-card">
+        <h3>Top retards</h3>
+        <p class="empty-state">Aucun retard sur la période. Toute l'équipe est ponctuelle.</p>
+      </article>`;
+  }
+  const max = data.topDelays[0].totalDelay || 1;
+  const rows = data.topDelays.map((item) => {
+    const level = delaySeverityLevel(item.totalDelay);
+    return `
+    <li class="global-top-row delay-row-${level}">
+      <div class="global-top-head">
+        <span>${escapeHtml(item.name || profileById(item.userId)?.full_name || "Collaborateur")}</span>
+        ${renderDelayBadge(item.totalDelay, item.occurrences)}
+      </div>
+      <div class="global-top-track">
+        <span class="global-top-track-fill global-top-track-fill--${level}" style="width:${Math.max(6, Math.round((item.totalDelay / max) * 100))}%"></span>
+      </div>
+      <small>${item.occurrences} jour${item.occurrences > 1 ? "s" : ""} en retard · moyenne ${Math.round(item.totalDelay / item.occurrences)} min/jour</small>
+    </li>`;
+  }).join("");
+  return `
+    <article class="card global-top-card">
+      <div class="global-top-heading">
+        <h3>Top retards</h3>
+        <div class="delay-scale" aria-label="Indice de retard">
+          <span class="delay-scale-item delay-scale-item--ok" title="0 min">Ok</span>
+          <span class="delay-scale-item delay-scale-item--info" title="1 à 15 min">≤15</span>
+          <span class="delay-scale-item delay-scale-item--warn" title="16 à 45 min">≤45</span>
+          <span class="delay-scale-item delay-scale-item--high" title="46 à 120 min">≤120</span>
+          <span class="delay-scale-item delay-scale-item--critical" title="Plus de 120 min">120+</span>
+        </div>
+      </div>
+      <ul class="global-top-list">${rows}</ul>
+    </article>`;
+}
+
+function renderGlobalDepartments(data) {
+  if (!data.departmentRows.length) {
+    return `<article class="card global-dept-card"><h3>Charge par département</h3><p class="empty-state">Aucun département à afficher.</p></article>`;
+  }
+  const max = data.departmentRows[0].workedMs || 1;
+  const rows = data.departmentRows.map((entry) => `
+    <li class="global-dept-row">
+      <div class="global-dept-head">
+        <span>${escapeHtml(entry.department)}</span>
+        <strong>${(entry.workedMs / 3600000).toFixed(1)} h</strong>
+      </div>
+      <div class="global-dept-track">
+        <span style="width:${Math.max(6, Math.round((entry.workedMs / max) * 100))}%"></span>
+      </div>
+      <small>${entry.headcount} collaborateur${entry.headcount > 1 ? "s" : ""}</small>
+    </li>`).join("");
+  return `
+    <article class="card global-dept-card">
+      <h3>Charge par département</h3>
+      <ul class="global-dept-list">${rows}</ul>
+    </article>`;
+}
+
+function globalPage() {
+  if (!canViewGlobal()) {
+    return `<article class="card"><p class="empty-state">Accès au tableau de bord global réservé aux managers et administrateurs.</p></article>`;
+  }
+  if (!usesDatabase() && !demoMode) {
+    return `<article class="card"><p class="empty-state">Connectez-vous avec Microsoft pour consulter le tableau de bord global.</p></article>`;
+  }
+
+  if (!teamPunchFilters.start || !teamPunchFilters.end) {
+    teamPunchFilters = { ...teamPunchFilters, ...getDefaultTeamPunchRange() };
+  }
+  const data = buildGlobalDashboardData();
+
+  return `
+    <p class="data-note">Périmètre : ${data.profiles.length} collaborateur${data.profiles.length > 1 ? "s" : ""} · Période du ${formatDate(data.range.start)} au ${formatDate(data.range.end)}.</p>
+    <article class="card form-card page-spacer">
+      ${cardHeading("Période")}
+      <form id="global-filter" class="feature-form team-punches-filter">
+        <div class="form-row">
+          <label>
+            Du
+            <input type="date" name="start" value="${escapeHtml(data.range.start)}" required>
+          </label>
+          <label>
+            Au
+            <input type="date" name="end" value="${escapeHtml(data.range.end)}" required>
+          </label>
+        </div>
+        ${isAdmin() ? `
+        <label>
+          Périmètre
+          <select name="scope">
+            <option value="all"${teamPunchFilters.scope !== "team" ? " selected" : ""}>Tous les collaborateurs</option>
+            <option value="team"${teamPunchFilters.scope === "team" ? " selected" : ""}>Mon équipe directe</option>
+          </select>
+        </label>` : ""}
+        <div class="team-punches-actions">
+          <button type="submit" class="primary">Actualiser</button>
+        </div>
+      </form>
+    </article>
+    ${renderGlobalKpiCards(data)}
+    <div class="global-charts-grid">
+      ${renderGlobalDailyChart(data)}
+      ${renderGlobalDonut(data)}
+      ${renderGlobalTopDelays(data)}
+      ${renderGlobalDepartments(data)}
+    </div>`;
+}
+
 function pageContent() {
   if (appData.loading) {
     return `<div class="boot-message"><span class="loader" aria-hidden="true"></span>Chargement des données...</div>`;
@@ -5019,6 +5416,7 @@ function pageContent() {
   return {
     home: homePage,
     pointeuse: pointeusePage,
+    global: globalPage,
     journal: journalPage,
     "team-punches": teamPunchesPage,
     reports: reportsPage,
@@ -6050,11 +6448,11 @@ function bindPageEvents() {
     });
   }
 
-  if ((currentPage === "team-punches" || currentPage === "reports") && canViewTeamPunches() && usesDatabase() && !teamPunchesInitialLoadDone) {
+  if ((currentPage === "team-punches" || currentPage === "reports" || currentPage === "global") && canViewTeamPunches() && usesDatabase() && !teamPunchesInitialLoadDone) {
     teamPunchesInitialLoadDone = true;
     loadTeamPunches()
       .then(() => {
-        if (currentPage !== "team-punches" && currentPage !== "reports") return;
+        if (currentPage !== "team-punches" && currentPage !== "reports" && currentPage !== "global") return;
         const content = document.querySelector("#page-content");
         if (content) {
           content.innerHTML = pageContent();
@@ -6065,6 +6463,29 @@ function bindPageEvents() {
         appData.error = formatAppError(error);
         renderApp();
       });
+  }
+
+  const globalFilter = document.querySelector("#global-filter");
+  if (globalFilter) {
+    globalFilter.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      teamPunchFilters = {
+        start: data.get("start"),
+        end: data.get("end"),
+        userId: teamPunchFilters.userId || "",
+        scope: isAdmin() ? (data.get("scope") || teamPunchFilters.scope || "all") : "team"
+      };
+      if (new Date(teamPunchFilters.end) < new Date(teamPunchFilters.start)) {
+        alert("La date de fin doit être postérieure à la date de début.");
+        return;
+      }
+      if (usesDatabase()) {
+        withAction(() => loadTeamPunches());
+      } else {
+        renderApp();
+      }
+    });
   }
 
   document.querySelector("#team-punches-export")?.addEventListener("click", () => {
@@ -6573,7 +6994,7 @@ function bindAppEvents() {
   document.querySelectorAll(".sidebar nav [data-page]").forEach((button) => {
     button.addEventListener("click", () => {
       const nextPage = button.dataset.page;
-      if (nextPage === "team-punches") {
+      if (nextPage === "team-punches" || nextPage === "global") {
         teamPunchesInitialLoadDone = false;
       }
       if (nextPage === "journal") {
