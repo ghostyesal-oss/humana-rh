@@ -357,25 +357,26 @@ function bindWorkStatusPicker() {
     const newStatus = select.value;
     const oldStatus = getCurrentWorkStatus();
     setCurrentWorkStatus(newStatus);
+    const def = workStatusDef(newStatus);
     const dot = select.closest(".work-status-picker")?.querySelector(".work-status-dot");
-    if (dot) dot.style.background = workStatusDef(newStatus).color;
+    if (dot) dot.style.background = def.color;
+    switchStatusClock(newStatus);
 
-    // Enregistrer le changement de statut seulement si on est en poste
-    const { isIn } = getClockState();
-    if (!isIn || newStatus === oldStatus) return;
-
-    const punchData = { type: "status_change", time: new Date().toISOString(), workStatus: newStatus, prevWorkStatus: oldStatus };
-    if (usesDatabase()) {
-      const rows = loadStore("workStatusPunches", []);
-      rows.push(punchData);
-      saveStore("workStatusPunches", rows);
-      renderApp();
-      return;
+    const { isWorking } = getClockState();
+    if (isWorking && newStatus !== oldStatus) {
+      const punchData = { type: "status_change", time: new Date().toISOString(), workStatus: newStatus, prevWorkStatus: oldStatus };
+      if (usesDatabase()) {
+        const rows = loadStore("workStatusPunches", []);
+        rows.push(punchData);
+        saveStore("workStatusPunches", rows);
+      } else {
+        const punches = loadStore("punches", []);
+        punches.push(punchData);
+        saveStore("punches", punches);
+      }
     }
-    const punches = loadStore("punches", []);
-    punches.push(punchData);
-    saveStore("punches", punches);
-    renderApp();
+    updateElapsedClocks();
+    bindElapsedClock();
   });
 }
 const PUNCH_CORRECTION_QUOTA = 3;
@@ -387,29 +388,53 @@ const PUNCH_KIND_OPTIONS = [
 ];
 const PUNCH_CORRECTION_FIELDS = ["punch_kind", "reviewed_by", "reviewed_at"];
 const SHIFT_PRESETS = {
-  cs: {
-    code: "cs",
-    label: "CS / CES",
-    start: "09:00",
+  h7: {
+    code: "h7",
+    label: "07h–17h",
+    start: "07:00",
+    end: "17:00",
+    lunchMin: 60,
+    lunchFrom: "12:00",
+    lunchTo: "14:00",
+    plannedHours: 9,
+    lateAfter: "07:15",
+    earliestEnd: "17:00"
+  },
+  h8: {
+    code: "h8",
+    label: "08h–18h",
+    start: "08:00",
     end: "18:00",
     lunchMin: 60,
-    lunchFrom: "13:00",
-    lunchTo: "15:00",
-    plannedHours: 8,
-    lateAfter: "09:30",
+    lunchFrom: "12:00",
+    lunchTo: "14:00",
+    plannedHours: 9,
+    lateAfter: "08:15",
     earliestEnd: "18:00"
   },
-  rnd: {
-    code: "rnd",
-    label: "R&D",
-    start: "10:00",
+  cs: {
+    code: "cs",
+    label: "CS / CES · 09h–19h",
+    start: "09:00",
     end: "19:00",
     lunchMin: 60,
     lunchFrom: "13:00",
     lunchTo: "15:00",
-    plannedHours: 8,
-    lateAfter: "10:00",
-    earliestEnd: "18:00"
+    plannedHours: 9,
+    lateAfter: "09:15",
+    earliestEnd: "19:00"
+  },
+  rnd: {
+    code: "rnd",
+    label: "R&D · 09h–19h",
+    start: "09:00",
+    end: "19:00",
+    lunchMin: 60,
+    lunchFrom: "13:00",
+    lunchTo: "15:00",
+    plannedHours: 9,
+    lateAfter: "09:15",
+    earliestEnd: "19:00"
   }
 };
 const FR_HOLIDAYS_2026 = ["2026-01-01", "2026-04-06", "2026-05-01", "2026-05-08", "2026-05-14", "2026-05-25", "2026-07-14", "2026-08-15", "2026-11-01", "2026-11-11", "2026-12-25"];
@@ -2290,13 +2315,53 @@ function formatElapsedHms(ms) {
 }
 
 let elapsedClockTimer = null;
+const STATUS_CLOCK_KEY = "humana_status_clock";
+
+function readStatusClock() {
+  try {
+    return JSON.parse(sessionStorage.getItem(STATUS_CLOCK_KEY) || "null");
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeStatusClock(data) {
+  try {
+    sessionStorage.setItem(STATUS_CLOCK_KEY, JSON.stringify(data));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function pauseStatusClock() {
+  const data = readStatusClock();
+  if (!data) return;
+  const totals = { ...(data.totals || {}) };
+  if (data.running && data.start && data.status) {
+    totals[data.status] = (Number(totals[data.status]) || 0) + Math.max(0, Date.now() - Number(data.start));
+  }
+  writeStatusClock({ totals, status: data.status || getCurrentWorkStatus(), start: null, running: false });
+}
+
+function switchStatusClock(newStatus) {
+  const status = String(newStatus || getCurrentWorkStatus() || "production");
+  const data = readStatusClock() || { totals: {} };
+  const totals = { ...(data.totals || {}) };
+  if (data.running && data.start && data.status) {
+    totals[data.status] = (Number(totals[data.status]) || 0) + Math.max(0, Date.now() - Number(data.start));
+  }
+  writeStatusClock({ totals, status, start: Date.now(), running: true });
+}
 
 function getTodayElapsedMs() {
-  try {
-    return computeWorkedHours(getTodayPunches()).today || 0;
-  } catch (_) {
-    return 0;
+  const status = String(getCurrentWorkStatus() || "production");
+  const data = readStatusClock();
+  if (!data) return 0;
+  let ms = Number(data.totals?.[status]) || 0;
+  if (data.running && data.start && String(data.status) === status) {
+    ms += Math.max(0, Date.now() - Number(data.start));
   }
+  return ms;
 }
 
 function updateElapsedClocks() {
@@ -2308,8 +2373,9 @@ function updateElapsedClocks() {
 
 function bindElapsedClock() {
   updateElapsedClocks();
-  if (elapsedClockTimer) return;
-  elapsedClockTimer = setInterval(updateElapsedClocks, 1000);
+  if (window.__humanaElapsedClock) return;
+  window.__humanaElapsedClock = setInterval(updateElapsedClocks, 200);
+  elapsedClockTimer = window.__humanaElapsedClock;
 }
 
 function punchTypeLabel(type) {
@@ -2614,12 +2680,11 @@ function renderDayTimeline(punches, profile, compact = false) {
 
   const shift = getActiveShift(profile);
   const shiftStartMin = minutesFromHhmm(shift.start);
-  const shiftEndMin   = minutesFromHhmm(shift.end);
   const lateAfterMin  = minutesFromHhmm(shift.lateAfter);
 
-  // Plage d'affichage : 1 h avant le début prévu … fin de service + 1 h
-  const dispStart = Math.max(0, shiftStartMin - 60);
-  const dispEnd   = shiftEndMin + 60;
+  // Plage commune : 6h → 21h (prises de poste 7h / 8h / 9h, journée 10h dont 1h de pause)
+  const dispStart = 6 * 60;
+  const dispEnd   = 21 * 60;
   const dispRange = dispEnd - dispStart;
 
   const toPercent = (min) => `${Math.min(100, Math.max(0, ((min - dispStart) / dispRange) * 100)).toFixed(3)}%`;
@@ -2725,6 +2790,12 @@ function renderDayTimeline(punches, profile, compact = false) {
   /* ------ Étiquettes positionnées sur les keypoints ------- */
   const keyLabels = [];
   const labeledMins = new Set();
+  if (shiftStartMin > dispStart && shiftStartMin < dispEnd) {
+    labeledMins.add(shiftStartMin);
+    const h = Math.floor(shiftStartMin / 60);
+    keyLabels.push({ min: shiftStartMin, label: `${h}h` });
+  }
+
   merged.forEach((seg) => {
     [seg.from, seg.to].forEach((min) => {
       if (min <= dispStart || min >= dispEnd) return;
@@ -2768,6 +2839,7 @@ function renderDayTimeline(punches, profile, compact = false) {
 
   return `
     <div class="day-timeline" aria-label="Chronologie de la journée">
+      <p class="dtl-range-note">Affichage de 6h à 21h · journée de 10h dont 1h de pause déjeuner (prises de poste 7h, 8h ou 9h)</p>
       <div class="dtl-labels-row">${keyLabelMarkup}</div>
       <div class="dtl-bar-wrap">
         <div class="dtl-bar">${segmentMarkup}</div>
@@ -5717,9 +5789,9 @@ function bindPageEvents() {
   });
 
   document.querySelector("#clock-toggle")?.addEventListener("click", () => {
+    const starting = getClockState().isOut;
     withAction(async () => {
-      const { isOut } = getClockState();
-      const punchType = isOut ? "in" : "out";
+      const punchType = starting ? "in" : "out";
       const meta = await collectJournalMeta();
       if (usesDatabase()) {
         const payload = applyJournalMetaToPayload(buildClockPunchPayload(punchType), meta, punchType);
@@ -5729,13 +5801,15 @@ function bindPageEvents() {
         punches.push(applyJournalMetaToDemoPunch(buildDemoClockPunch(punchType), meta, punchType));
         saveStore("punches", punches);
       }
+      if (starting) switchStatusClock(getCurrentWorkStatus());
+      else pauseStatusClock();
     });
   });
 
   document.querySelector("#break-toggle")?.addEventListener("click", () => {
+    const resuming = getClockState().onBreak;
     withAction(async () => {
-      const { onBreak } = getClockState();
-      const punchType = onBreak ? "break_end" : "break_start";
+      const punchType = resuming ? "break_end" : "break_start";
       const ws = getCurrentWorkStatus();
       if (usesDatabase()) {
         await insertTimePunch({
@@ -5749,6 +5823,8 @@ function bindPageEvents() {
         punches.push({ type: punchType, time: new Date().toISOString(), workStatus: ws });
         saveStore("punches", punches);
       }
+      if (resuming) switchStatusClock(ws);
+      else pauseStatusClock();
     });
   });
 

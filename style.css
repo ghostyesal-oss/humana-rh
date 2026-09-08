@@ -1695,6 +1695,12 @@ tbody tr:hover td { background: var(--surface-2); }
 
 .dtl-key-label--late span { color: #ef4444; }
 
+.dtl-range-note {
+  margin: 0 0 var(--s2);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .dtl-legend {
   display: flex;
   flex-wrap: wrap;
