@@ -1114,6 +1114,29 @@ button.brand:focus-visible {
   margin-left: auto;
 }
 
+.dtl-elapsed {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
+  min-width: 4.8em;
+}
+
+.dtl-elapsed-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+.dtl-elapsed--lg {
+  font-size: 22px;
+  min-width: auto;
+}
+
 /* Sélecteur statut de travail (topbar) */
 .work-status-picker {
   display: flex;
@@ -1417,6 +1440,28 @@ button.brand:focus-visible {
 /* Tables */
 
 .table-card { padding: 0; overflow: hidden; }
+
+.eds-table-wrap {
+  overflow-x: auto;
+}
+
+.eds-table {
+  min-width: 2400px;
+  font-size: 11px;
+}
+
+.eds-table th,
+.eds-table td {
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.eds-table td.empty-cell {
+  max-width: none;
+  white-space: normal;
+}
 
 .table-wrap {
   overflow-x: auto;

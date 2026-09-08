@@ -334,6 +334,10 @@ function workStatusDef(value) {
   return WORK_STATUSES.find((s) => s.value === value) || WORK_STATUSES[0];
 }
 
+function topbarTimelineMarkup() {
+  return `<span class="dtl-elapsed" data-elapsed-clock aria-label="Temps écoulé">${formatElapsedHms(getTodayElapsedMs())}</span>`;
+}
+
 function workStatusPickerMarkup() {
   const current = workStatusDef(getCurrentWorkStatus());
   const options = WORK_STATUSES.map((s) =>
@@ -2277,6 +2281,37 @@ function formatDuration(ms) {
   return `${hours}h${String(minutes).padStart(2, "0")}`;
 }
 
+function formatElapsedHms(ms) {
+  const total = Math.max(0, Math.floor(Number(ms) / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+let elapsedClockTimer = null;
+
+function getTodayElapsedMs() {
+  try {
+    return computeWorkedHours(getTodayPunches()).today || 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function updateElapsedClocks() {
+  const label = formatElapsedHms(getTodayElapsedMs());
+  document.querySelectorAll("[data-elapsed-clock]").forEach((el) => {
+    el.textContent = label;
+  });
+}
+
+function bindElapsedClock() {
+  updateElapsedClocks();
+  if (elapsedClockTimer) return;
+  elapsedClockTimer = setInterval(updateElapsedClocks, 1000);
+}
+
 function punchTypeLabel(type) {
   switch (type) {
     case "in": return "Début de service";
@@ -2573,10 +2608,9 @@ function renderHomeShiftSummary(punches = getPunches()) {
 /* ──────────────────────────────────────────────────────────
    TIMELINE JOURNEE — barre visuelle type "filmstrip"
    ────────────────────────────────────────────────────────── */
-function renderDayTimeline(punches, profile) {
+function renderDayTimeline(punches, profile, compact = false) {
   const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
-  const startPunch = sorted.find((p) => p.type === "in");
-  if (!sorted.length) return "";
+  if (!sorted.length && !compact) return "";
 
   const shift = getActiveShift(profile);
   const shiftStartMin = minutesFromHhmm(shift.start);
@@ -2723,6 +2757,14 @@ function renderDayTimeline(punches, profile) {
   const lateBlock = lateMin > 0 ? `<div class="dtl-stat dtl-stat--late">Total retards <strong>${fmtMs(lateMs)}</strong></div>` : "";
   const lunchBlock = lunchMs > 0 ? `<div class="dtl-stat dtl-stat--lunch">Durée pause déjeuner : <strong>${fmtMs(lunchMs)}</strong></div>` : "";
   const workBlock  = workMs > 0  ? `<div class="dtl-stat">Durée de travail <strong>${fmtMs(workMs)}</strong></div>` : "";
+
+  if (compact) {
+    return `
+      <div class="topbar-timeline" aria-label="Chronologie du jour" title="Chronologie du jour">
+        <div class="dtl-bar">${segmentMarkup}</div>
+        <span class="dtl-elapsed" data-elapsed-clock>${formatElapsedHms(workMs)}</span>
+      </div>`;
+  }
 
   return `
     <div class="day-timeline" aria-label="Chronologie de la journée">
@@ -4578,42 +4620,278 @@ function getReportPunches() {
   }));
 }
 
+function splitFullName(fullName) {
+  const parts = String(fullName || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return { first: "", last: "" };
+  if (parts.length === 1) return { first: parts[0], last: "" };
+  return { first: parts[0], last: parts.slice(1).join(" ") };
+}
+
+function edsLeaveOverlaps(item, range) {
+  const start = String(item.start || item.start_date || "");
+  const end = String(item.end || item.end_date || start);
+  if (!start) return false;
+  return start <= range.end && end >= range.start;
+}
+
+function edsLeaveApproved(item) {
+  const status = String(item.status || "").toLowerCase();
+  return status.includes("approuv");
+}
+
+function edsLeaveDays(item) {
+  if (Number(item.days)) return Number(item.days);
+  return Number(item.hours || 0) / 8;
+}
+
+function edsLeaveHours(item) {
+  if (Number(item.hours)) return Number(item.hours);
+  return Number(item.days || 0) * 8;
+}
+
+function edsQty(value) {
+  const n = Number(value) || 0;
+  if (!n) return 0;
+  return Math.round(n * 100) / 100;
+}
+
+function edsDescription(items) {
+  return items.map((item) => {
+    const when = item.start ? formatDate(item.start) : "";
+    const motif = String(item.motif || item.comment || item.type || "").trim();
+    return [when, motif].filter(Boolean).join(" — ");
+  }).filter(Boolean).join(" | ");
+}
+
+function edsBucketForLeave(type) {
+  const normalized = foldAbsenceText(type);
+  if (normalized.includes("accident")) return "accident";
+  if (normalized.includes("depart")) return "early";
+  if (normalized.includes("retard")) return "late";
+  const key = leaveTypeKey(type);
+  if (key === "hours") return "late";
+  if (key === "justified" || key === "maladie") return "justified";
+  if (key === "unjustified") return "unjustified";
+  if (key === "paternity") return "special";
+  if (key === "suspension") return "unjustified";
+  return key;
+}
+
+function earlyLeaveMinutes(row, profile) {
+  if (!row.endTime) return 0;
+  const shift = getActiveShift(profile, row.dayKey);
+  const end = new Date(row.endTime);
+  const endMin = end.getHours() * 60 + end.getMinutes();
+  const expected = minutesFromHhmm(shift.earliestEnd || shift.end);
+  return Math.max(0, expected - endMin);
+}
+
+const EDS_COLUMNS = [
+  { key: "statut", label: "Statut" },
+  { key: "nom", label: "Nom" },
+  { key: "prenom", label: "Prénom" },
+  { key: "matricule", label: "Matricule" },
+  { key: "departement", label: "Département" },
+  { key: "dateAnciennete", label: "Date d'ancienneté" },
+  { key: "profil", label: "Profil" },
+  { key: "dateEntree", label: "Date d'entrée" },
+  { key: "dateSortie", label: "Date de sortie" },
+  { key: "departAnticipe", label: "Départ anticipé" },
+  { key: "departAnticipeDesc", label: "Départ anticipé Description" },
+  { key: "retard", label: "Retard" },
+  { key: "retardDesc", label: "Retard Description" },
+  { key: "absInjust", label: "Absence injustifiée" },
+  { key: "absInjustDesc", label: "Absence injustifiée Description" },
+  { key: "absJust", label: "Absences justifiées" },
+  { key: "absJustDesc", label: "Absences justifiées Description" },
+  { key: "accident", label: "Accident du travail" },
+  { key: "accidentDesc", label: "Accident du travail Description" },
+  { key: "cp", label: "Congés payés" },
+  { key: "cpDesc", label: "Congés payés Description" },
+  { key: "special", label: "Congés spéciaux" },
+  { key: "specialDesc", label: "Congés spéciaux Description" },
+  { key: "unpaid", label: "Congés sans solde" },
+  { key: "unpaidDesc", label: "Congés sans solde Description" },
+  { key: "maternity", label: "Maternité" },
+  { key: "maternityDesc", label: "Maternité Description" },
+  { key: "recup", label: "Récupération" },
+  { key: "recupDesc", label: "Récupération Description" },
+  { key: "primesExcept", label: "Primes except" },
+  { key: "primeOutbound", label: "Prime outbound" },
+  { key: "primeProjet", label: "Prime projet" },
+  { key: "primeChallenge", label: "Prime challenge" },
+  { key: "primeEid", label: "Prime Eid - Exonérée" },
+  { key: "primeParrainage", label: "Prime parrainage" },
+  { key: "primeLangue", label: "Prime langue" },
+  { key: "primeProd", label: "Prime productivité" },
+  { key: "regulM1", label: "Régul M-1" },
+  { key: "primeAnciennete", label: "Prime ancienneté" },
+  { key: "hs100", label: "Heures sup 100%" },
+  { key: "hs125", label: "Heures sup 125% (entre 5h et 20h)" },
+  { key: "hs150", label: "Heures sup 150% (entre 20h et 5h)" },
+  { key: "avance", label: "Avance (à déduire)" },
+  { key: "preavis", label: "Retenues préavis (Jrs)" },
+  { key: "chifaa", label: "Chifaa Monde" },
+  { key: "retraiteSal", label: "% Retraite salariale" },
+  { key: "retraitePat", label: "% Retraite patronale" },
+  { key: "salaireBrut", label: "Salaire mensuel brut" },
+  { key: "salaireNet", label: "Salaire mensuel net" },
+  { key: "soldeConge", label: "Solde de congé" },
+  { key: "totalHeuresAbs", label: "Total Heures Absences" },
+  { key: "joursTravailles", label: "Jours travaillés" },
+  { key: "primesFixesPror", label: "Primes fixes pror." },
+  { key: "variablePror", label: "Variable Pror." },
+  { key: "salaireEstime", label: "Salaire estimé" },
+  { key: "commentaires", label: "Commentaires" },
+  { key: "absHorsRetard", label: "Absences Hors Retard" },
+  { key: "unpaidHours", label: "Congé Sans Solde H" },
+  { key: "totalAbsJut", label: "Total ABS JUT" },
+  { key: "primeProjet2", label: "Prime Projet" },
+  { key: "primeOutbound2", label: "Prime Outbound" }
+];
+
 function buildEdsRows() {
   const range = getEdsRange();
   const profiles = getReportProfiles();
   const punches = getReportPunches();
   const daily = summarizeTeamPunchesByDay(punches, range.start, range.end);
-  const leaves = [...getLeaveRequests(), ...(appData.teamLeaveRequests || [])];
+  const leaves = [
+    ...getLeaveRequests(),
+    ...(appData.teamLeaveRequests || []).map((row) => (row.type ? row : normalizeTeamLeaveRequest(row)))
+  ];
   return profiles.map((profile) => {
     const days = daily.filter((row) => row.userId === profile.id);
     let planned = 0;
     let realized = 0;
-    let delay = 0;
+    let delayMin = 0;
+    let earlyMin = 0;
     let missing = 0;
-    let ot = 0;
+    let otMs = 0;
+    let workedDays = 0;
+    const delayDays = [];
+    const earlyDays = [];
     days.forEach((row) => {
       const stats = analyzeWorkedDay(row, profile);
       planned += stats.plannedMs;
       realized += stats.realizedMs;
-      delay += stats.delayMin;
+      delayMin += stats.delayMin;
       missing += stats.missingMs;
-      ot += stats.payableOtMs;
+      otMs += stats.payableOtMs;
+      if (stats.realizedMs > 0) workedDays += 1;
+      if (stats.delayMin > 0) delayDays.push(`${formatDate(row.dayKey)} — ${stats.delayMin} min`);
+      const early = earlyLeaveMinutes(row, profile);
+      if (early > 0) {
+        earlyMin += early;
+        earlyDays.push(`${formatDate(row.dayKey)} — ${early} min`);
+      }
     });
-    const ofType = (key) => leaves.filter((item) => (item.userId || item.user_id || session?.user?.id) === profile.id && leaveTypeKey(item.type) === key && String(item.status || "").toLowerCase().includes("approuv")).reduce((sum, item) => sum + Number(item.days || item.hours || 0), 0);
+
+    const mine = leaves.filter((item) => (
+      (item.userId || item.user_id || session?.user?.id) === profile.id
+      && edsLeaveApproved(item)
+      && edsLeaveOverlaps(item, range)
+    ));
+    const byBucket = (bucket) => mine.filter((item) => edsBucketForLeave(item.type) === bucket);
+    const pack = (bucket, unit = "days") => {
+      const items = byBucket(bucket);
+      const qty = items.reduce((sum, item) => sum + (unit === "hours" ? edsLeaveHours(item) : edsLeaveDays(item)), 0);
+      return { qty: edsQty(qty), desc: edsDescription(items) };
+    };
+
+    const lateLeave = pack("late", "hours");
+    const earlyLeave = pack("early", "hours");
+    const unjust = pack("unjustified");
+    const just = pack("justified");
+    const accident = pack("accident");
+    const cp = pack("cp");
+    const special = pack("special");
+    const unpaid = pack("unpaid");
+    const maternity = pack("maternity");
+    const recup = pack("recup");
+
+    const retardHours = edsQty(delayMin / 60 + lateLeave.qty);
+    const earlyHours = edsQty(earlyMin / 60 + earlyLeave.qty);
+    const names = splitFullName(profile.full_name);
+    const hired = getHiredAt(profile);
+    const shift = getProfileShift(profile);
+    const cpBalance = accruedLeaveDays(profile);
+    const absenceDays = unjust.qty + just.qty + accident.qty + cp.qty + special.qty + unpaid.qty + maternity.qty + recup.qty;
+    const totalHeuresAbs = edsQty(absenceDays * 8 + earlyHours + retardHours);
+    const absHorsRetard = edsQty(absenceDays * 8 + earlyHours);
+    const hsHours = edsQty(otMs / 3600000);
+
     return {
-      name: profile.full_name,
+      statut: "Actif",
+      nom: names.last,
+      prenom: names.first,
       matricule: getProfileMatricule(profile.id),
+      departement: profile.department || "",
+      dateAnciennete: hired ? formatDate(hired) : "",
+      profil: shift.label || profile.job_title || "",
+      dateEntree: hired ? formatDate(hired) : "",
+      dateSortie: "",
+      departAnticipe: earlyHours,
+      departAnticipeDesc: [earlyLeave.desc, earlyDays.join(" | ")].filter(Boolean).join(" | "),
+      retard: retardHours,
+      retardDesc: [lateLeave.desc, delayDays.join(" | ")].filter(Boolean).join(" | "),
+      absInjust: unjust.qty,
+      absInjustDesc: unjust.desc,
+      absJust: just.qty,
+      absJustDesc: just.desc,
+      accident: accident.qty,
+      accidentDesc: accident.desc,
+      cp: cp.qty,
+      cpDesc: cp.desc,
+      special: special.qty,
+      specialDesc: special.desc,
+      unpaid: unpaid.qty,
+      unpaidDesc: unpaid.desc,
+      maternity: maternity.qty,
+      maternityDesc: maternity.desc,
+      recup: recup.qty,
+      recupDesc: recup.desc,
+      primesExcept: 0,
+      primeOutbound: 0,
+      primeProjet: 0,
+      primeChallenge: 0,
+      primeEid: 0,
+      primeParrainage: 0,
+      primeLangue: 0,
+      primeProd: 0,
+      regulM1: 0,
+      primeAnciennete: 0,
+      hs100: 0,
+      hs125: hsHours,
+      hs150: 0,
+      avance: 0,
+      preavis: 0,
+      chifaa: 0,
+      retraiteSal: "",
+      retraitePat: "",
+      salaireBrut: "",
+      salaireNet: "",
+      soldeConge: edsQty(cpBalance),
+      totalHeuresAbs,
+      joursTravailles: workedDays,
+      primesFixesPror: 0,
+      variablePror: 0,
+      salaireEstime: "",
+      commentaires: "",
+      absHorsRetard,
+      unpaidHours: edsQty(unpaid.qty * 8),
+      totalAbsJut: just.qty,
+      primeProjet2: 0,
+      primeOutbound2: 0,
       planned,
       realized,
-      delay,
       missing,
-      ot,
-      cp: ofType("cp"),
-      unpaid: ofType("unpaid"),
-      sick: ofType("justified") + ofType("maladie"),
       range
     };
   });
+}
+
+function edsRowCells(row) {
+  return EDS_COLUMNS.map((col) => row[col.key] ?? "");
 }
 
 function reportsPage() {
@@ -4624,7 +4902,7 @@ function reportsPage() {
   const rows = buildEdsRows();
   const teamScope = canViewTeamPunches() || isAdmin();
   return `
-    <p class="data-note">Cycle de paie EDS : du ${formatDate(range.start)} au ${formatDate(range.end)} (du 21 du mois précédent au 20 du mois en cours). ${teamScope ? "Vue équipe." : "Votre temps uniquement."} M-Work n'est volontairement pas connecté.</p>
+    <p class="data-note">Cycle de paie EDS : du ${formatDate(range.start)} au ${formatDate(range.end)} (du 21 du mois précédent au 20 du mois en cours). ${teamScope ? "Vue équipe." : "Votre temps uniquement."} Les primes et salaires restent à renseigner pour la paie. M-Work n'est volontairement pas connecté.</p>
     ${renderGtaTeamInbox()}
     <article class="card form-card page-spacer">
       ${cardHeading("Exports")}
@@ -4636,24 +4914,20 @@ function reportsPage() {
     </article>
     <article class="card table-card page-spacer">
       <div class="toolbar"><h3>Aperçu EDS</h3></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Collaborateur</th><th>Planifié</th><th>Réalisé</th><th>Retard</th><th>Manquant</th><th>HS</th><th>CP</th><th>Sans solde</th><th>Maladie</th></tr></thead>
+      <div class="table-wrap eds-table-wrap">
+        <table class="eds-table">
+          <thead><tr>${EDS_COLUMNS.map((col) => `<th>${escapeHtml(col.label)}</th>`).join("")}</tr></thead>
           <tbody>
             ${rows.length
               ? rows.map((row) => `
                 <tr>
-                  <td><strong>${escapeHtml(row.name)}</strong></td>
-                  <td>${formatDuration(row.planned)}</td>
-                  <td>${formatDuration(row.realized)}</td>
-                  <td>${row.delay} min</td>
-                  <td>${formatDuration(row.missing)}</td>
-                  <td>${formatDuration(row.ot)}</td>
-                  <td>${row.cp}</td>
-                  <td>${row.unpaid}</td>
-                  <td>${row.sick}</td>
+                  ${EDS_COLUMNS.map((col) => {
+                    const value = row[col.key] ?? "";
+                    const display = col.key === "nom" || col.key === "prenom" ? `<strong>${escapeHtml(value)}</strong>` : escapeHtml(value);
+                    return `<td title="${escapeHtml(value)}">${display}</td>`;
+                  }).join("")}
                 </tr>`).join("")
-              : `<tr><td colspan="9" class="empty-cell">Aucune donnée pour ce cycle.</td></tr>`}
+              : `<tr><td colspan="${EDS_COLUMNS.length}" class="empty-cell">Aucune donnée pour ce cycle.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -5091,7 +5365,7 @@ function renderApp() {
         <header class="topbar">
           <button class="menu-button" type="button" aria-label="Menu"></button>
           <div class="topbar-page">${pages[currentPage][0]}</div>
-          <div class="topbar-actions">${demoMode ? `<span class="demo-pill">Mode démo</span>` : ""}${workStatusPickerMarkup()}${themeToggleMarkup()}</div>
+          <div class="topbar-actions">${demoMode ? `<span class="demo-pill">Mode démo</span>` : ""}${topbarTimelineMarkup()}${workStatusPickerMarkup()}${themeToggleMarkup()}</div>
         </header>
         <div class="page">
           <header class="page-heading">
@@ -5629,8 +5903,8 @@ function bindPageEvents() {
     const rows = buildEdsRows();
     const range = getEdsRange();
     downloadCsv(`eds_${range.start}_${range.end}.csv`,
-      ["Matricule", "Nom", "Planifié", "Réalisé", "Retard_min", "Manquant", "HS", "CP", "Sans_solde", "Maladie"],
-      rows.map((row) => [row.matricule, row.name, formatDuration(row.planned), formatDuration(row.realized), row.delay, formatDuration(row.missing), formatDuration(row.ot), row.cp, row.unpaid, row.sick]));
+      EDS_COLUMNS.map((col) => col.label),
+      rows.map((row) => edsRowCells(row)));
   });
   document.querySelector("#export-absences")?.addEventListener("click", () => {
     const requests = [...getLeaveRequests(), ...(appData.teamLeaveRequests || [])];
@@ -6212,6 +6486,7 @@ function bindPrivateFileLinks() {
 function bindAppEvents() {
   bindThemeToggle();
   bindWorkStatusPicker();
+  bindElapsedClock();
   bindPrivateFileLinks();
 
   document.querySelector("#brand-home")?.addEventListener("click", () => {
