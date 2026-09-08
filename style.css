@@ -4485,6 +4485,19 @@ tbody tr:hover td { background: var(--surface-2); }
   border-color: rgba(220, 38, 38, 0.42);
 }
 
+.global-kpi-corrections-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.global-kpi-card--corrections {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(224, 231, 255, 0.4));
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
 .global-kpi-delay-row {
   display: flex;
   align-items: center;

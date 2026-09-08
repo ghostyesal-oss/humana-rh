@@ -5306,6 +5306,20 @@ function buildGlobalDashboardData() {
     .map((entry) => ({ department: entry.department, workedMs: entry.workedMs, headcount: entry.users.size }))
     .sort((a, b) => b.workedMs - a.workedMs);
 
+  const scopeUserIds = new Set(profiles.map((profile) => profile.id));
+  const correctionStats = (getPunchCorrections() || []).reduce((acc, item) => {
+    const userId = gtaItemUserId(item);
+    if (!scopeUserIds.has(userId)) return acc;
+    const date = gtaItemDate(item);
+    if (date && (date < range.start || date > range.end)) return acc;
+    const status = String(item.status || "").toLowerCase();
+    acc.total += 1;
+    if (status.includes("valider")) acc.pending += 1;
+    else if (status.includes("approuv")) acc.approved += 1;
+    else if (status.includes("refus")) acc.refused += 1;
+    return acc;
+  }, { total: 0, pending: 0, approved: 0, refused: 0 });
+
   return {
     range,
     scope,
@@ -5317,7 +5331,8 @@ function buildGlobalDashboardData() {
     locationCounts,
     topDelays,
     departmentRows,
-    sampleSize: rowsWithStats.length
+    sampleSize: rowsWithStats.length,
+    corrections: correctionStats
   };
 }
 
@@ -5400,6 +5415,14 @@ function renderGlobalKpiCards(data) {
         <span class="global-kpi-label">Heures supp. payables</span>
         <strong class="global-kpi-value">${otHours.toFixed(1)} h</strong>
         <span class="global-kpi-sub">demandes approuvées</span>
+      </article>
+      <article class="global-kpi-card global-kpi-card--corrections${data.corrections.pending ? " global-kpi-card--warning" : ""}">
+        <span class="global-kpi-label">Demandes de rectification</span>
+        <div class="global-kpi-corrections-row">
+          <strong class="global-kpi-value">${data.corrections.total}</strong>
+          ${data.corrections.pending ? `<span class="delay-index delay-index--warn" title="Demandes en attente"><span class="delay-index-dot" aria-hidden="true"></span>${data.corrections.pending} à valider</span>` : ""}
+        </div>
+        <span class="global-kpi-sub">${data.corrections.approved} approuvée${data.corrections.approved > 1 ? "s" : ""} · ${data.corrections.refused} refusée${data.corrections.refused > 1 ? "s" : ""}</span>
       </article>
     </section>`;
 }
