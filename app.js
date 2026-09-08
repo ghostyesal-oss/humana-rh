@@ -2839,7 +2839,6 @@ function renderDayTimeline(punches, profile, compact = false) {
 
   return `
     <div class="day-timeline" aria-label="Chronologie de la journée">
-      <p class="dtl-range-note">Affichage de 6h à 21h · journée de 10h dont 1h de pause déjeuner (prises de poste 7h, 8h ou 9h)</p>
       <div class="dtl-labels-row">${keyLabelMarkup}</div>
       <div class="dtl-bar-wrap">
         <div class="dtl-bar">${segmentMarkup}</div>
