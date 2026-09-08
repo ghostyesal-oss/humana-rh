@@ -3040,6 +3040,216 @@ function getTodayPunches(punches = getPunches()) {
   return punches.filter((punch) => new Date(punch.time).toDateString() === today);
 }
 
+const LATE_REMINDER_OFFSET_MIN = 3;
+const LATE_REMINDER_STORE_KEY = "humana_late_reminder_shown";
+let lateReminderWatcher = null;
+let lateReminderPopupOpen = false;
+let lateReminderNotificationRequested = false;
+
+function shouldTriggerLateReminder() {
+  if (portalMode || !session?.user) return null;
+  const now = new Date();
+  const dayKey = toDateKey(now);
+  if (!isWorkingDayKey(dayKey)) return null;
+
+  const shift = getActiveShift();
+  const startMin = minutesFromHhmm(shift.start);
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const triggerMin = startMin + LATE_REMINDER_OFFSET_MIN;
+  if (nowMin < triggerMin) return null;
+
+  const todayIn = getTodayPunches().some((punch) => punch.type === "in");
+  if (todayIn) return null;
+
+  const storeKey = `${LATE_REMINDER_STORE_KEY}:${session.user.id || "self"}:${dayKey}`;
+  if (sessionStorage.getItem(storeKey) === "shown") return null;
+
+  return {
+    delayMinutes: nowMin - startMin,
+    shift,
+    triggerLabel: `${String(Math.floor(triggerMin / 60)).padStart(2, "0")}:${String(triggerMin % 60).padStart(2, "0")}`,
+    storeKey
+  };
+}
+
+function requestLateReminderPermission() {
+  if (typeof Notification === "undefined") return;
+  if (lateReminderNotificationRequested) return;
+  if (Notification.permission === "granted" || Notification.permission === "denied") return;
+  lateReminderNotificationRequested = true;
+  Notification.requestPermission().catch(() => {});
+}
+
+function fireBrowserLateNotification(info) {
+  if (typeof Notification === "undefined") return;
+  if (Notification.permission !== "granted") return;
+  try {
+    const notif = new Notification("⏰ Pointage oublié", {
+      body: `Il est ${info.triggerLabel} passé et tu n'as pas encore pointé ton arrivée. Retard : ${info.delayMinutes} min.`,
+      tag: "humana-late-reminder",
+      requireInteraction: true
+    });
+    notif.onclick = () => {
+      window.focus();
+      currentPage = "pointeuse";
+      renderApp();
+      notif.close();
+    };
+  } catch (error) {
+    console.warn("[humana] notification failed", error);
+  }
+}
+
+function closeLateReminderPopup() {
+  const overlay = document.getElementById("late-reminder-overlay");
+  overlay?.remove();
+  lateReminderPopupOpen = false;
+}
+
+function showLateReminderPopup(info) {
+  if (lateReminderPopupOpen) return;
+  lateReminderPopupOpen = true;
+  const existing = document.getElementById("late-reminder-overlay");
+  existing?.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "late-reminder-overlay";
+  overlay.className = "late-reminder-overlay";
+  overlay.innerHTML = `
+    <div class="late-reminder-card" role="alertdialog" aria-live="assertive" aria-labelledby="late-reminder-title">
+      <div class="late-reminder-mascot" aria-hidden="true">
+        <span class="late-mascot-wing late-mascot-wing-left"></span>
+        <span class="late-mascot-wing late-mascot-wing-right"></span>
+        <span class="late-mascot-eye late-mascot-eye-left"><i></i></span>
+        <span class="late-mascot-eye late-mascot-eye-right"><i></i></span>
+        <span class="late-mascot-beak"></span>
+        <span class="late-mascot-foot late-mascot-foot-left"></span>
+        <span class="late-mascot-foot late-mascot-foot-right"></span>
+      </div>
+      <h3 id="late-reminder-title">Tu n'as pas encore pointé !</h3>
+      <p class="late-reminder-body">
+        Il est déjà passé <strong>${info.triggerLabel}</strong>. Ton retard atteint <strong>${info.delayMinutes} min</strong>. Pointe ton arrivée dès maintenant pour éviter un décompte au-delà de l'heure limite (${info.shift.lateAfter}).
+      </p>
+      <div class="late-reminder-actions">
+        <button type="button" class="primary" id="late-reminder-clock">Pointer maintenant</button>
+        <button type="button" class="outline-button" id="late-reminder-snooze">Me rappeler dans 5 min</button>
+        <button type="button" class="outline-button" id="late-reminder-close" aria-label="Fermer">Fermer</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const snoozeUntil = new Date();
+  snoozeUntil.setMinutes(snoozeUntil.getMinutes() + 5);
+
+  overlay.querySelector("#late-reminder-clock")?.addEventListener("click", () => {
+    closeLateReminderPopup();
+    sessionStorage.setItem(info.storeKey, "shown");
+    currentPage = "pointeuse";
+    renderApp();
+    setTimeout(() => {
+      document.querySelector("#clock-toggle")?.click();
+    }, 250);
+  });
+
+  overlay.querySelector("#late-reminder-snooze")?.addEventListener("click", () => {
+    closeLateReminderPopup();
+    sessionStorage.setItem(info.storeKey, "shown");
+    setTimeout(() => {
+      sessionStorage.removeItem(info.storeKey);
+    }, 5 * 60 * 1000);
+  });
+
+  overlay.querySelector("#late-reminder-close")?.addEventListener("click", () => {
+    closeLateReminderPopup();
+    sessionStorage.setItem(info.storeKey, "shown");
+  });
+}
+
+function checkLateReminder() {
+  const info = shouldTriggerLateReminder();
+  if (!info) return;
+  requestLateReminderPermission();
+  showLateReminderPopup(info);
+  fireBrowserLateNotification(info);
+  sessionStorage.setItem(info.storeKey, "shown");
+}
+
+function startLateReminderWatcher() {
+  if (typeof Notification !== "undefined" && Notification.permission === "default") {
+    requestLateReminderPermission();
+  }
+  ensureServiceWorkerAndPush();
+  if (lateReminderWatcher) return;
+  lateReminderWatcher = setInterval(() => {
+    try {
+      checkLateReminder();
+    } catch (error) {
+      console.warn("[humana] late reminder check failed", error);
+    }
+  }, 60 * 1000);
+  setTimeout(() => {
+    try { checkLateReminder(); } catch (error) { console.warn("[humana] late reminder check failed", error); }
+  }, 2500);
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = window.atob(base64);
+  const output = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) output[i] = raw.charCodeAt(i);
+  return output;
+}
+
+async function ensureServiceWorkerAndPush() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  try {
+    const registration = await navigator.serviceWorker.register("/sw.js");
+    navigator.serviceWorker.addEventListener("message", (event) => {
+      if (event.data?.type === "humana:open-page" && event.data.page) {
+        currentPage = event.data.page;
+        renderApp();
+      }
+    });
+
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    if (!session?.user?.id || !usesDatabase() || !supabaseClient) return;
+
+    const vapidPublic = (window.HUMANA_CONFIG || {}).VAPID_PUBLIC_KEY || "";
+    if (!vapidPublic) return;
+
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublic)
+      });
+    }
+
+    const raw = subscription.toJSON();
+    if (!raw?.keys?.p256dh || !raw?.keys?.auth) return;
+
+    await supabaseClient.from("push_subscriptions").upsert({
+      user_id: session.user.id,
+      endpoint: raw.endpoint,
+      p256dh: raw.keys.p256dh,
+      auth: raw.keys.auth,
+      user_agent: navigator.userAgent.slice(0, 240),
+      last_seen_at: new Date().toISOString()
+    }, { onConflict: "endpoint" });
+  } catch (error) {
+    console.warn("[humana] push subscription failed", error);
+  }
+}
+
+function stopLateReminderWatcher() {
+  if (lateReminderWatcher) {
+    clearInterval(lateReminderWatcher);
+    lateReminderWatcher = null;
+  }
+  closeLateReminderPopup();
+}
+
 function getClockStatusCopy() {
   const { isWorking, onBreak } = getClockState();
   const hasToday = getTodayPunches().length > 0;
@@ -5677,6 +5887,7 @@ async function bootstrapUser(options = {}) {
       hideAuthBootScreen();
       renderApp();
       maybeShowMicrosoftWelcome();
+      startLateReminderWatcher();
     }
   })();
 
@@ -5806,6 +6017,9 @@ function playViewAnimations() {
 function renderApp() {
   ensureAccessiblePage();
   clearJournalFsRoot();
+  if (session?.user && !lateReminderWatcher && !portalMode) {
+    startLateReminderWatcher();
+  }
   const name = getUserName();
   const email = session?.user?.email || "collaborateur@entreprise.fr";
   const initials = profileInitials(name);
@@ -7020,6 +7234,7 @@ function bindAppEvents() {
       return;
     }
     if (session && supabaseClient) await supabaseClient.auth.signOut();
+    stopLateReminderWatcher();
     session = null;
     demoMode = false;
     currentPage = "home";
