@@ -47,6 +47,9 @@ let appData = {
   activityEntries: [],
   navVisibility: null,
   studioCreators: [],
+  companyEvents: [],
+  companyEventsTableMissing: false,
+  eventEditingId: "",
   adminEditingId: "",
   adminEditingInviteId: ""
 };
@@ -89,6 +92,7 @@ const pages = {
   journal: ["Journal", "Consultez l'historique des connexions et les détails techniques."],
   leave: ["Congés", "Demandes, soldes, validations et justificatifs."],
   attestations: ["Attestations", "Demandez vos documents en quelques clics."],
+  events: ["Événements", "Annonces, réunions et temps forts partagés par les administrateurs."],
   hierarchy: ["Hiérarchie", "Votre manager, votre équipe et l'organigramme."],
   "team-punches": ["Pointages équipe", "Admin : tous les collaborateurs. Manager : son équipe directe."],
   reports: ["Rapports EDS", "Temps, absences, retards et export paie du 21 au 20."],
@@ -244,10 +248,28 @@ const navigation = [
   ["pointeuse", "Pointeuse"],
   ["leave", "Congés"],
   ["attestations", "Attestations"],
+  ["events", "Événements"],
   ["hierarchy", "Hiérarchie"]
 ];
 
+const EVENT_TYPES = [
+  { id: "general", label: "Annonce", icon: "📣" },
+  { id: "meeting", label: "Réunion", icon: "🗓️" },
+  { id: "celebration", label: "Célébration", icon: "🎉" },
+  { id: "training", label: "Formation", icon: "🎓" },
+  { id: "reminder", label: "Rappel", icon: "⏰" }
+];
+
+const EVENT_VISIBILITIES = [
+  { id: "all", label: "Tous les collaborateurs" },
+  { id: "managers", label: "Managers uniquement" },
+  { id: "admins", label: "Administrateurs uniquement" }
+];
+
 const HR_DOCUMENTS_BUCKET = "hr-documents";
+const EVENT_POSTERS_BUCKET = "event-posters";
+const EVENT_POSTER_MAX_BYTES = 5 * 1024 * 1024;
+const EVENT_POSTER_ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 const HR_DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
 const PRIVATE_FILE_URL_TTL_SECONDS = 120;
 const AUTO_CLOCK_OUT_MS = 10 * 60 * 60 * 1000;
@@ -1539,6 +1561,103 @@ async function runAutoClockOutChecks() {
   if (!punchesRes.error) appData.punches = punchesRes.data || [];
 }
 
+async function loadCompanyEvents() {
+  if (!usesDatabase()) {
+    appData.companyEvents = [];
+    return;
+  }
+  const { data, error } = await supabaseClient
+    .from("company_events")
+    .select("*")
+    .order("starts_at", { ascending: false })
+    .limit(200);
+  if (error) {
+    const message = (error.message || "").toLowerCase();
+    if (message.includes("does not exist") || message.includes("company_events") || message.includes("relation")) {
+      appData.companyEvents = [];
+      appData.companyEventsTableMissing = true;
+      return;
+    }
+    console.warn("[humana] company_events load failed", error);
+    appData.companyEvents = [];
+    return;
+  }
+  appData.companyEventsTableMissing = false;
+  appData.companyEvents = data || [];
+}
+
+function getCompanyEvents() {
+  return Array.isArray(appData.companyEvents) ? appData.companyEvents : [];
+}
+
+function getUpcomingCompanyEvents(limit = 3) {
+  const now = Date.now();
+  return getCompanyEvents()
+    .filter((event) => {
+      const end = event.ends_at ? new Date(event.ends_at).getTime() : new Date(event.starts_at).getTime();
+      return Number.isFinite(end) && end >= now;
+    })
+    .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))
+    .slice(0, limit);
+}
+
+function eventTypeMeta(typeId) {
+  return EVENT_TYPES.find((entry) => entry.id === typeId) || EVENT_TYPES[0];
+}
+
+function eventVisibilityLabel(visibilityId) {
+  return (EVENT_VISIBILITIES.find((entry) => entry.id === visibilityId) || EVENT_VISIBILITIES[0]).label;
+}
+
+function formatDateTimeShort(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("fr-FR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function formatDateOnly(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("fr-FR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+}
+
+function formatEventWhen(event) {
+  if (!event?.starts_at) return "";
+  const start = new Date(event.starts_at);
+  const end = event.ends_at ? new Date(event.ends_at) : null;
+  if (event.all_day) {
+    return end && end.toDateString() !== start.toDateString()
+      ? `${formatDateOnly(start)} → ${formatDateOnly(end)} · Toute la journée`
+      : `${formatDateOnly(start)} · Toute la journée`;
+  }
+  if (!end) return formatDateTimeShort(start);
+  const sameDay = start.toDateString() === end.toDateString();
+  if (sameDay) {
+    const endTime = end.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    return `${formatDateTimeShort(start)} → ${endTime}`;
+  }
+  return `${formatDateTimeShort(start)} → ${formatDateTimeShort(end)}`;
+}
+
+function eventLocalDateTimeValue(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 async function loadHrAlerts(userId) {
   const { data, error } = await supabaseClient
     .from("hr_alerts")
@@ -1554,6 +1673,34 @@ async function loadHrAlerts(userId) {
     throw error;
   }
   appData.hrAlerts = data || [];
+}
+
+function renderHomeEventsCard() {
+  const events = getUpcomingCompanyEvents(3);
+  if (!events.length) return "";
+  return `
+    <article class="card home-widget home-events-widget">
+      <div class="card-heading">
+        <h3>Prochains événements</h3>
+        <button type="button" class="home-link" data-goto-page="events">Tout voir</button>
+      </div>
+      <div class="home-event-list">
+        ${events.map((event) => {
+          const meta = eventTypeMeta(event.event_type);
+          const thumb = event.poster_url
+            ? `<span class="home-event-thumb" style="background-image:url('${escapeHtml(event.poster_url)}')" aria-hidden="true"></span>`
+            : `<span class="home-event-icon event-type--${meta.id}" aria-hidden="true">${meta.icon}</span>`;
+          return `
+            <button type="button" class="home-event-item" data-goto-page="events">
+              ${thumb}
+              <div>
+                <strong>${escapeHtml(event.title)}</strong>
+                <span>${escapeHtml(formatEventWhen(event))}${event.location ? ` · ${escapeHtml(event.location)}` : ""}</span>
+              </div>
+            </button>`;
+        }).join("")}
+      </div>
+    </article>`;
 }
 
 function renderHrAlertsCard() {
@@ -3430,6 +3577,38 @@ function sanitizeFileName(name) {
     .slice(0, 80) || "document";
 }
 
+async function uploadEventPosterFile(file) {
+  if (!EVENT_POSTER_ACCEPTED_TYPES.includes(file.type)) {
+    throw new Error("Format d'affiche non supporté (JPG, PNG, WEBP ou GIF).");
+  }
+  if (file.size > EVENT_POSTER_MAX_BYTES) {
+    throw new Error("L'affiche dépasse 5 Mo. Compressez l'image avant l'upload.");
+  }
+  const safeName = sanitizeFileName(file.name);
+  const storagePath = `posters/${Date.now()}-${safeName}`;
+  const { error } = await supabaseClient.storage
+    .from(EVENT_POSTERS_BUCKET)
+    .upload(storagePath, file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: file.type || "image/jpeg"
+    });
+  if (error) throw error;
+  const { data } = supabaseClient.storage
+    .from(EVENT_POSTERS_BUCKET)
+    .getPublicUrl(storagePath);
+  return { storagePath, publicUrl: data?.publicUrl || "" };
+}
+
+async function deleteEventPosterFile(storagePath) {
+  if (!storagePath) return;
+  try {
+    await supabaseClient.storage.from(EVENT_POSTERS_BUCKET).remove([storagePath]);
+  } catch (error) {
+    console.warn("[humana] event poster cleanup failed", error);
+  }
+}
+
 async function uploadHrDocumentFile(file) {
   const safeName = sanitizeFileName(file.name);
   const storagePath = `docs/${Date.now()}-${safeName}`;
@@ -3504,6 +3683,7 @@ function homePage() {
 
     <section class="home-grid page-spacer">
       ${canViewHrAlerts() ? renderHrAlertsCard() : ""}
+      ${renderHomeEventsCard()}
       <article class="card home-widget">
         <div class="card-heading">
           <h3>Ma journée</h3>
@@ -4562,6 +4742,305 @@ function leaveRows(requests) {
       <td>${escapeHtml(request.attachment_name || request.attachmentName || "—")}</td>
       <td>${badge(request.status)}</td>
     </tr>`).join("");
+}
+
+function formatCountdown(startsAt) {
+  const start = new Date(startsAt).getTime();
+  const diff = start - Date.now();
+  if (!Number.isFinite(diff)) return "";
+  if (diff <= 0) return "En cours";
+  const minutes = Math.round(diff / 60000);
+  if (minutes < 60) return `Dans ${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `Dans ${hours} h`;
+  const days = Math.round(hours / 24);
+  if (days < 14) return `Dans ${days} jour${days > 1 ? "s" : ""}`;
+  const weeks = Math.round(days / 7);
+  if (weeks < 8) return `Dans ${weeks} semaine${weeks > 1 ? "s" : ""}`;
+  const months = Math.round(days / 30);
+  return `Dans ${months} mois`;
+}
+
+function formatEventTimeShort(event) {
+  const start = new Date(event.starts_at);
+  if (Number.isNaN(start.getTime())) return "";
+  if (event.all_day) return "Toute la journée";
+  const startTime = start.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  if (!event.ends_at) return startTime;
+  const end = new Date(event.ends_at);
+  if (Number.isNaN(end.getTime())) return startTime;
+  if (start.toDateString() === end.toDateString()) {
+    const endTime = end.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    return `${startTime} → ${endTime}`;
+  }
+  return `${startTime} · sur plusieurs jours`;
+}
+
+function renderDateBadge(startsAt) {
+  const date = new Date(startsAt);
+  if (Number.isNaN(date.getTime())) return "";
+  const day = date.getDate();
+  const month = date.toLocaleDateString("fr-FR", { month: "short" }).replace(".", "");
+  const weekday = date.toLocaleDateString("fr-FR", { weekday: "short" }).replace(".", "");
+  return `
+    <span class="event-date-badge" aria-hidden="true">
+      <span class="event-date-badge__weekday">${weekday}</span>
+      <span class="event-date-badge__day">${day}</span>
+      <span class="event-date-badge__month">${month}</span>
+    </span>`;
+}
+
+function eventsPage() {
+  const admin = isAdmin();
+  const events = getCompanyEvents();
+  const now = Date.now();
+  const upcoming = events
+    .filter((event) => {
+      const end = event.ends_at ? new Date(event.ends_at).getTime() : new Date(event.starts_at).getTime();
+      return Number.isFinite(end) && end >= now;
+    })
+    .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
+  const past = events
+    .filter((event) => {
+      const end = event.ends_at ? new Date(event.ends_at).getTime() : new Date(event.starts_at).getTime();
+      return Number.isFinite(end) && end < now;
+    })
+    .sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at))
+    .slice(0, 12);
+
+  const featured = upcoming[0] || null;
+  const rest = upcoming.slice(1);
+
+  const editingId = appData.eventEditingId || "";
+  const editing = editingId ? events.find((event) => String(event.id) === String(editingId)) : null;
+  const defaultStart = editing?.starts_at
+    ? eventLocalDateTimeValue(editing.starts_at)
+    : eventLocalDateTimeValue(new Date(Date.now() + 60 * 60 * 1000).toISOString());
+  const defaultEnd = editing?.ends_at ? eventLocalDateTimeValue(editing.ends_at) : "";
+
+  const tableMissingWarning = appData.companyEventsTableMissing && admin
+    ? `<article class="card error-card">
+        <p class="error-message">Table <code>company_events</code> introuvable. Exécutez <code>supabase/company-events.sql</code> dans SQL Editor pour activer les événements.</p>
+      </article>`
+    : "";
+
+  const renderFeatured = (event) => {
+    const meta = eventTypeMeta(event.event_type);
+    const countdown = formatCountdown(event.starts_at);
+    const author = profileById(event.created_by)?.full_name || "";
+    return `
+      <article class="event-hero event-hero--${meta.id}${event.poster_url ? " has-poster" : ""}">
+        ${event.poster_url ? `<div class="event-hero__poster" style="background-image:url('${escapeHtml(event.poster_url)}')" aria-hidden="true"></div>` : ""}
+        <div class="event-hero__overlay">
+          <div class="event-hero__meta">
+            <span class="event-type-pill event-type--${meta.id}">${meta.icon} ${meta.label}</span>
+            ${countdown ? `<span class="event-hero__countdown">${escapeHtml(countdown)}</span>` : ""}
+          </div>
+          <h2 class="event-hero__title">${escapeHtml(event.title)}</h2>
+          <div class="event-hero__info">
+            <span>🗓️ ${escapeHtml(formatEventWhen(event))}</span>
+            ${event.location ? `<span>📍 ${escapeHtml(event.location)}</span>` : ""}
+            <span>👥 ${escapeHtml(eventVisibilityLabel(event.visibility))}</span>
+          </div>
+          ${event.description ? `<p class="event-hero__desc">${escapeHtml(event.description)}</p>` : ""}
+          <div class="event-hero__footer">
+            <span class="event-hero__author">${author ? `Publié par ${escapeHtml(author)}` : ""}</span>
+            ${admin ? `
+              <div class="event-actions">
+                <button type="button" class="outline-button" data-event-edit="${event.id}">Modifier</button>
+                <button type="button" class="outline-button danger" data-event-delete="${event.id}">Supprimer</button>
+              </div>` : ""}
+          </div>
+        </div>
+      </article>`;
+  };
+
+  const renderEventCard = (event, options = {}) => {
+    const meta = eventTypeMeta(event.event_type);
+    const author = profileById(event.created_by)?.full_name || "";
+    const canManage = admin;
+    const compact = Boolean(options.compact);
+    const past = Boolean(options.past);
+
+    if (compact) {
+      return `
+        <article class="event-row${past ? " event-row--past" : ""}">
+          ${renderDateBadge(event.starts_at)}
+          <div class="event-row__body">
+            <div class="event-row__head">
+              <span class="event-type-pill event-type--${meta.id}">${meta.icon} ${meta.label}</span>
+              <span class="event-row__time">${escapeHtml(formatEventTimeShort(event))}</span>
+            </div>
+            <h4 class="event-row__title">${escapeHtml(event.title)}</h4>
+            ${event.location ? `<span class="event-row__location">📍 ${escapeHtml(event.location)}</span>` : ""}
+          </div>
+          ${canManage ? `
+            <div class="event-row__actions">
+              <button type="button" class="icon-button" data-event-edit="${event.id}" title="Modifier" aria-label="Modifier">✎</button>
+              <button type="button" class="icon-button danger" data-event-delete="${event.id}" title="Supprimer" aria-label="Supprimer">×</button>
+            </div>` : ""}
+        </article>`;
+    }
+
+    return `
+      <article class="event-card event-card--${meta.id}${past ? " event-card--past" : ""}">
+        <div class="event-card__media">
+          ${event.poster_url
+            ? `<a class="event-card__poster-wrap" href="${escapeHtml(event.poster_url)}" target="_blank" rel="noopener noreferrer">
+                <img class="event-card__poster" src="${escapeHtml(event.poster_url)}" alt="Affiche ${escapeHtml(event.title)}" loading="lazy">
+              </a>`
+            : `<div class="event-card__poster-placeholder" aria-hidden="true"><span>${meta.icon}</span></div>`}
+          ${renderDateBadge(event.starts_at)}
+          <span class="event-type-pill event-type-pill--floating event-type--${meta.id}">${meta.icon} ${meta.label}</span>
+        </div>
+        <div class="event-card__body">
+          <h3 class="event-card__title">${escapeHtml(event.title)}</h3>
+          <div class="event-card__meta">
+            <span>🕒 ${escapeHtml(formatEventTimeShort(event))}</span>
+            ${event.location ? `<span>📍 ${escapeHtml(event.location)}</span>` : ""}
+          </div>
+          ${event.description ? `<p class="event-card__desc">${escapeHtml(event.description)}</p>` : ""}
+          <div class="event-card__footer">
+            <span class="event-card__author">${author ? escapeHtml(author) : ""}${author && event.visibility !== "all" ? " · " : ""}${event.visibility !== "all" ? escapeHtml(eventVisibilityLabel(event.visibility)) : ""}</span>
+            ${canManage ? `
+              <div class="event-actions">
+                <button type="button" class="outline-button" data-event-edit="${event.id}">Modifier</button>
+                <button type="button" class="outline-button danger" data-event-delete="${event.id}">Supprimer</button>
+              </div>` : ""}
+          </div>
+        </div>
+      </article>`;
+  };
+
+  const adminForm = admin
+    ? `
+      <aside class="events-composer">
+        <article class="card events-composer__card">
+          <div class="events-composer__head">
+            <div>
+              <h3>${editing ? "Modifier l'événement" : "Créer un événement"}</h3>
+              <p>${editing ? "Ajustez les détails puis enregistrez." : "Diffusez une annonce, une réunion, une célébration…"}</p>
+            </div>
+            <span class="events-composer__icon" aria-hidden="true">${editing ? "✎" : "＋"}</span>
+          </div>
+          <form id="event-form" class="events-composer__form" data-event-id="${editing?.id || ""}">
+            <label class="field field--wide">
+              <span>Titre</span>
+              <input type="text" name="title" maxlength="140" value="${escapeHtml(editing?.title || "")}" placeholder="Ex. Réunion mensuelle" required>
+            </label>
+            <label class="field">
+              <span>Type</span>
+              <select name="event_type">
+                ${EVENT_TYPES.map((type) => {
+                  const selected = editing?.event_type === type.id ? " selected" : "";
+                  return `<option value="${type.id}"${selected}>${type.icon} ${type.label}</option>`;
+                }).join("")}
+              </select>
+            </label>
+            <label class="field">
+              <span>Visibilité</span>
+              <select name="visibility">
+                ${EVENT_VISIBILITIES.map((vis) => {
+                  const selected = (editing?.visibility || "all") === vis.id ? " selected" : "";
+                  return `<option value="${vis.id}"${selected}>${vis.label}</option>`;
+                }).join("")}
+              </select>
+            </label>
+            <label class="field field--wide event-checkbox">
+              <input type="checkbox" name="all_day" ${editing?.all_day ? "checked" : ""}>
+              <span>Toute la journée</span>
+            </label>
+            <label class="field">
+              <span>Début</span>
+              <input type="datetime-local" name="starts_at" value="${defaultStart}" required>
+            </label>
+            <label class="field">
+              <span>Fin <em>(facultatif)</em></span>
+              <input type="datetime-local" name="ends_at" value="${defaultEnd}">
+            </label>
+            <label class="field field--wide">
+              <span>Lieu <em>(facultatif)</em></span>
+              <input type="text" name="location" maxlength="180" value="${escapeHtml(editing?.location || "")}" placeholder="Ex. Salle Zenith · Visio Teams">
+            </label>
+            <label class="field field--wide">
+              <span>Description</span>
+              <textarea name="description" rows="4" maxlength="2000" placeholder="Détails, agenda, lien de visio, etc.">${escapeHtml(editing?.description || "")}</textarea>
+            </label>
+            <label class="field field--wide event-poster-field">
+              <span>Affiche <em>(JPG, PNG, WEBP, GIF · max 5 Mo)</em></span>
+              <input type="file" name="poster" accept="image/jpeg,image/png,image/webp,image/gif">
+            </label>
+            ${editing?.poster_url ? `
+              <div class="field field--wide event-poster-preview">
+                <img src="${escapeHtml(editing.poster_url)}" alt="Affiche actuelle">
+                <label class="event-checkbox">
+                  <input type="checkbox" name="remove_poster">
+                  <span>Supprimer l'affiche actuelle</span>
+                </label>
+              </div>` : ""}
+            <div class="events-composer__actions">
+              ${editing ? `<button type="button" class="outline-button" id="event-cancel">Annuler</button>` : ""}
+              <button type="submit" class="primary">${editing ? "Enregistrer" : "Publier l'événement"}</button>
+            </div>
+          </form>
+        </article>
+      </aside>`
+    : "";
+
+  const heroBlock = featured
+    ? renderFeatured(featured)
+    : `<article class="event-hero event-hero--empty">
+        <div class="event-hero__overlay">
+          <span class="event-type-pill event-type--general">📣 Aucun événement</span>
+          <h2 class="event-hero__title">${admin ? "Rien de prévu pour l'instant" : "Aucune annonce à venir"}</h2>
+          <p class="event-hero__desc">${admin ? "Utilisez le formulaire pour publier votre première annonce à toute l'équipe." : "Les administrateurs partageront ici les prochains temps forts."}</p>
+        </div>
+      </article>`;
+
+  const upcomingGrid = rest.length
+    ? `
+      <section class="events-section">
+        <div class="events-section__head">
+          <h3>Prochains rendez-vous</h3>
+          <span class="events-section__count">${rest.length} événement${rest.length > 1 ? "s" : ""}</span>
+        </div>
+        <div class="event-grid">
+          ${rest.map((event) => renderEventCard(event)).join("")}
+        </div>
+      </section>`
+    : "";
+
+  const pastBlock = past.length
+    ? `
+      <section class="events-section events-section--past">
+        <div class="events-section__head">
+          <h3>Historique récent</h3>
+          <span class="events-section__count">${past.length}</span>
+        </div>
+        <div class="event-row-list">
+          ${past.map((event) => renderEventCard(event, { compact: true, past: true })).join("")}
+        </div>
+      </section>`
+    : "";
+
+  const stats = `
+    <div class="events-stats">
+      <div class="events-stat"><strong>${upcoming.length}</strong><span>À venir</span></div>
+      <div class="events-stat"><strong>${featured ? formatCountdown(featured.starts_at) : "—"}</strong><span>Prochain</span></div>
+      <div class="events-stat"><strong>${past.length}</strong><span>Passés (30j)</span></div>
+    </div>`;
+
+  return `
+    ${tableMissingWarning}
+    <div class="events-page">
+      <div class="events-main">
+        ${stats}
+        ${heroBlock}
+        ${upcomingGrid}
+        ${pastBlock}
+      </div>
+      ${adminForm}
+    </div>`;
 }
 
 function attestationsPage() {
@@ -5655,6 +6134,7 @@ function pageContent() {
     reports: reportsPage,
     leave: leavePage,
     attestations: attestationsPage,
+    events: eventsPage,
     hierarchy: hierarchyPage,
     admin: adminPage,
     creator: creatorPage
@@ -5840,6 +6320,7 @@ async function refreshAppData() {
 
     await loadNavVisibility();
     await loadStudioCreators();
+    await loadCompanyEvents();
 
     if (canViewTeamPunches()) {
       await loadTeamPunches(teamPunchFilters);
@@ -6338,6 +6819,143 @@ function daysBetween(start, end) {
   return Math.max(countWorkingDays(start, end), 0);
 }
 
+function bindCompanyEventsPage() {
+  const form = document.querySelector("#event-form");
+  if (form) {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!isAdmin()) return;
+      const data = new FormData(event.currentTarget);
+      const editingId = form.dataset.eventId || "";
+      const title = String(data.get("title") || "").trim();
+      const startsRaw = String(data.get("starts_at") || "");
+      if (!title || !startsRaw) {
+        alert("Titre et date de début obligatoires.");
+        return;
+      }
+      const endsRaw = String(data.get("ends_at") || "");
+      const startsAt = new Date(startsRaw);
+      const endsAt = endsRaw ? new Date(endsRaw) : null;
+      if (endsAt && endsAt < startsAt) {
+        alert("La date de fin doit être postérieure au début.");
+        return;
+      }
+      const payload = {
+        title,
+        description: String(data.get("description") || "").trim() || null,
+        location: String(data.get("location") || "").trim() || null,
+        event_type: String(data.get("event_type") || "general"),
+        starts_at: startsAt.toISOString(),
+        ends_at: endsAt ? endsAt.toISOString() : null,
+        all_day: data.get("all_day") === "on",
+        visibility: String(data.get("visibility") || "all")
+      };
+      const posterFile = data.get("poster");
+      const posterProvided = posterFile instanceof File && posterFile.size > 0;
+      const removePoster = data.get("remove_poster") === "on";
+      const currentEvent = editingId ? getCompanyEvents().find((entry) => String(entry.id) === String(editingId)) : null;
+
+      withAction(async () => {
+        let uploaded = null;
+        if (posterProvided) {
+          if (!usesDatabase()) {
+            throw new Error("Upload d'affiche indisponible en mode démo.");
+          }
+          uploaded = await uploadEventPosterFile(posterFile);
+          payload.poster_url = uploaded.publicUrl;
+          payload.poster_path = uploaded.storagePath;
+        } else if (removePoster) {
+          payload.poster_url = null;
+          payload.poster_path = null;
+        }
+
+        try {
+          if (usesDatabase()) {
+            if (editingId) {
+              const { error } = await supabaseClient
+                .from("company_events")
+                .update(payload)
+                .eq("id", editingId);
+              if (error) throw error;
+            } else {
+              const { error } = await supabaseClient
+                .from("company_events")
+                .insert({ ...payload, created_by: session.user.id });
+              if (error) throw error;
+            }
+
+            const oldPath = currentEvent?.poster_path;
+            if (oldPath && (uploaded || removePoster) && oldPath !== payload.poster_path) {
+              await deleteEventPosterFile(oldPath);
+            }
+
+            await loadCompanyEvents();
+          } else {
+            const list = getCompanyEvents();
+            if (editingId) {
+              appData.companyEvents = list.map((entry) => (
+                String(entry.id) === String(editingId)
+                  ? { ...entry, ...payload, updated_at: new Date().toISOString() }
+                  : entry
+              ));
+            } else {
+              appData.companyEvents = [
+                { id: `local-${Date.now()}`, created_at: new Date().toISOString(), created_by: session?.user?.id || null, ...payload },
+                ...list
+              ];
+            }
+          }
+        } catch (error) {
+          if (uploaded?.storagePath) {
+            await deleteEventPosterFile(uploaded.storagePath);
+          }
+          throw error;
+        }
+        appData.eventEditingId = "";
+      });
+    });
+  }
+
+  document.querySelector("#event-cancel")?.addEventListener("click", () => {
+    appData.eventEditingId = "";
+    renderApp();
+  });
+
+  document.querySelectorAll("[data-event-edit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      appData.eventEditingId = button.dataset.eventEdit || "";
+      renderApp();
+      requestAnimationFrame(() => {
+        document.querySelector("#event-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+  });
+
+  document.querySelectorAll("[data-event-delete]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!isAdmin()) return;
+      const id = button.dataset.eventDelete;
+      if (!id) return;
+      if (!window.confirm("Supprimer cet événement ? Les collaborateurs ne le verront plus.")) return;
+      const target = getCompanyEvents().find((entry) => String(entry.id) === String(id));
+      withAction(async () => {
+        if (usesDatabase()) {
+          const { error } = await supabaseClient
+            .from("company_events")
+            .delete()
+            .eq("id", id);
+          if (error) throw error;
+          if (target?.poster_path) await deleteEventPosterFile(target.poster_path);
+          await loadCompanyEvents();
+        } else {
+          appData.companyEvents = getCompanyEvents().filter((entry) => String(entry.id) !== String(id));
+        }
+        if (String(appData.eventEditingId) === String(id)) appData.eventEditingId = "";
+      });
+    });
+  });
+}
+
 async function withAction(handler) {
   try {
     appData.loading = true;
@@ -6411,6 +7029,8 @@ function bindPageEvents() {
       renderApp();
     });
   });
+
+  bindCompanyEventsPage();
 
   document.querySelectorAll("[data-work-location]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -7290,6 +7910,9 @@ function bindAppEvents() {
       activityEntries: [],
       navVisibility: null,
       studioCreators: [],
+      companyEvents: [],
+      companyEventsTableMissing: false,
+      eventEditingId: "",
       adminEditingId: "",
       adminEditingInviteId: ""
     };
