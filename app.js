@@ -1688,8 +1688,9 @@ function renderHomeEventsCard() {
       <div class="home-event-list">
         ${events.map((event) => {
           const meta = eventTypeMeta(event.event_type);
-          const thumb = event.poster_url
-            ? `<span class="home-event-thumb" style="background-image:url('${escapeHtml(event.poster_url)}')" aria-hidden="true"></span>`
+          const posterUrl = sanitizeEventPosterUrl(event);
+          const thumb = posterUrl
+            ? `<span class="home-event-thumb" style="background-image:url('${encodeURI(posterUrl).replace(/'/g, "%27")}')" aria-hidden="true"></span>`
             : `<span class="home-event-icon event-type--${meta.id}" aria-hidden="true">${meta.icon}</span>`;
           return `
             <button type="button" class="home-event-item" data-goto-page="events">
@@ -1748,7 +1749,20 @@ function escapeHtml(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function safeExternalUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw, window.location.origin);
+    if (url.protocol === "http:" || url.protocol === "https:" || url.protocol === "mailto:" || url.protocol === "tel:") {
+      return url.toString();
+    }
+  } catch (_) { /* fall-through */ }
+  return "";
 }
 
 function getNavigationItems() {
@@ -4791,6 +4805,10 @@ function renderDateBadge(startsAt) {
     </span>`;
 }
 
+function sanitizeEventPosterUrl(event) {
+  return event?.poster_url ? safeExternalUrl(event.poster_url) : "";
+}
+
 function eventsPage() {
   const admin = isAdmin();
   const events = getCompanyEvents();
@@ -4829,9 +4847,10 @@ function eventsPage() {
     const meta = eventTypeMeta(event.event_type);
     const countdown = formatCountdown(event.starts_at);
     const author = profileById(event.created_by)?.full_name || "";
+    const posterUrl = sanitizeEventPosterUrl(event);
     return `
-      <article class="event-hero event-hero--${meta.id}${event.poster_url ? " has-poster" : ""}" data-event-open="${event.id}" role="button" tabindex="0" aria-label="Voir le détail de ${escapeHtml(event.title)}">
-        ${event.poster_url ? `<div class="event-hero__poster" style="background-image:url('${escapeHtml(event.poster_url)}')" aria-hidden="true"></div>` : ""}
+      <article class="event-hero event-hero--${meta.id}${posterUrl ? " has-poster" : ""}" data-event-open="${event.id}" role="button" tabindex="0" aria-label="Voir le détail de ${escapeHtml(event.title)}">
+        ${posterUrl ? `<div class="event-hero__poster" style="background-image:url('${encodeURI(posterUrl).replace(/'/g, "%27")}')" aria-hidden="true"></div>` : ""}
         <button type="button" class="event-hero__expand" data-event-open="${event.id}" aria-label="Agrandir">⤢</button>
         <div class="event-hero__overlay">
           <div class="event-hero__meta">
@@ -4884,12 +4903,13 @@ function eventsPage() {
         </article>`;
     }
 
+    const posterUrl = sanitizeEventPosterUrl(event);
     return `
       <article class="event-card event-card--${meta.id}${past ? " event-card--past" : ""}" data-event-open="${event.id}" role="button" tabindex="0" aria-label="Voir le détail de ${escapeHtml(event.title)}">
         <div class="event-card__media">
-          ${event.poster_url
+          ${posterUrl
             ? `<div class="event-card__poster-wrap">
-                <img class="event-card__poster" src="${escapeHtml(event.poster_url)}" alt="Affiche ${escapeHtml(event.title)}" loading="lazy">
+                <img class="event-card__poster" src="${escapeHtml(posterUrl)}" alt="Affiche ${escapeHtml(event.title)}" loading="lazy">
               </div>`
             : `<div class="event-card__poster-placeholder" aria-hidden="true"><span>${meta.icon}</span></div>`}
           ${renderDateBadge(event.starts_at)}
@@ -4973,14 +4993,14 @@ function eventsPage() {
               <span>Affiche <em>(JPG, PNG, WEBP, GIF · max 5 Mo)</em></span>
               <input type="file" name="poster" accept="image/jpeg,image/png,image/webp,image/gif">
             </label>
-            ${editing?.poster_url ? `
-              <div class="field field--wide event-poster-preview">
-                <img src="${escapeHtml(editing.poster_url)}" alt="Affiche actuelle">
-                <label class="event-checkbox">
-                  <input type="checkbox" name="remove_poster">
-                  <span>Supprimer l'affiche actuelle</span>
-                </label>
-              </div>` : ""}
+          ${sanitizeEventPosterUrl(editing) ? `
+            <div class="field field--wide event-poster-preview">
+              <img src="${escapeHtml(sanitizeEventPosterUrl(editing))}" alt="Affiche actuelle">
+              <label class="event-checkbox">
+                <input type="checkbox" name="remove_poster">
+                <span>Supprimer l'affiche actuelle</span>
+              </label>
+            </div>` : ""}
             <div class="events-composer__actions">
               ${editing ? `<button type="button" class="outline-button" id="event-cancel">Annuler</button>` : ""}
               <button type="submit" class="primary">${editing ? "Enregistrer" : "Publier l'événement"}</button>
@@ -5055,14 +5075,15 @@ function renderEventDetailOverlay(events, admin) {
   const meta = eventTypeMeta(event.event_type);
   const author = profileById(event.created_by)?.full_name || "";
   const countdown = formatCountdown(event.starts_at);
+  const posterUrl = sanitizeEventPosterUrl(event);
 
   return `
     <div class="event-detail-overlay" data-event-close role="dialog" aria-modal="true" aria-label="Détail de l'événement">
       <button type="button" class="event-detail-close" data-event-close aria-label="Fermer">×</button>
       <div class="event-detail" role="document">
-        ${event.poster_url ? `
-          <a class="event-detail__poster-wrap" href="${escapeHtml(event.poster_url)}" target="_blank" rel="noopener noreferrer" title="Ouvrir l'image originale">
-            <img class="event-detail__poster" src="${escapeHtml(event.poster_url)}" alt="Affiche ${escapeHtml(event.title)}">
+        ${posterUrl ? `
+          <a class="event-detail__poster-wrap" href="${escapeHtml(posterUrl)}" target="_blank" rel="noopener noreferrer" title="Ouvrir l'image originale">
+            <img class="event-detail__poster" src="${escapeHtml(posterUrl)}" alt="Affiche ${escapeHtml(event.title)}">
           </a>` : `
           <div class="event-detail__poster-placeholder event-card--${meta.id}"><span>${meta.icon}</span></div>`}
         <div class="event-detail__panel">
@@ -5131,7 +5152,7 @@ function attestationRows(requests) {
   }
   return requests.map((request) => `
     <tr>
-      <td><strong>${request.type}</strong><br><small>${request.reason}</small></td>
+      <td><strong>${escapeHtml(request.type)}</strong><br><small>${escapeHtml(request.reason || "")}</small></td>
       <td>${formatDate(request.created)}</td>
       <td>${badge(request.status)}</td>
     </tr>`).join("");
@@ -6166,7 +6187,7 @@ function pageContent() {
   if (appData.error) {
     return `
       <article class="card error-card">
-        <p class="error-message">${appData.error}</p>
+        <p class="error-message">${escapeHtml(appData.error)}</p>
         <button type="button" id="retry-load" class="primary">Réessayer</button>
       </article>`;
   }
