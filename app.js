@@ -3368,10 +3368,11 @@ async function ensureServiceWorkerAndPush() {
   try {
     const registration = await navigator.serviceWorker.register("/sw.js");
     navigator.serviceWorker.addEventListener("message", (event) => {
-      if (event.data?.type === "humana:open-page" && event.data.page) {
-        currentPage = event.data.page;
-        renderApp();
-      }
+      if (event.data?.type !== "humana:open-page" || !event.data.page) return;
+      const requestedPage = String(event.data.page);
+      if (!Object.prototype.hasOwnProperty.call(pages, requestedPage)) return;
+      currentPage = requestedPage;
+      renderApp();
     });
 
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
@@ -3624,7 +3625,43 @@ async function deleteEventPosterFile(storagePath) {
   }
 }
 
+const HR_DOCUMENT_ACCEPTED_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/plain",
+  "text/csv"
+];
+const PAYSLIP_MAX_BYTES = 10 * 1024 * 1024;
+const PAYSLIP_ACCEPTED_TYPES = ["application/pdf"];
+
+function assertUploadAllowed(file, { types, maxBytes, label }) {
+  if (!file || typeof file.size !== "number") {
+    throw new Error(`${label} : fichier invalide.`);
+  }
+  if (file.size <= 0) {
+    throw new Error(`${label} : fichier vide.`);
+  }
+  if (file.size > maxBytes) {
+    const mb = Math.round(maxBytes / (1024 * 1024));
+    throw new Error(`${label} : fichier trop volumineux (max ${mb} Mo).`);
+  }
+  if (types && types.length && !types.includes(file.type)) {
+    throw new Error(`${label} : format non autorisé.`);
+  }
+}
+
 async function uploadHrDocumentFile(file) {
+  assertUploadAllowed(file, {
+    types: HR_DOCUMENT_ACCEPTED_TYPES,
+    maxBytes: HR_DOCUMENT_MAX_BYTES,
+    label: "Document RH"
+  });
   const safeName = sanitizeFileName(file.name);
   const storagePath = `docs/${Date.now()}-${safeName}`;
   const { error } = await supabaseClient.storage
@@ -3639,6 +3676,11 @@ async function uploadHrDocumentFile(file) {
 }
 
 async function uploadPayslipFile(file, userId) {
+  assertUploadAllowed(file, {
+    types: PAYSLIP_ACCEPTED_TYPES,
+    maxBytes: PAYSLIP_MAX_BYTES,
+    label: "Bulletin de paie"
+  });
   const safeName = sanitizeFileName(file.name);
   const storagePath = `payslips/${userId}/${Date.now()}-${safeName}`;
   const { error } = await supabaseClient.storage

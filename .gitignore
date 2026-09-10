@@ -1,0 +1,49 @@
+# Environnement local / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Configurations locales sensibles (le fichier "config.js" contient uniquement
+# la cle anon Supabase - designee comme publique - mais on le laisse hors git
+# pour eviter tout drift avec l'environnement de prod). Utilisez config.example.js
+# comme reference.
+config.js
+config.local.js
+
+# Cles VAPID / service role (ne doivent JAMAIS partir sur git)
+vapid-*.txt
+service-role.txt
+*-service-role.txt
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editeurs
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Build / cache
+dist/
+build/
+.cache/
+.parcel-cache/
+
+# Supabase CLI
+supabase/.temp/
+supabase/.branches/
