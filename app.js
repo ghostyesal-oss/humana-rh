@@ -1128,7 +1128,12 @@ function summarizeTeamPunchesByDay(teamPunchesRows, startStr, endStr) {
 
 function downloadCsv(filename, headers, rows) {
   const sep = ";";
-  const escapeCell = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const CSV_FORMULA_TRIGGERS = /^[=+\-@\t\r]/;
+  const escapeCell = (value) => {
+    let text = String(value ?? "");
+    if (CSV_FORMULA_TRIGGERS.test(text)) text = `'${text}`;
+    return `"${text.replace(/"/g, '""')}"`;
+  };
   const lines = [
     headers.map(escapeCell).join(sep),
     ...rows.map((row) => row.map(escapeCell).join(sep))
@@ -8044,8 +8049,17 @@ function bindAppEvents() {
       window.location.href = "/_services/auth/logout";
       return;
     }
+    const previousPrefix = storagePrefix();
     if (session && supabaseClient) await supabaseClient.auth.signOut();
     stopLateReminderWatcher();
+    try {
+      const orphans = [];
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(previousPrefix)) orphans.push(key);
+      }
+      orphans.forEach((key) => localStorage.removeItem(key));
+    } catch (_) { /* ignore quota / privacy mode errors */ }
     session = null;
     demoMode = false;
     currentPage = "home";

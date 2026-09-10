@@ -12,6 +12,15 @@
   <title>Humana — Espace RH</title>
   <script>
     (function () {
+      try {
+        if (window.top !== window.self) {
+          window.top.location = window.self.location;
+        }
+      } catch (e) {
+        document.documentElement.style.display = "none";
+      }
+    })();
+    (function () {
       var stored = localStorage.getItem("humana-theme");
       var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
       var theme = stored === "dark" || stored === "light" ? stored : (prefersDark ? "dark" : "light");
@@ -305,6 +314,6 @@
       }
     }, true);
   </script>
-  <script src="app.js?v=120" charset="UTF-8"></script>
+  <script src="app.js?v=121" charset="UTF-8"></script>
 </body>
 </html>
