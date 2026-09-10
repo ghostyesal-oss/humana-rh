@@ -476,7 +476,7 @@ const avatarColors = ["violet", "blue", "orange", "green", "pink"];
 
 function avatar(initials, color = "violet", extraClass = "") {
   const classes = ["avatar", color, extraClass].filter(Boolean).join(" ");
-  return `<span class="${classes}">${initials}</span>`;
+  return `<span class="${classes}">${escapeHtml(initials)}</span>`;
 }
 
 function profileInitials(name) {
@@ -6635,6 +6635,9 @@ function renderApp() {
   const name = getUserName();
   const email = session?.user?.email || "collaborateur@entreprise.fr";
   const initials = profileInitials(name);
+  const safeName = escapeHtml(name);
+  const safeEmail = escapeHtml(email);
+  const safeInitials = escapeHtml(initials);
 
   app.innerHTML = `
     <div class="app-shell" data-current-page="${currentPage}">
@@ -6648,7 +6651,7 @@ function renderApp() {
             ${item[1]}${navBadge(item[0])}
           </button>`).join("")}</nav>
         <div class="sidebar-bottom">
-          <div class="user-card"><span class="avatar avatar-sidebar-user" aria-hidden="true">${initials}</span><div class="user-card-text"><strong title="${name}">${name}</strong><span class="user-card-email" title="${email}">${email}</span>${renderUserRolePills()}</div><button type="button" id="logout" class="logout-btn" aria-label="Se déconnecter">Sortir</button></div>
+          <div class="user-card"><span class="avatar avatar-sidebar-user" aria-hidden="true">${safeInitials}</span><div class="user-card-text"><strong title="${safeName}">${safeName}</strong><span class="user-card-email" title="${safeEmail}">${safeEmail}</span>${renderUserRolePills()}</div><button type="button" id="logout" class="logout-btn" aria-label="Se déconnecter">Sortir</button></div>
         </div>
       </aside>
       <button class="backdrop" type="button" aria-label="Fermer le menu"></button>
