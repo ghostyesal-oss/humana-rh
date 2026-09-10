@@ -50,6 +50,7 @@ let appData = {
   companyEvents: [],
   companyEventsTableMissing: false,
   eventEditingId: "",
+  eventDetailId: "",
   adminEditingId: "",
   adminEditingInviteId: ""
 };
@@ -4829,8 +4830,9 @@ function eventsPage() {
     const countdown = formatCountdown(event.starts_at);
     const author = profileById(event.created_by)?.full_name || "";
     return `
-      <article class="event-hero event-hero--${meta.id}${event.poster_url ? " has-poster" : ""}">
+      <article class="event-hero event-hero--${meta.id}${event.poster_url ? " has-poster" : ""}" data-event-open="${event.id}" role="button" tabindex="0" aria-label="Voir le détail de ${escapeHtml(event.title)}">
         ${event.poster_url ? `<div class="event-hero__poster" style="background-image:url('${escapeHtml(event.poster_url)}')" aria-hidden="true"></div>` : ""}
+        <button type="button" class="event-hero__expand" data-event-open="${event.id}" aria-label="Agrandir">⤢</button>
         <div class="event-hero__overlay">
           <div class="event-hero__meta">
             <span class="event-type-pill event-type--${meta.id}">${meta.icon} ${meta.label}</span>
@@ -4864,7 +4866,7 @@ function eventsPage() {
 
     if (compact) {
       return `
-        <article class="event-row${past ? " event-row--past" : ""}">
+        <article class="event-row${past ? " event-row--past" : ""}" data-event-open="${event.id}" role="button" tabindex="0" aria-label="Voir le détail de ${escapeHtml(event.title)}">
           ${renderDateBadge(event.starts_at)}
           <div class="event-row__body">
             <div class="event-row__head">
@@ -4883,15 +4885,16 @@ function eventsPage() {
     }
 
     return `
-      <article class="event-card event-card--${meta.id}${past ? " event-card--past" : ""}">
+      <article class="event-card event-card--${meta.id}${past ? " event-card--past" : ""}" data-event-open="${event.id}" role="button" tabindex="0" aria-label="Voir le détail de ${escapeHtml(event.title)}">
         <div class="event-card__media">
           ${event.poster_url
-            ? `<a class="event-card__poster-wrap" href="${escapeHtml(event.poster_url)}" target="_blank" rel="noopener noreferrer">
+            ? `<div class="event-card__poster-wrap">
                 <img class="event-card__poster" src="${escapeHtml(event.poster_url)}" alt="Affiche ${escapeHtml(event.title)}" loading="lazy">
-              </a>`
+              </div>`
             : `<div class="event-card__poster-placeholder" aria-hidden="true"><span>${meta.icon}</span></div>`}
           ${renderDateBadge(event.starts_at)}
           <span class="event-type-pill event-type-pill--floating event-type--${meta.id}">${meta.icon} ${meta.label}</span>
+          <span class="event-card__expand" aria-hidden="true">⤢</span>
         </div>
         <div class="event-card__body">
           <h3 class="event-card__title">${escapeHtml(event.title)}</h3>
@@ -5040,6 +5043,48 @@ function eventsPage() {
         ${pastBlock}
       </div>
       ${adminForm}
+    </div>
+    ${renderEventDetailOverlay(events, admin)}`;
+}
+
+function renderEventDetailOverlay(events, admin) {
+  const id = appData.eventDetailId || "";
+  if (!id) return "";
+  const event = events.find((entry) => String(entry.id) === String(id));
+  if (!event) return "";
+  const meta = eventTypeMeta(event.event_type);
+  const author = profileById(event.created_by)?.full_name || "";
+  const countdown = formatCountdown(event.starts_at);
+
+  return `
+    <div class="event-detail-overlay" data-event-close role="dialog" aria-modal="true" aria-label="Détail de l'événement">
+      <button type="button" class="event-detail-close" data-event-close aria-label="Fermer">×</button>
+      <div class="event-detail" role="document">
+        ${event.poster_url ? `
+          <a class="event-detail__poster-wrap" href="${escapeHtml(event.poster_url)}" target="_blank" rel="noopener noreferrer" title="Ouvrir l'image originale">
+            <img class="event-detail__poster" src="${escapeHtml(event.poster_url)}" alt="Affiche ${escapeHtml(event.title)}">
+          </a>` : `
+          <div class="event-detail__poster-placeholder event-card--${meta.id}"><span>${meta.icon}</span></div>`}
+        <div class="event-detail__panel">
+          <div class="event-detail__head">
+            <span class="event-type-pill event-type--${meta.id}">${meta.icon} ${meta.label}</span>
+            ${countdown ? `<span class="event-detail__countdown">${escapeHtml(countdown)}</span>` : ""}
+          </div>
+          <h2 class="event-detail__title">${escapeHtml(event.title)}</h2>
+          <dl class="event-detail__facts">
+            <div><dt>Quand</dt><dd>${escapeHtml(formatEventWhen(event))}</dd></div>
+            ${event.location ? `<div><dt>Lieu</dt><dd>${escapeHtml(event.location)}</dd></div>` : ""}
+            <div><dt>Visibilité</dt><dd>${escapeHtml(eventVisibilityLabel(event.visibility))}</dd></div>
+            ${author ? `<div><dt>Publié par</dt><dd>${escapeHtml(author)}</dd></div>` : ""}
+          </dl>
+          ${event.description ? `<div class="event-detail__desc">${escapeHtml(event.description).replace(/\n/g, "<br>")}</div>` : ""}
+          ${admin ? `
+            <div class="event-detail__actions">
+              <button type="button" class="outline-button" data-event-edit="${event.id}">Modifier</button>
+              <button type="button" class="outline-button danger" data-event-delete="${event.id}">Supprimer</button>
+            </div>` : ""}
+        </div>
+      </div>
     </div>`;
 }
 
@@ -6819,7 +6864,60 @@ function daysBetween(start, end) {
   return Math.max(countWorkingDays(start, end), 0);
 }
 
+function openEventDetail(id) {
+  if (!id) return;
+  appData.eventDetailId = id;
+  renderApp();
+}
+
+function closeEventDetail() {
+  if (!appData.eventDetailId) return;
+  appData.eventDetailId = "";
+  renderApp();
+}
+
 function bindCompanyEventsPage() {
+  document.querySelectorAll("[data-event-open]").forEach((element) => {
+    const trigger = (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.closest("[data-event-edit], [data-event-delete], a, button[type='submit']")) return;
+      const explicitTrigger = target.closest("[data-event-open]");
+      if (!explicitTrigger || explicitTrigger !== element) return;
+      event.preventDefault();
+      openEventDetail(element.dataset.eventOpen);
+    };
+    element.addEventListener("click", trigger);
+    element.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      openEventDetail(element.dataset.eventOpen);
+    });
+  });
+
+  document.querySelectorAll("[data-event-close]").forEach((element) => {
+    element.addEventListener("click", (event) => {
+      if (event.target !== element) return;
+      closeEventDetail();
+    });
+  });
+
+  if (appData.eventDetailId) {
+    document.body.classList.add("event-detail-open");
+    if (!window.__humanaEventEsc) {
+      window.__humanaEventEsc = (event) => {
+        if (event.key === "Escape") closeEventDetail();
+      };
+      document.addEventListener("keydown", window.__humanaEventEsc);
+    }
+  } else {
+    document.body.classList.remove("event-detail-open");
+    if (window.__humanaEventEsc) {
+      document.removeEventListener("keydown", window.__humanaEventEsc);
+      window.__humanaEventEsc = null;
+    }
+  }
+
   const form = document.querySelector("#event-form");
   if (form) {
     form.addEventListener("submit", (event) => {
@@ -6922,8 +7020,10 @@ function bindCompanyEventsPage() {
   });
 
   document.querySelectorAll("[data-event-edit]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
       appData.eventEditingId = button.dataset.eventEdit || "";
+      appData.eventDetailId = "";
       renderApp();
       requestAnimationFrame(() => {
         document.querySelector("#event-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -6932,12 +7032,14 @@ function bindCompanyEventsPage() {
   });
 
   document.querySelectorAll("[data-event-delete]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
       if (!isAdmin()) return;
       const id = button.dataset.eventDelete;
       if (!id) return;
       if (!window.confirm("Supprimer cet événement ? Les collaborateurs ne le verront plus.")) return;
       const target = getCompanyEvents().find((entry) => String(entry.id) === String(id));
+      appData.eventDetailId = "";
       withAction(async () => {
         if (usesDatabase()) {
           const { error } = await supabaseClient
@@ -7913,6 +8015,7 @@ function bindAppEvents() {
       companyEvents: [],
       companyEventsTableMissing: false,
       eventEditingId: "",
+      eventDetailId: "",
       adminEditingId: "",
       adminEditingInviteId: ""
     };
