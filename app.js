@@ -2850,12 +2850,14 @@ function renderHomeShiftSummary(punches = getPunches()) {
 /* ──────────────────────────────────────────────────────────
    TIMELINE JOURNEE — barre visuelle type "filmstrip"
    ────────────────────────────────────────────────────────── */
-function renderDayTimeline(punches, profile, compact = false) {
+function renderDayTimeline(punches, profile, options = {}) {
+  const opts = options === true ? { compact: true } : (options || {});
+  const compact = Boolean(opts.compact);
+  const variant = opts.variant || (compact ? "compact" : "full");
   const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
-  if (!sorted.length && !compact) return "";
+  if (!sorted.length && variant !== "compact") return "";
 
   const shift = getActiveShift(profile);
-  const shiftStartMin = minutesFromHhmm(shift.start);
   const lateAfterMin  = minutesFromHhmm(shift.lateAfter);
 
   // Plage commune : 6h → 21h (prises de poste 7h / 8h / 9h, journée 10h dont 1h de pause)
@@ -2872,7 +2874,19 @@ function renderDayTimeline(punches, profile, compact = false) {
   };
 
   const now = new Date();
-  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const nowMin = opts.asOfMin != null
+    ? Number(opts.asOfMin)
+    : now.getHours() * 60 + now.getMinutes();
+  const dayLocation = getDayWorkLocation(sorted);
+  const statusAt = (min) => {
+    let status = null;
+    sorted.forEach((punch) => {
+      if (toMin(punch.time) - min > 0.01) return;
+      const ws = punch.workStatus || punch.work_status;
+      if (ws) status = ws;
+    });
+    return status;
+  };
 
   /* ------ Construire les segments ------- */
   const segments = [];
@@ -2963,31 +2977,52 @@ function renderDayTimeline(punches, profile, compact = false) {
     return h > 0 ? `${h}h${String(m).padStart(2, "0")}` : `${m}min`;
   };
 
-  /* ------ Étiquettes positionnées sur les keypoints ------- */
-  const keyLabels = [];
-  const labeledMins = new Set();
-  if (shiftStartMin > dispStart && shiftStartMin < dispEnd) {
-    labeledMins.add(shiftStartMin);
-    const h = Math.floor(shiftStartMin / 60);
-    keyLabels.push({ min: shiftStartMin, label: `${h}h` });
-  }
+  const typeLabels = {
+    work: "En poste",
+    lunch: "Pause déjeuner",
+    off: "Hors poste",
+    late: "Retard",
+    future: "Non écoulé"
+  };
 
-  merged.forEach((seg) => {
-    [seg.from, seg.to].forEach((min) => {
-      if (min <= dispStart || min >= dispEnd) return;
-      if (labeledMins.has(min)) return;
-      if (seg.type === "off" || seg.type === "future") return;
-      labeledMins.add(min);
-      const rounded = Math.round(min);
-      const h = Math.floor(rounded / 60);
-      const m = rounded % 60;
-      const label = m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, "0")}`;
-      keyLabels.push({ min, label });
-    });
-  });
+  const formatClock = (min) => {
+    const rounded = Math.max(0, Math.round(min));
+    const h = Math.floor(rounded / 60) % 24;
+    const m = rounded % 60;
+    return `${String(h).padStart(2, "0")}h${String(m).padStart(2, "0")}`;
+  };
 
-  const segmentMarkup = merged.map((s) => `
-    <div class="dtl-seg dtl-seg--${s.type}" style="left:${toPercent(s.from)};width:${((s.to - s.from) / dispRange * 100).toFixed(3)}%" aria-label="${s.type}"></div>`).join("");
+  const segmentTip = (s) => {
+    const label = typeLabels[s.type] || s.type;
+    const duration = fmtMs((s.to - s.from) * 60000);
+    const lines = [
+      `<b>${escapeHtml(label)}</b>`,
+      `${escapeHtml(formatClock(s.from))} → ${escapeHtml(formatClock(s.to))} · ${escapeHtml(duration)}`
+    ];
+    if (s.type === "work" || s.type === "late") {
+      const loc = workLocationLabel(dayLocation);
+      if (loc && loc !== "—") lines.push(escapeHtml(loc));
+    }
+    if (s.type === "work") {
+      const status = statusAt(s.from);
+      if (status) lines.push(escapeHtml(workStatusDef(status).label));
+    }
+    return lines.join("<br>");
+  };
+
+  const segmentMarkup = merged.map((s) => {
+    const left = toPercent(s.from);
+    const width = `${((s.to - s.from) / dispRange * 100).toFixed(3)}%`;
+    return `<div class="dtl-seg dtl-seg--${s.type}" style="left:${left};width:${width}"></div>`;
+  }).join("");
+
+  const hitMarkup = merged.map((s) => {
+    const left = toPercent(s.from);
+    const width = `${((s.to - s.from) / dispRange * 100).toFixed(3)}%`;
+    const tip = segmentTip(s);
+    const aria = escapeHtml(tip.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+    return `<div class="dtl-seg dtl-hit" style="left:${left};width:${width}" aria-label="${aria}"><span class="dtl-tip">${tip}</span></div>`;
+  }).join("");
 
   const markerMarkup = markerMins.map((m) => {
     const h = Math.floor(m / 60);
@@ -2995,17 +3030,11 @@ function renderDayTimeline(punches, profile, compact = false) {
     return `<div class="dtl-marker" style="left:${toPercent(m)}"><span>${label}</span></div>`;
   }).join("");
 
-  const keyLabelMarkup = keyLabels.map((kl) => {
-    const segHere = merged.find((s) => s.from === kl.min || s.to === kl.min);
-    const cls = segHere && (segHere.type === "late" || (segHere.to === kl.min && merged.find((s) => s.from === kl.min)?.type === "late")) ? "dtl-key-label--late" : "";
-    return `<div class="dtl-key-label ${cls}" style="left:${toPercent(kl.min)}"><span>${kl.label}</span></div>`;
-  }).join("");
-
   const lateBlock = lateMin > 0 ? `<div class="dtl-stat dtl-stat--late">Total retards <strong>${fmtMs(lateMs)}</strong></div>` : "";
   const lunchBlock = lunchMs > 0 ? `<div class="dtl-stat dtl-stat--lunch">Durée pause déjeuner : <strong>${fmtMs(lunchMs)}</strong></div>` : "";
   const workBlock  = workMs > 0  ? `<div class="dtl-stat">Durée de travail <strong>${fmtMs(workMs)}</strong></div>` : "";
 
-  if (compact) {
+  if (compact || variant === "compact") {
     return `
       <div class="topbar-timeline" aria-label="Chronologie du jour" title="Chronologie du jour">
         <div class="dtl-bar">${segmentMarkup}</div>
@@ -3013,11 +3042,22 @@ function renderDayTimeline(punches, profile, compact = false) {
       </div>`;
   }
 
+  if (variant === "history") {
+    return `
+      <div class="day-timeline day-timeline--history" aria-label="Chronologie">
+        <div class="dtl-bar-wrap dtl-bar-wrap--history">
+          <div class="dtl-bar">${segmentMarkup}</div>
+          <div class="dtl-hit-row">${hitMarkup}</div>
+          ${opts.showMarkers ? `<div class="dtl-markers-row">${markerMarkup}</div>` : ""}
+        </div>
+      </div>`;
+  }
+
   return `
     <div class="day-timeline" aria-label="Chronologie de la journée">
-      <div class="dtl-labels-row">${keyLabelMarkup}</div>
       <div class="dtl-bar-wrap">
         <div class="dtl-bar">${segmentMarkup}</div>
+        <div class="dtl-hit-row">${hitMarkup}</div>
         <div class="dtl-markers-row">${markerMarkup}</div>
       </div>
       <div class="dtl-legend">
@@ -3031,6 +3071,102 @@ function renderDayTimeline(punches, profile, compact = false) {
         ${lunchBlock}
         ${workBlock}
       </div>
+    </div>`;
+}
+
+function groupPunchesByDay(punches) {
+  const groups = new Map();
+  [...punches]
+    .sort((a, b) => new Date(a.time) - new Date(b.time))
+    .forEach((punch) => {
+      const key = toDateKey(new Date(punch.time));
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(punch);
+    });
+  return [...groups.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+}
+
+function formatHistoryDateLabel(dayKey) {
+  const date = parseLocalDate(dayKey);
+  const todayKey = toDateKey(new Date());
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const label = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "short" });
+  const pretty = label.charAt(0).toUpperCase() + label.slice(1);
+  if (dayKey === todayKey) return `Aujourd'hui`;
+  if (dayKey === toDateKey(yesterday)) return "Hier";
+  return pretty;
+}
+
+function historyAsOfMin(dayPunches, dayKey, profile) {
+  if (dayKey === toDateKey(new Date())) return null;
+  if (dayPunches.some((punch) => punch.type === "out")) return null;
+  const shift = getActiveShift(profile);
+  const endMin = minutesFromHhmm(shift.end || "18:00");
+  const lastMin = Math.max(...dayPunches.map((punch) => {
+    const d = new Date(punch.time);
+    return d.getHours() * 60 + d.getMinutes();
+  }));
+  return Math.max(endMin, lastMin);
+}
+
+function buildPunchHistoryRows(punches = getPunches()) {
+  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
+  return sorted.map((punch, index) => {
+    const next = sorted[index + 1];
+    const durationMs = next
+      ? new Date(next.time) - new Date(punch.time)
+      : (punch.type === "out" ? 0 : Date.now() - new Date(punch.time));
+    const wsKey = punch.workStatus || punch.work_status || null;
+    return [
+      formatDate(punch.time),
+      punchTypeLabel(punch.type),
+      punch.type === "in" ? workLocationLabel(punch.workLocation || punch.work_location) : "—",
+      formatTime(punch.time),
+      wsKey && punch.type !== "out" ? workStatusDef(wsKey).label : "—",
+      punch.type !== "out" && durationMs > 0 ? formatDuration(durationMs) : "—"
+    ];
+  });
+}
+
+function exportPunchHistoryExcel() {
+  const rows = buildPunchHistoryRows();
+  if (!rows.length) {
+    alert("Aucun pointage à extraire.");
+    return;
+  }
+  downloadCsv(
+    `historique-pointages_${toDateKey(new Date())}.csv`,
+    ["Date", "Type", "Lieu", "Heure", "Activité", "Durée activité"],
+    rows
+  );
+}
+
+function renderPunchHistory(punches, profile) {
+  const groups = groupPunchesByDay(punches).slice(0, 14);
+  if (!groups.length) {
+    return `<p class="empty-state">Aucun historique pour le moment.</p>`;
+  }
+  return `
+    <div class="dtl-history-legend">
+      <span class="dtl-legend-item dtl-legend--work">En poste</span>
+      <span class="dtl-legend-item dtl-legend--lunch">Pause dej</span>
+      <span class="dtl-legend-item dtl-legend--off">Hors poste</span>
+      <span class="dtl-legend-item dtl-legend--late">Retard</span>
+    </div>
+    <div class="punch-history-list">
+      ${groups.map(([dayKey, dayPunches], index) => `
+        <div class="dtl-history-row">
+          <div class="dtl-history-date">
+            <strong>${escapeHtml(formatHistoryDateLabel(dayKey))}</strong>
+            <span>${formatDate(parseLocalDate(dayKey))}</span>
+          </div>
+          ${renderDayTimeline(dayPunches, profile, {
+            variant: "history",
+            showMarkers: index === 0,
+            asOfMin: historyAsOfMin(dayPunches, dayKey, profile)
+          })}
+        </div>`).join("")}
     </div>`;
 }
 
@@ -3991,48 +4127,12 @@ function pointeusePage() {
         </div>
       </article>
     </section>
-    <article class="card table-card page-spacer">
-      ${cardHeading("Historique recent")}
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Date</th><th>Type</th><th>Lieu</th><th>Heure</th><th>Activité</th><th>Durée activité</th></tr></thead>
-          <tbody>
-            ${punches.length
-              ? (() => {
-                  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
-                  const recent = [...sorted].reverse().slice(0, 10);
-                  return recent.map((punch) => {
-                    // Durée jusqu'au prochain pointage (ou maintenant si en cours)
-                    const idx = sorted.indexOf(punch);
-                    const next = sorted[idx + 1];
-                    const durationMs = next
-                      ? new Date(next.time) - new Date(punch.time)
-                      : (punch.type === "out" ? 0 : Date.now() - new Date(punch.time));
-                    const durationLabel = durationMs > 0 ? formatDuration(durationMs) : "—";
-
-                    // Statut de travail enregistré au moment du pointage
-                    const wsKey = punch.workStatus || punch.work_status || null;
-                    let wsBadge = "—";
-                    if (wsKey && punch.type !== "out") {
-                      const def = workStatusDef(wsKey);
-                      wsBadge = `<span class="punch-status-badge punch-ws-badge" style="background:${def.color}20;color:${def.color}">${def.label}</span>`;
-                    }
-
-                    return `
-                    <tr>
-                      <td>${formatDate(punch.time)}</td>
-                      <td>${punchTypeLabel(punch.type)}</td>
-                      <td>${punch.type === "in" ? workLocationLabel(punch.workLocation) : "—"}</td>
-                      <td>${formatTime(punch.time)}</td>
-                      <td>${wsBadge}</td>
-                      <td>${punch.type !== "out" && durationMs > 0 ? durationLabel : "—"}</td>
-                    </tr>`;
-                  }).join("");
-                })()
-              : `<tr><td colspan="6" class="empty-cell">Aucun historique pour le moment.</td></tr>`}
-          </tbody>
-        </table>
+    <article class="card page-spacer punch-history-card">
+      <div class="card-heading">
+        <h3>Historique récent</h3>
+        <button type="button" id="export-punch-history" class="export-excel-btn">Extraire Excel</button>
       </div>
+      ${renderPunchHistory(punches, appData.profile || {})}
     </article>
     ${renderGtaClockTools()}`;
 }
@@ -7196,6 +7296,7 @@ function bindTablePan() {
 
 function bindPageEvents() {
   bindTablePan();
+  document.querySelector("#export-punch-history")?.addEventListener("click", exportPunchHistoryExcel);
   document.querySelectorAll("[data-goto-page]").forEach((button) => {
     button.addEventListener("click", () => {
       currentPage = button.dataset.gotoPage;
