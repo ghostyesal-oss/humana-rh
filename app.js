@@ -2493,9 +2493,33 @@ function formatElapsedHms(ms) {
 let elapsedClockTimer = null;
 const STATUS_CLOCK_KEY = "humana_status_clock";
 
+function statusClockDayKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isStatusClockFromToday(data) {
+  if (!data || typeof data !== "object") return false;
+  const today = statusClockDayKey();
+  if (data.day && data.day !== today) return false;
+  if (data.start) {
+    const started = new Date(Number(data.start));
+    if (!Number.isNaN(started.getTime()) && statusClockDayKey(started) !== today) return false;
+  }
+  return true;
+}
+
 function readStatusClock() {
   try {
-    return JSON.parse(sessionStorage.getItem(STATUS_CLOCK_KEY) || "null");
+    const data = JSON.parse(sessionStorage.getItem(STATUS_CLOCK_KEY) || "null");
+    if (!data) return null;
+    if (!isStatusClockFromToday(data)) {
+      sessionStorage.removeItem(STATUS_CLOCK_KEY);
+      return null;
+    }
+    return data;
   } catch (_) {
     return null;
   }
@@ -2503,7 +2527,10 @@ function readStatusClock() {
 
 function writeStatusClock(data) {
   try {
-    sessionStorage.setItem(STATUS_CLOCK_KEY, JSON.stringify(data));
+    sessionStorage.setItem(STATUS_CLOCK_KEY, JSON.stringify({
+      ...data,
+      day: statusClockDayKey()
+    }));
   } catch (_) {
     /* ignore */
   }
