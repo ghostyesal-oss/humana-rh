@@ -37,6 +37,8 @@ let appData = {
   teamLeaveRequests: [],
   leaveRequests: [],
   attestationRequests: [],
+  salaryAdvanceRequests: [],
+  salaryAdvanceTableMissing: false,
   orgProfiles: [],
   pendingInvites: [],
   hrDocuments: [],
@@ -64,7 +66,7 @@ const roleLabels = {
 
 const NAV_VISIBILITY_PAGES = [
   { id: "leave", label: "Congés" },
-  { id: "attestations", label: "Attestations" },
+  { id: "attestations", label: "Demande RH" },
   { id: "hierarchy", label: "Hiérarchie" },
   { id: "reports", label: "Rapports" },
   { id: "journal", label: "Journal" }
@@ -92,7 +94,7 @@ const pages = {
   global: ["Global", "Tableau de bord synthétique des pointages : KPI, tendances, top retards."],
   journal: ["Journal", "Consultez l'historique des connexions et les détails techniques."],
   leave: ["Congés", "Demandes, soldes, validations et justificatifs."],
-  attestations: ["Attestations", "Demandez vos documents en quelques clics."],
+  attestations: ["Demande RH", "Attestations et avance sur salaire."],
   events: ["Événements", "Annonces, réunions et temps forts partagés par les administrateurs."],
   hierarchy: ["Hiérarchie", "Votre manager, votre équipe et l'organigramme."],
   "team-punches": ["Pointages équipe", "Admin : tous les collaborateurs. Manager : son équipe directe."],
@@ -248,7 +250,7 @@ const navigation = [
   ["home", "Accueil"],
   ["pointeuse", "Pointeuse"],
   ["leave", "Congés"],
-  ["attestations", "Attestations"],
+  ["attestations", "Demande RH"],
   ["events", "Événements"],
   ["hierarchy", "Hiérarchie"]
 ];
@@ -2248,6 +2250,17 @@ function formatDate(value) {
   });
 }
 
+function formatMad(amount) {
+  const value = Number(amount);
+  if (!Number.isFinite(value)) return "—";
+  return `${value.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} MAD`;
+}
+
+function isHrRequestPending(status) {
+  const value = String(status || "").toLowerCase();
+  return value.includes("attente") || value.includes("valider");
+}
+
 function formatTime(value) {
   return new Date(value).toLocaleTimeString("fr-FR", {
     hour: "2-digit",
@@ -2305,21 +2318,42 @@ function getAttestationRequests() {
   if (usesDatabase()) {
     return appData.attestationRequests.map((request) => ({
       id: request.id,
+      kind: "attestation",
       type: request.document_type,
       reason: request.reason,
       status: request.status,
       created: request.created_at
     }));
   }
-  return loadStore("attestationRequests", []);
+  return loadStore("attestationRequests", []).map((request) => ({ ...request, kind: "attestation" }));
+}
+
+function getSalaryAdvanceRequests() {
+  if (usesDatabase()) {
+    return (appData.salaryAdvanceRequests || []).map((request) => ({
+      id: request.id,
+      kind: "advance",
+      amount: request.amount,
+      reason: request.reason,
+      requestedDate: request.requested_date,
+      status: request.status,
+      created: request.created_at
+    }));
+  }
+  return loadStore("salaryAdvanceRequests", []).map((request) => ({ ...request, kind: "advance" }));
+}
+
+function getHrRequests() {
+  return [...getSalaryAdvanceRequests(), ...getAttestationRequests()]
+    .sort((a, b) => new Date(b.created || 0) - new Date(a.created || 0));
 }
 
 function countPendingLeave() {
   return getLeaveRequests().filter((item) => String(item.status || "").toLowerCase().includes("valider")).length;
 }
 
-function countPendingAttestations() {
-  return getAttestationRequests().filter((item) => item.status === "En attente").length;
+function countPendingHrRequests() {
+  return getHrRequests().filter((item) => isHrRequestPending(item.status)).length;
 }
 
 function navBadge(page) {
@@ -2327,7 +2361,7 @@ function navBadge(page) {
     return `<span class="nav-badge">${countUnreadHrAlerts()}</span>`;
   }
   if (page === "leave" && countPendingLeave()) return `<span class="nav-badge">${countPendingLeave()}</span>`;
-  if (page === "attestations" && countPendingAttestations()) return `<span class="nav-badge">${countPendingAttestations()}</span>`;
+  if (page === "attestations" && countPendingHrRequests()) return `<span class="nav-badge">${countPendingHrRequests()}</span>`;
   return "";
 }
 
@@ -5285,13 +5319,35 @@ function renderEventDetailOverlay(events, admin) {
 
 function attestationsPage() {
   if (!isNavPageVisible("attestations")) {
-    return `<article class="card"><p class="empty-state">L'onglet Attestations n'est pas disponible pour votre profil.</p></article>`;
+    return `<article class="card"><p class="empty-state">L'onglet Demande RH n'est pas disponible pour votre profil.</p></article>`;
   }
 
-  const requests = getAttestationRequests();
+  const requests = getHrRequests();
+  const tableMissing = usesDatabase() && appData.salaryAdvanceTableMissing
+    ? `<p class="data-note">Les avances sur salaire seront enregistrées après exécution de <code>supabase/salary-advance-requests.sql</code> dans SQL Editor.</p>`
+    : "";
 
   return `
+    ${tableMissing}
     <div class="feature-grid">
+      <article class="card form-card">
+        ${cardHeading("Avance sur salaire")}
+        <form id="salary-advance-form" class="feature-form">
+          <label>
+            Montant
+            <input type="number" name="amount" min="1" step="0.01" required placeholder="Ex. 2000">
+          </label>
+          <label>
+            Date souhaitée
+            <input type="date" name="requested_date">
+          </label>
+          <label>
+            Motif
+            <textarea name="reason" rows="4" placeholder="Ex. urgence familiale, frais exceptionnels..." required></textarea>
+          </label>
+          <button type="submit" class="primary">Envoyer la demande</button>
+        </form>
+      </article>
       <article class="card form-card">
         ${cardHeading("Nouvelle attestation")}
         <form id="attestation-form" class="feature-form">
@@ -5302,34 +5358,41 @@ function attestationsPage() {
             </select>
           </label>
           <label>
-            Motif / precision
+            Motif / précision
             <textarea name="reason" rows="4" placeholder="Ex. dossier de location, banque, administration..." required></textarea>
           </label>
           <button type="submit" class="primary">Envoyer la demande</button>
         </form>
       </article>
-      <article class="card table-card">
-        <div class="toolbar"><h3>Mes attestations</h3></div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Document</th><th>Date</th><th>Statut</th></tr></thead>
-            <tbody>${attestationRows(requests)}</tbody>
-          </table>
-        </div>
-      </article>
-    </div>`;
+    </div>
+    <article class="card table-card page-spacer">
+      <div class="toolbar"><h3>Mes demandes RH</h3></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Type</th><th>Détail</th><th>Date</th><th>Statut</th></tr></thead>
+          <tbody>${hrRequestRows(requests)}</tbody>
+        </table>
+      </div>
+    </article>`;
 }
 
-function attestationRows(requests) {
+function hrRequestRows(requests) {
   if (!requests.length) {
-    return `<tr><td colspan="3" class="empty-cell">Aucune demande d'attestation pour le moment.</td></tr>`;
+    return `<tr><td colspan="4" class="empty-cell">Aucune demande RH pour le moment.</td></tr>`;
   }
-  return requests.map((request) => `
+  return requests.map((request) => {
+    const isAdvance = request.kind === "advance";
+    const detail = isAdvance
+      ? `${formatMad(request.amount)}${request.reason ? ` · ${request.reason}` : ""}`
+      : `${request.type || "Attestation"}${request.reason ? ` · ${request.reason}` : ""}`;
+    return `
     <tr>
-      <td><strong>${escapeHtml(request.type)}</strong><br><small>${escapeHtml(request.reason || "")}</small></td>
+      <td><strong>${isAdvance ? "Avance sur salaire" : "Attestation"}</strong></td>
+      <td>${escapeHtml(detail)}</td>
       <td>${formatDate(request.created)}</td>
       <td>${badge(request.status)}</td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
 }
 
 function buildOrgTree(profiles) {
@@ -5476,7 +5539,7 @@ function creatorPage() {
   return `
     <article class="card form-card">
       ${cardHeading("Visibilité des onglets")}
-      <p class="creator-intro">Activez ou masquez les onglets <strong>Congés</strong>, <strong>Attestations</strong>, <strong>Hiérarchie</strong>, <strong>Rapports</strong> et <strong>Journal</strong> pour chaque type de profil.</p>
+      <p class="creator-intro">Activez ou masquez les onglets <strong>Congés</strong>, <strong>Demande RH</strong>, <strong>Hiérarchie</strong>, <strong>Rapports</strong> et <strong>Journal</strong> pour chaque type de profil.</p>
       <form id="creator-nav-form" class="feature-form creator-nav-form">
         <div class="table-wrap">
           <table class="creator-nav-table">
@@ -6403,6 +6466,9 @@ function formatAppError(error) {
   if (message.includes("bucket") || message.includes("storage")) {
     return "Stockage Supabase non configuré. Exécutez supabase/storage-hr-documents.sql dans SQL Editor.";
   }
+  if (message.includes("salary_advance_requests")) {
+    return "Avances sur salaire non configurées. Exécutez supabase/salary-advance-requests.sql dans SQL Editor.";
+  }
   if (message.includes("punch_corrections") || message.includes("overtime_requests") || message.includes("activity_entries") || message.includes("shift_code") || message.includes("workflow_step")) {
     return "Module Cegid GTA non configuré. Exécutez supabase/cegid-gta.sql dans SQL Editor.";
   }
@@ -6523,6 +6589,24 @@ async function refreshAppData() {
     appData.orgProfiles = profilesRes.data || [];
     appData.profile = profileRes.data || appData.profile;
     appData.pendingInvites = [];
+
+    const advanceRes = await supabaseClient
+      .from("salary_advance_requests")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+    if (advanceRes.error) {
+      const message = `${advanceRes.error.message || ""} ${advanceRes.error.details || ""}`.toLowerCase();
+      if (message.includes("salary_advance") || message.includes("does not exist") || message.includes("schema cache") || message.includes("relation")) {
+        appData.salaryAdvanceRequests = [];
+        appData.salaryAdvanceTableMissing = true;
+      } else {
+        throw advanceRes.error;
+      }
+    } else {
+      appData.salaryAdvanceRequests = advanceRes.data || [];
+      appData.salaryAdvanceTableMissing = false;
+    }
 
     if (isAdmin()) {
       const invitesRes = await withTimeout(
@@ -7949,6 +8033,44 @@ function bindPageEvents() {
     });
   });
 
+  document.querySelector("#salary-advance-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const amount = Number(data.get("amount"));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      alert("Indiquez un montant d'avance supérieur à 0.");
+      return;
+    }
+
+    withAction(async () => {
+      const payload = {
+        amount,
+        reason: String(data.get("reason") || "").trim(),
+        requestedDate: String(data.get("requested_date") || "") || null,
+        status: "A valider"
+      };
+
+      if (usesDatabase()) {
+        const { error } = await supabaseClient.from("salary_advance_requests").insert({
+          user_id: session.user.id,
+          amount: payload.amount,
+          reason: payload.reason,
+          requested_date: payload.requestedDate,
+          status: payload.status
+        });
+        if (error) throw error;
+      } else {
+        const requests = loadStore("salaryAdvanceRequests", []);
+        requests.unshift({ id: Date.now(), ...payload, created: new Date().toISOString() });
+        saveStore("salaryAdvanceRequests", requests);
+      }
+
+      form.reset();
+      currentPage = "attestations";
+    });
+  });
+
   document.querySelector("#attestation-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -7958,7 +8080,7 @@ function bindPageEvents() {
       const payload = {
         type: data.get("type"),
         reason: data.get("reason"),
-        status: "En attente"
+        status: "A valider"
       };
 
       if (usesDatabase()) {
@@ -8210,6 +8332,8 @@ function bindAppEvents() {
       teamLeaveRequests: [],
       leaveRequests: [],
       attestationRequests: [],
+      salaryAdvanceRequests: [],
+      salaryAdvanceTableMissing: false,
       orgProfiles: [],
       pendingInvites: [],
       hrDocuments: [],
