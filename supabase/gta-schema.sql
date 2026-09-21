@@ -1,5 +1,4 @@
--- Cegid Maroc GTA (gestion des temps) — a executer dans Supabase SQL Editor.
--- M-Work n'est pas dans le perimetre : ne pas creer d'API ni de planning teletravail.
+-- Gestion des temps (corrections, heures sup, activites) — a executer dans Supabase SQL Editor.
 
 alter table if exists public.profiles
   add column if not exists hired_at date,

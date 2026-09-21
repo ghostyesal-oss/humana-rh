@@ -24,6 +24,7 @@ let workStatusColumnEnabled = false;
 let journalFullscreen = false;
 let journalFullscreenListenerBound = false;
 let leaveCalendarMonth = null;
+let planningState = { tab: "grid", dept: "cs", cursor: null };
 let initialAuthHandled = false;
 
 let appData = {
@@ -67,6 +68,7 @@ const roleLabels = {
 const NAV_VISIBILITY_PAGES = [
   { id: "leave", label: "Congés" },
   { id: "attestations", label: "Demande RH" },
+  { id: "planning", label: "Planning" },
   { id: "hierarchy", label: "Hiérarchie" },
   { id: "reports", label: "Rapports" },
   { id: "journal", label: "Journal" }
@@ -82,6 +84,7 @@ function getDefaultNavVisibility() {
   return {
     leave: { admin: true, manager: true, employee: true },
     attestations: { admin: true, manager: true, employee: true },
+    planning: { admin: true, manager: true, employee: false },
     hierarchy: { admin: true, manager: true, employee: true },
     reports: { admin: true, manager: true, employee: true },
     journal: { admin: true, manager: false, employee: false }
@@ -95,6 +98,7 @@ const pages = {
   journal: ["Journal", "Consultez l'historique des connexions et les détails techniques."],
   leave: ["Congés", "Demandes, soldes, validations et justificatifs."],
   attestations: ["Demande RH", "Attestations et avance sur salaire."],
+  planning: ["Planning", "Grille d'équipe, journal et écarts par département."],
   events: ["Événements", "Annonces, réunions et temps forts partagés par les administrateurs."],
   hierarchy: ["Hiérarchie", "Votre manager, votre équipe et l'organigramme."],
   "team-punches": ["Pointages équipe", "Admin : tous les collaborateurs. Manager : son équipe directe."],
@@ -251,6 +255,7 @@ const navigation = [
   ["pointeuse", "Pointeuse"],
   ["leave", "Congés"],
   ["attestations", "Demande RH"],
+  ["planning", "Planning"],
   ["events", "Événements"],
   ["hierarchy", "Hiérarchie"]
 ];
@@ -304,6 +309,7 @@ const JOURNAL_COLUMNS = [
   { key: "reason", label: "Raison_Déconnexion" }
 ];
 const WORK_LOCATION_STORE_KEY = "workLocation";
+const SHOW_WORK_LOCATION_UI = false;
 const WORK_LOCATIONS = {
   onsite: "Sur site",
   remote: "Télétravail"
@@ -440,27 +446,40 @@ const SHIFT_PRESETS = {
   },
   cs: {
     code: "cs",
-    label: "CS / CES · 09h–19h",
-    start: "09:00",
-    end: "19:00",
+    label: "CS · 08h–17h",
+    start: "08:00",
+    end: "17:00",
     lunchMin: 60,
-    lunchFrom: "13:00",
-    lunchTo: "15:00",
-    plannedHours: 9,
-    lateAfter: "09:15",
-    earliestEnd: "19:00"
+    lunchFrom: "12:00",
+    lunchTo: "14:00",
+    plannedHours: 8,
+    lateAfter: "08:15",
+    earliestEnd: "17:00"
+  },
+  ces: {
+    code: "ces",
+    label: "CES · 08h–17h",
+    start: "08:00",
+    end: "17:00",
+    lunchMin: 60,
+    lunchFrom: "12:00",
+    lunchTo: "14:00",
+    plannedHours: 8,
+    lateAfter: "08:15",
+    earliestEnd: "17:00"
   },
   rnd: {
     code: "rnd",
-    label: "R&D · 09h–19h",
+    label: "R&D · 8h + pause",
     start: "09:00",
-    end: "19:00",
+    end: "18:00",
     lunchMin: 60,
-    lunchFrom: "13:00",
-    lunchTo: "15:00",
-    plannedHours: 9,
-    lateAfter: "09:15",
-    earliestEnd: "19:00"
+    lunchFrom: "12:00",
+    lunchTo: "14:00",
+    plannedHours: 8,
+    lateAfter: "10:15",
+    earliestEnd: "18:00",
+    flexible: true
   }
 };
 const FR_HOLIDAYS_2026 = ["2026-01-01", "2026-04-06", "2026-05-01", "2026-05-08", "2026-05-14", "2026-05-25", "2026-07-14", "2026-08-15", "2026-11-01", "2026-11-11", "2026-12-25"];
@@ -707,6 +726,10 @@ function ensureAccessiblePage() {
     currentPage = "home";
     return;
   }
+  if (currentPage === "planning" && !canViewPlanning()) {
+    currentPage = "home";
+    return;
+  }
   if (currentPage === "reports" && !canViewReports()) {
     currentPage = "home";
     return;
@@ -738,6 +761,10 @@ function canViewGlobal() {
 
 function canViewReports() {
   return Boolean(session?.user) && isNavPageVisible("reports");
+}
+
+function canViewPlanning() {
+  return Boolean(session?.user) && isNavPageVisible("planning");
 }
 
 function canViewTeamLeaveCalendar() {
@@ -2100,8 +2127,9 @@ function renderUserAccountSection() {
             <label>
               Vacation
               <select name="shift_code">
-                <option value="cs"${(editing?.shift_code || "cs") === "cs" ? " selected" : ""}>CS / CES 09h-18h</option>
-                <option value="rnd"${editing?.shift_code === "rnd" ? " selected" : ""}>R&amp;D 10h FR</option>
+                <option value="cs"${(editing?.shift_code || "cs") === "cs" ? " selected" : ""}>CS · 08h–17h</option>
+                <option value="ces"${editing?.shift_code === "ces" ? " selected" : ""}>CES · 08h–17h</option>
+                <option value="rnd"${editing?.shift_code === "rnd" ? " selected" : ""}>R&amp;D · 8h + pause</option>
               </select>
             </label>
           </div>
@@ -2737,6 +2765,7 @@ function renderWorkLocationBadge(location) {
 }
 
 function renderWorkLocationSelector(punches = getPunches()) {
+  if (!SHOW_WORK_LOCATION_UI) return "";
   const { isOut } = getClockState();
   const currentLocation = getActiveSessionWorkLocation(punches);
   const selected = isOut ? getPreferredWorkLocation() : currentLocation;
@@ -3053,16 +3082,24 @@ function renderDayTimeline(punches, profile, options = {}) {
     return `${String(h).padStart(2, "0")}h${String(m).padStart(2, "0")}`;
   };
 
+  const expectedArrivalLabel = formatClock(lateAfterMin);
+  const actualArrivalLabel = inPunch ? formatClock(inMin) : "non pointée";
+
   const segmentTip = (s) => {
     const label = typeLabels[s.type] || s.type;
     const duration = fmtMs((s.to - s.from) * 60000);
     const lines = [
       `<b>${escapeHtml(label)}</b>`,
-      `${escapeHtml(formatClock(s.from))} → ${escapeHtml(formatClock(s.to))} · ${escapeHtml(duration)}`
+      `${escapeHtml(formatClock(s.from))} → ${escapeHtml(formatClock(s.to))} · ${escapeHtml(duration)}`,
+      `Heure max attendue : ${escapeHtml(expectedArrivalLabel)}`,
+      `Arrivée : ${escapeHtml(actualArrivalLabel)}`
     ];
+    if (s.type === "late" && inPunch && inMin > lateAfterMin) {
+      lines.push(`Retard : ${escapeHtml(fmtMs((inMin - lateAfterMin) * 60000))}`);
+    }
     if (s.type === "work" || s.type === "late") {
       const loc = workLocationLabel(dayLocation);
-      if (loc && loc !== "—") lines.push(escapeHtml(loc));
+      if (SHOW_WORK_LOCATION_UI && loc && loc !== "—") lines.push(escapeHtml(loc));
     }
     if (s.type === "work") {
       const status = statusAt(s.from);
@@ -3148,15 +3185,9 @@ function groupPunchesByDay(punches) {
 }
 
 function formatHistoryDateLabel(dayKey) {
-  const date = parseLocalDate(dayKey);
-  const todayKey = toDateKey(new Date());
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const label = date.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "short" });
-  const pretty = label.charAt(0).toUpperCase() + label.slice(1);
-  if (dayKey === todayKey) return `Aujourd'hui`;
-  if (dayKey === toDateKey(yesterday)) return "Hier";
-  return pretty;
+  const [year, month, day] = String(dayKey).split("-");
+  if (!year || !month || !day) return String(dayKey);
+  return `${day.padStart(2, "0")}/${month.padStart(2, "0")}/${year}`;
 }
 
 function historyAsOfMin(dayPunches, dayKey, profile) {
@@ -3203,31 +3234,48 @@ function exportPunchHistoryExcel() {
   );
 }
 
+function renderHistoryHourScale() {
+  const dispStart = 6 * 60;
+  const dispEnd = 21 * 60;
+  const dispRange = dispEnd - dispStart;
+  const toPercent = (min) => `${(((min - dispStart) / dispRange) * 100).toFixed(3)}%`;
+  const markers = [];
+  for (let m = Math.ceil(dispStart / 60) * 60; m <= dispEnd; m += 60) {
+    markers.push(`<div class="dtl-marker" style="left:${toPercent(m)}"><span>${Math.floor(m / 60)}h</span></div>`);
+  }
+  return `
+    <div class="dtl-history-scale" aria-hidden="true">
+      <div class="dtl-history-date"></div>
+      <div class="dtl-markers-row">${markers.join("")}</div>
+    </div>`;
+}
+
 function renderPunchHistory(punches, profile) {
   const groups = groupPunchesByDay(punches).slice(0, 14);
   if (!groups.length) {
     return `<p class="empty-state">Aucun historique pour le moment.</p>`;
   }
   return `
-    <div class="dtl-history-legend">
-      <span class="dtl-legend-item dtl-legend--work">En poste</span>
-      <span class="dtl-legend-item dtl-legend--lunch">Pause dej</span>
-      <span class="dtl-legend-item dtl-legend--off">Hors poste</span>
-      <span class="dtl-legend-item dtl-legend--late">Retard</span>
-    </div>
-    <div class="punch-history-list">
-      ${groups.map(([dayKey, dayPunches], index) => `
-        <div class="dtl-history-row">
-          <div class="dtl-history-date">
-            <strong>${escapeHtml(formatHistoryDateLabel(dayKey))}</strong>
-            <span>${formatDate(parseLocalDate(dayKey))}</span>
-          </div>
-          ${renderDayTimeline(dayPunches, profile, {
-            variant: "history",
-            showMarkers: index === 0,
-            asOfMin: historyAsOfMin(dayPunches, dayKey, profile)
-          })}
-        </div>`).join("")}
+    <div class="punch-history-body">
+      <div class="dtl-history-legend">
+        <span class="dtl-legend-item dtl-legend--work">En poste</span>
+        <span class="dtl-legend-item dtl-legend--lunch">Pause dej</span>
+        <span class="dtl-legend-item dtl-legend--off">Hors poste</span>
+        <span class="dtl-legend-item dtl-legend--late">Retard</span>
+      </div>
+      ${renderHistoryHourScale()}
+      <div class="punch-history-list">
+        ${groups.map(([dayKey, dayPunches]) => `
+          <div class="dtl-history-row">
+            <div class="dtl-history-date">
+              <strong>${escapeHtml(formatHistoryDateLabel(dayKey))}</strong>
+            </div>
+            ${renderDayTimeline(dayPunches, profile, {
+              variant: "history",
+              asOfMin: historyAsOfMin(dayPunches, dayKey, profile)
+            })}
+          </div>`).join("")}
+      </div>
     </div>`;
 }
 
@@ -3569,13 +3617,22 @@ async function ensureServiceWorkerAndPush() {
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
   try {
     const registration = await navigator.serviceWorker.register("/sw.js");
-    navigator.serviceWorker.addEventListener("message", (event) => {
-      if (event.data?.type !== "humana:open-page" || !event.data.page) return;
+    const onWorkerMessage = function (event) {
+      if (event.origin !== location.origin) {
+        return;
+      }
+      if (!event.data || event.data.type !== "humana:open-page" || !event.data.page) {
+        return;
+      }
       const requestedPage = String(event.data.page);
-      if (!Object.prototype.hasOwnProperty.call(pages, requestedPage)) return;
+      if (!Object.prototype.hasOwnProperty.call(pages, requestedPage)) {
+        return;
+      }
       currentPage = requestedPage;
       renderApp();
-    });
+    };
+    navigator.serviceWorker.addEventListener("message", onWorkerMessage);
+    window.addEventListener("message", onWorkerMessage);
 
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
     if (!session?.user?.id || !usesDatabase() || !supabaseClient) return;
@@ -3658,14 +3715,18 @@ function renderClockActions() {
   const { isWorking, onBreak, isOut } = getClockState();
 
   if (isOut) {
-    return `<button type="button" id="clock-toggle" class="clock-button in">J'arrive</button>`;
+    return `
+      <div class="clock-actions">
+        <button type="button" id="clock-toggle" class="clock-button in">J'arrive</button>
+        <button type="button" class="clock-button break-start" disabled aria-disabled="true" title="Pointez d'abord votre arrivée">Pause déjeuner</button>
+      </div>`;
   }
 
   if (onBreak) {
     return `
       <div class="clock-actions">
         <button type="button" id="break-toggle" class="clock-button break-end">Reprise après déjeuner</button>
-        <button type="button" id="clock-toggle" class="clock-button out clock-button-secondary">Je pars</button>
+        <button type="button" class="clock-button out clock-button-secondary" disabled aria-disabled="true" title="Terminez d'abord votre pause déjeuner">Je pars</button>
       </div>`;
   }
 
@@ -3925,9 +3986,6 @@ function homePage() {
   const firstName = escapeHtml(getUserName().split(" ")[0] || "vous");
   const clockStatus = getClockStatusCopy();
   const hours = computeWorkedHours(getPunches());
-  const balances = getLeaveBalances();
-  const documents = getHrDocuments().slice(0, 4);
-  const payslips = getPayslips().slice(0, 6);
   const todayLabel = new Date().toLocaleDateString("fr-FR", {
     weekday: "long",
     day: "numeric",
@@ -3940,10 +3998,8 @@ function homePage() {
       <p class="home-subtitle">Nous sommes ${todayLabel}. Voici votre espace du jour.</p>
     </section>
 
-    <section class="home-grid page-spacer">
-      ${canViewHrAlerts() ? renderHrAlertsCard() : ""}
-      ${renderHomeEventsCard()}
-      <article class="card home-widget">
+    <section class="home-day-wrap page-spacer">
+      <article class="card home-widget home-day-widget">
         <div class="card-heading">
           <h3>Ma journée</h3>
           <button type="button" class="home-link" data-goto-page="pointeuse">Historique</button>
@@ -3956,68 +4012,15 @@ function homePage() {
           ${renderClockActions()}
         </div>
       </article>
+    </section>
 
-      ${isNavPageVisible("leave") ? `
-      <article class="card home-widget">
-        <div class="card-heading">
-          <h3>Congés</h3>
-          <button type="button" class="home-link" data-goto-page="leave">Faire une demande</button>
-        </div>
-        <div class="home-balance-list">
-          ${balances.map((balance) => homeBalanceSummary(balance)).join("")}
-        </div>
-      </article>` : ""}
-
-      ${canViewReports() ? `
-      <article class="card home-widget">
-        <div class="card-heading">
-          <h3>Rapports EDS</h3>
-          <button type="button" class="home-link" data-goto-page="reports">Ouvrir</button>
-        </div>
-        <p class="hierarchy-meta">Cycle de paie du 21 au 20 : temps planifié, réalisé, retards et absences. Export CSV pour la paie.</p>
-      </article>` : ""}
-
-      <article class="card home-widget">
-        <div class="card-heading">
-          <h3>Documents partagés</h3>
-        </div>
-        <div class="home-doc-list">
-          ${documents.length
-            ? documents.map((doc) => `
-              <a class="home-doc-item" ${privateFileLinkAttributes("hr-document", doc)} target="_blank" rel="noopener noreferrer">
-                <span class="file-mark" aria-hidden="true"></span>
-                <div>
-                  <strong>${escapeHtml(doc.title)}</strong>
-                  <span>${escapeHtml(doc.description || doc.category || "Document")} · ${formatDate(doc.published_at)}</span>
-                </div>
-              </a>`).join("")
-            : `<p class="empty-state">Rien de nouveau pour l'instant. Les RH publieront les documents ici.</p>`}
-        </div>
-      </article>
-
-      <article class="card home-widget">
-        <div class="card-heading">
-          <h3>Bulletins de paie</h3>
-        </div>
-        <div class="home-payslip-list">
-          ${payslips.length
-            ? payslips.map((slip) => `
-              <div class="home-payslip-item">
-                <span class="payslip-month" aria-hidden="true">${escapeHtml((slip.period_label || "").slice(0, 3))}</span>
-                <div>
-                  <strong>${escapeHtml(slip.period_label)}</strong>
-                  <span>Bulletin mensuel</span>
-                </div>
-                <a class="home-payslip-btn" ${privateFileLinkAttributes("payslip", slip)} target="_blank" rel="noopener noreferrer">Ouvrir</a>
-              </div>`).join("")
-            : `<p class="empty-state">Vos bulletins apparaîtront ici dès qu'ils seront disponibles.</p>`}
-        </div>
-      </article>
+    <section class="home-grid page-spacer">
+      ${canViewHrAlerts() ? renderHrAlertsCard() : ""}
+      ${renderHomeEventsCard()}
     </section>`;
 }
 
 function renderGtaClockTools() {
-  const shift = getActiveShift();
   const used = correctionsThisMonth().length;
   const remaining = Math.max(0, PUNCH_CORRECTION_QUOTA - used);
   const today = toDateKey(new Date());
@@ -4029,8 +4032,7 @@ function renderGtaClockTools() {
     breakDurationMs: computeBreakDuration(getTodayPunches())
   }, appData.profile);
   return `
-    <p class="data-note">Horaire ${escapeHtml(shift.label)} · arrivée tolérée jusqu'à ${shift.lateAfter} · ${shift.plannedHours} h planifiées · décalage FR/MA : ${getFrMaOffsetHours()} h</p>
-    <section class="hours-grid">
+    <section class="hours-grid gta-hours-grid">
       ${hoursCard("Planifié", stats.plannedMs)}
       ${hoursCard("Manquant", stats.missingMs)}
       ${hoursCard("HS payables", stats.payableOtMs)}
@@ -4128,7 +4130,7 @@ function renderGtaTeamInbox() {
   return `
     <article class="card table-card page-spacer">
       <div class="toolbar"><h3>Validations GTA</h3></div>
-      <p class="hierarchy-meta">Corrections de pointage, heures supplémentaires et feuilles de temps. M-Work n'est pas connecté.</p>
+      <p class="hierarchy-meta">Corrections de pointage, heures supplémentaires et feuilles de temps.</p>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Collaborateur</th><th>Date</th><th>Demande</th><th>Statut</th><th></th></tr></thead>
@@ -5539,7 +5541,7 @@ function creatorPage() {
   return `
     <article class="card form-card">
       ${cardHeading("Visibilité des onglets")}
-      <p class="creator-intro">Activez ou masquez les onglets <strong>Congés</strong>, <strong>Demande RH</strong>, <strong>Hiérarchie</strong>, <strong>Rapports</strong> et <strong>Journal</strong> pour chaque type de profil.</p>
+      <p class="creator-intro">Activez ou masquez les onglets <strong>Congés</strong>, <strong>Demande RH</strong>, <strong>Planning</strong>, <strong>Hiérarchie</strong>, <strong>Rapports</strong> et <strong>Journal</strong> pour chaque type de profil.</p>
       <form id="creator-nav-form" class="feature-form creator-nav-form">
         <div class="table-wrap">
           <table class="creator-nav-table">
@@ -5966,6 +5968,315 @@ function edsRowCells(row) {
   return EDS_COLUMNS.map((col) => row[col.key] ?? "");
 }
 
+const PLANNING_DEPTS = [
+  { id: "rnd", label: "R&D", hint: "Objectif : 8h travaillées + 1h de pause déjeuner (horaire souple)." },
+  { id: "cs", label: "CS", hint: "Calendrier fixe 08h–17h, pause 1h." },
+  { id: "ces", label: "CES", hint: "Calendrier fixe 08h–17h, pause 1h." }
+];
+
+const PLANNING_CODES = [
+  { code: "PR", label: "Présent sur site" },
+  { code: "TT", label: "Télétravail" },
+  { code: "RE", label: "Retard" },
+  { code: "DP", label: "Départ anticipé" },
+  { code: "AJ", label: "Absence justifiée" },
+  { code: "AI", label: "Absence injustifiée" },
+  { code: "CP", label: "Congés payés" },
+  { code: "MA", label: "Maternité" },
+  { code: "PA", label: "Paternité" },
+  { code: "SS", label: "Sans solde" },
+  { code: "RC", label: "Récupération" },
+  { code: "DE", label: "Déplacement" },
+  { code: "MP", label: "Mise à pied" },
+  { code: "SP", label: "Congé spécial" },
+  { code: "EC", label: "Écart d'heures (R&D)" },
+  { code: "AB", label: "Non pointé" }
+];
+
+function getPlanningCursor() {
+  if (planningState.cursor instanceof Date && !Number.isNaN(planningState.cursor.getTime())) {
+    return new Date(planningState.cursor.getFullYear(), planningState.cursor.getMonth(), 1);
+  }
+  const now = new Date();
+  planningState.cursor = new Date(now.getFullYear(), now.getMonth(), 1);
+  return new Date(planningState.cursor);
+}
+
+function planningMonthRange(cursor = getPlanningCursor()) {
+  const start = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const end = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
+  return { start: toDateKey(start), end: toDateKey(end), startDate: start, endDate: end };
+}
+
+function planningDaysOfMonth(cursor = getPlanningCursor()) {
+  const { startDate, endDate } = planningMonthRange(cursor);
+  const days = [];
+  const cursorDay = new Date(startDate);
+  while (cursorDay <= endDate) {
+    days.push(toDateKey(cursorDay));
+    cursorDay.setDate(cursorDay.getDate() + 1);
+  }
+  return days;
+}
+
+function planningDeptOf(profile) {
+  const code = String(profile?.shift_code || "").toLowerCase();
+  if (code === "rnd" || code === "ces" || code === "cs") return code;
+  const dept = String(profile?.department || profile?.job_title || "").toLowerCase();
+  if (dept.includes("r&d") || dept.includes("r et d") || /\brd\b/.test(dept)) return "rnd";
+  if (/\bces\b/.test(dept)) return "ces";
+  return "cs";
+}
+
+function getPlanningProfiles(dept = planningState.dept) {
+  return getReportProfiles()
+    .filter((profile) => planningDeptOf(profile) === dept)
+    .sort((a, b) => (a.full_name || "").localeCompare(b.full_name || "", "fr"));
+}
+
+function planningLeaveCode(type) {
+  const text = foldAbsenceText(type);
+  if (text.includes("retard")) return "RE";
+  if (text.includes("depart")) return "DP";
+  const key = leaveTypeKey(type);
+  if (key === "maternity") return "MA";
+  if (key === "paternity") return "PA";
+  if (key === "unjustified") return "AI";
+  if (key === "justified") return "AJ";
+  if (key === "cp") return "CP";
+  if (key === "unpaid") return "SS";
+  if (key === "recup") return "RC";
+  if (key === "travel") return "DE";
+  if (key === "suspension") return "MP";
+  if (key === "special") return "SP";
+  return null;
+}
+
+function getPlanningLeaves() {
+  return [
+    ...getLeaveRequests(),
+    ...(appData.teamLeaveRequests || []).map((row) => (row.type ? row : normalizeTeamLeaveRequest(row)))
+  ].filter(edsLeaveApproved);
+}
+
+function leaveCoversPlanningDay(item, dayKey) {
+  const start = String(item.start || item.start_date || "").slice(0, 10);
+  const end = String(item.end || item.end_date || start).slice(0, 10);
+  return Boolean(start && end && dayKey >= start && dayKey <= end);
+}
+
+function buildPlanningModel() {
+  const cursor = getPlanningCursor();
+  const range = planningMonthRange(cursor);
+  const days = planningDaysOfMonth(cursor);
+  const dept = planningState.dept;
+  const profiles = getPlanningProfiles(dept);
+  const flexible = dept === "rnd";
+  const punches = getReportPunches();
+  const daily = summarizeTeamPunchesByDay(punches, range.start, range.end);
+  const leaves = getPlanningLeaves();
+  const logs = [];
+  const gapAgents = {
+    delay: new Set(),
+    early: new Set(),
+    missing: new Set(),
+    hours: new Set(),
+    telework: new Set(),
+    unjustified: new Set()
+  };
+
+  const rows = profiles.map((profile) => {
+    const cells = {};
+    days.forEach((dayKey) => {
+      const working = isWorkingDayKey(dayKey);
+      const dayRow = daily.find((row) => row.userId === profile.id && row.dayKey === dayKey);
+      const dayLeaves = leaves.filter((item) => (
+        (item.userId || item.user_id) === profile.id && leaveCoversPlanningDay(item, dayKey)
+      ));
+      const codes = [];
+      const notes = [];
+      dayLeaves.forEach((item) => {
+        const code = planningLeaveCode(item.type);
+        if (code) {
+          codes.push(code);
+          notes.push(item.type);
+          logs.push({ dayKey, name: profile.full_name, kind: code, detail: item.type, source: "demande" });
+          if (code === "AI") gapAgents.unjustified.add(profile.id);
+        }
+      });
+      if (dayRow) {
+        const stats = analyzeWorkedDay(dayRow, profile);
+        const loc = dayRow.workLocation || (dayRow.punches && dayRow.punches[0] && dayRow.punches[0].workLocation);
+        if (loc === "remote") {
+          codes.push("TT");
+          gapAgents.telework.add(profile.id);
+        } else if (!dayLeaves.length) {
+          codes.push("PR");
+        }
+        if (!flexible && stats.delayMin > 0) {
+          codes.push("RE");
+          notes.push(`Retard ${stats.delayMin} min`);
+          logs.push({ dayKey, name: profile.full_name, kind: "RE", detail: `${stats.delayMin} min`, source: "pointage" });
+          gapAgents.delay.add(profile.id);
+        }
+        if (!flexible) {
+          const early = earlyLeaveMinutes(dayRow, profile);
+          if (early > 0) {
+            codes.push("DP");
+            notes.push(`Départ ${early} min`);
+            logs.push({ dayKey, name: profile.full_name, kind: "DP", detail: `${early} min`, source: "pointage" });
+            gapAgents.early.add(profile.id);
+          }
+        }
+        if (flexible && stats.realizedMs > 0 && stats.realizedMs < 8 * 3600000) {
+          codes.push("EC");
+          notes.push(`${formatDuration(stats.realizedMs)} / 8h`);
+          logs.push({ dayKey, name: profile.full_name, kind: "EC", detail: `${formatDuration(stats.realizedMs)} / 8h`, source: "pointage" });
+          gapAgents.hours.add(profile.id);
+        }
+      } else if (working && !dayLeaves.length) {
+        codes.push("AB");
+        notes.push("Non pointé");
+        logs.push({ dayKey, name: profile.full_name, kind: "AB", detail: "Jour ouvré sans pointage ni demande", source: "écart" });
+        gapAgents.missing.add(profile.id);
+      }
+      cells[dayKey] = {
+        codes: [...new Set(codes)],
+        title: notes.join(" · "),
+        off: !working
+      };
+    });
+    return { profile, cells };
+  });
+
+  logs.sort((a, b) => String(b.dayKey).localeCompare(String(a.dayKey)) || String(a.name).localeCompare(String(b.name), "fr"));
+  return { cursor, range, days, dept, flexible, profiles, rows, logs, gapAgents };
+}
+
+function planningPage() {
+  if (!canViewPlanning()) {
+    return `<article class="card"><p class="empty-state">L'onglet Planning n'est pas disponible pour votre profil.</p></article>`;
+  }
+  const model = buildPlanningModel();
+  const monthLabel = model.cursor.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  return `
+    <div class="planning-toolbar">
+      <div class="segmented" role="tablist">
+        <button type="button" class="planning-tab${planningState.tab === "grid" ? " is-active" : ""}" data-planning-tab="grid">Planning</button>
+        <button type="button" class="planning-tab${planningState.tab === "log" ? " is-active" : ""}" data-planning-tab="log">Log</button>
+        <button type="button" class="planning-tab${planningState.tab === "gaps" ? " is-active" : ""}" data-planning-tab="gaps">Écarts</button>
+      </div>
+      <div class="planning-filters">
+        <label>
+          Département
+          <select id="planning-dept">
+            ${PLANNING_DEPTS.map((item) => `<option value="${item.id}"${item.id === model.dept ? " selected" : ""}>${item.label}</option>`).join("")}
+          </select>
+        </label>
+        <div class="planning-month">
+          <button type="button" class="outline-button" id="planning-prev">‹</button>
+          <strong>${escapeHtml(monthLabel)}</strong>
+          <button type="button" class="outline-button" id="planning-next">›</button>
+        </div>
+      </div>
+    </div>
+    ${planningState.tab === "log" ? renderPlanningLog(model)
+      : planningState.tab === "gaps" ? renderPlanningGaps(model)
+      : renderPlanningGrid(model)}`;
+}
+
+function renderPlanningGrid(model) {
+  if (!model.profiles.length) {
+    return `<article class="card"><p class="empty-state">Aucun collaborateur sur ce planning. Vérifiez la vacation (CS / CES / R&amp;D) dans Administration.</p></article>`;
+  }
+  const weekday = (dayKey) => parseLocalDate(dayKey).toLocaleDateString("fr-FR", { weekday: "short" });
+  const dayNum = (dayKey) => dayKey.slice(8);
+  return `
+    <article class="card planning-card">
+      <div class="planning-legend">
+        ${PLANNING_CODES.map((item) => `<span class="pl-legend pl-cell--${item.code}"><b>${item.code}</b> ${escapeHtml(item.label)}</span>`).join("")}
+      </div>
+      <div class="planning-wrap">
+        <table class="planning-grid">
+          <thead>
+            <tr>
+              <th class="planning-name">Agent</th>
+              ${model.days.map((day) => `<th class="${isWorkingDayKey(day) ? "" : "is-off"}"><span>${weekday(day)}</span><strong>${dayNum(day)}</strong></th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>
+            ${model.rows.map((row) => `
+              <tr>
+                <th class="planning-name">${escapeHtml(row.profile.full_name)}<small>${escapeHtml(row.profile.matricule || "")}</small></th>
+                ${model.days.map((day) => {
+                  const cell = row.cells[day];
+                  const codes = cell.codes.length ? cell.codes.join(" ") : "";
+                  const cls = [cell.off ? "is-off" : "", cell.codes[0] ? `pl-cell--${cell.codes[0]}` : ""].filter(Boolean).join(" ");
+                  return `<td class="${cls}" title="${escapeHtml(cell.title || codes)}">${escapeHtml(codes)}</td>`;
+                }).join("")}
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </article>`;
+}
+
+function renderPlanningLog(model) {
+  return `
+    <article class="card table-card">
+      <div class="toolbar"><h3>Log du planning ${escapeHtml(PLANNING_DEPTS.find((item) => item.id === model.dept)?.label || "")}</h3></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Date</th><th>Agent</th><th>Code</th><th>Détail</th><th>Source</th></tr></thead>
+          <tbody>
+            ${model.logs.length
+              ? model.logs.map((item) => `
+                <tr>
+                  <td>${formatDate(item.dayKey)}</td>
+                  <td>${escapeHtml(item.name)}</td>
+                  <td><span class="pl-legend pl-cell--${item.kind}"><b>${escapeHtml(item.kind)}</b></span></td>
+                  <td>${escapeHtml(item.detail)}</td>
+                  <td>${escapeHtml(item.source)}</td>
+                </tr>`).join("")
+              : `<tr><td colspan="5" class="empty-cell">Aucun événement sur ce mois.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </article>`;
+}
+
+function renderPlanningGaps(model) {
+  const total = model.profiles.length || 1;
+  const bars = [
+    { label: "Agents non pointés", count: model.gapAgents.missing.size },
+    { label: "Agents en retard", count: model.gapAgents.delay.size },
+    { label: "Agents en départ anticipé", count: model.gapAgents.early.size },
+    { label: "R&D sous 8h", count: model.gapAgents.hours.size },
+    { label: "Absence injustifiée", count: model.gapAgents.unjustified.size },
+    { label: "Agents en télétravail", count: model.gapAgents.telework.size }
+  ];
+  return `
+    <section class="balance-grid">
+      ${bars.slice(0, 3).map((item) => `
+        <article class="card hours-card">
+          <span class="hours-label">${escapeHtml(item.label)}</span>
+          <strong>${item.count}</strong>
+          <small>sur ${model.profiles.length} agent${model.profiles.length > 1 ? "s" : ""}</small>
+        </article>`).join("")}
+    </section>
+    <article class="card page-spacer">
+      <div class="toolbar"><h3>Écarts par nombre d'agents</h3></div>
+      <div class="planning-gap-bars">
+        ${bars.map((item) => `
+          <div class="planning-gap-row">
+            <span>${escapeHtml(item.label)}</span>
+            <div class="planning-gap-track"><span style="width:${Math.max(item.count ? 8 : 0, Math.round((item.count / total) * 100))}%"></span></div>
+            <strong>${item.count}</strong>
+          </div>`).join("")}
+      </div>
+    </article>`;
+}
+
 function reportsPage() {
   if (!canViewReports()) {
     return `<article class="card"><p class="empty-state">Accès aux rapports non autorisé pour votre profil.</p></article>`;
@@ -5974,7 +6285,7 @@ function reportsPage() {
   const rows = buildEdsRows();
   const teamScope = canViewTeamPunches() || isAdmin();
   return `
-    <p class="data-note">Cycle de paie EDS : du ${formatDate(range.start)} au ${formatDate(range.end)} (du 21 du mois précédent au 20 du mois en cours). ${teamScope ? "Vue équipe." : "Votre temps uniquement."} Les primes et salaires restent à renseigner pour la paie. M-Work n'est volontairement pas connecté.</p>
+    <p class="data-note">Cycle de paie EDS : du ${formatDate(range.start)} au ${formatDate(range.end)} (du 21 du mois précédent au 20 du mois en cours). ${teamScope ? "Vue équipe." : "Votre temps uniquement."} Les primes et salaires restent à renseigner pour la paie.</p>
     ${renderGtaTeamInbox()}
     <article class="card form-card page-spacer">
       ${cardHeading("Exports")}
@@ -6437,6 +6748,7 @@ function pageContent() {
     reports: reportsPage,
     leave: leavePage,
     attestations: attestationsPage,
+    planning: planningPage,
     events: eventsPage,
     hierarchy: hierarchyPage,
     admin: adminPage,
@@ -6470,7 +6782,7 @@ function formatAppError(error) {
     return "Avances sur salaire non configurées. Exécutez supabase/salary-advance-requests.sql dans SQL Editor.";
   }
   if (message.includes("punch_corrections") || message.includes("overtime_requests") || message.includes("activity_entries") || message.includes("shift_code") || message.includes("workflow_step")) {
-    return "Module Cegid GTA non configuré. Exécutez supabase/cegid-gta.sql dans SQL Editor.";
+    return "Module de gestion des temps non configuré. Exécutez supabase/gta-schema.sql dans SQL Editor.";
   }
   if (message.includes("permission") || message.includes("policy") || message.includes("row-level")) {
     if (message.includes("leave_requests")) {
@@ -6956,6 +7268,7 @@ function getProfileShift(profile = appData.profile) {
   if (SHIFT_PRESETS[code]) return SHIFT_PRESETS[code];
   const dept = String(profile?.department || profile?.job_title || "").toLowerCase();
   if (dept.includes("r&d") || dept.includes("r et d") || /\brd\b/.test(dept)) return SHIFT_PRESETS.rnd;
+  if (/\bces\b/.test(dept)) return SHIFT_PRESETS.ces;
   return SHIFT_PRESETS.cs;
 }
 
@@ -7690,11 +8003,21 @@ function bindPageEvents() {
     });
   }
 
-  if ((currentPage === "team-punches" || currentPage === "reports" || currentPage === "global") && canViewTeamPunches() && usesDatabase() && !teamPunchesInitialLoadDone) {
+  if (currentPage === "planning") {
+    const range = planningMonthRange();
+    teamPunchFilters = {
+      ...teamPunchFilters,
+      start: range.start,
+      end: range.end,
+      scope: isAdmin() ? (teamPunchFilters.scope || "all") : "team"
+    };
+  }
+
+  if ((currentPage === "team-punches" || currentPage === "reports" || currentPage === "global" || currentPage === "planning") && canViewTeamPunches() && usesDatabase() && !teamPunchesInitialLoadDone) {
     teamPunchesInitialLoadDone = true;
     loadTeamPunches()
       .then(() => {
-        if (currentPage !== "team-punches" && currentPage !== "reports" && currentPage !== "global") return;
+        if (currentPage !== "team-punches" && currentPage !== "reports" && currentPage !== "global" && currentPage !== "planning") return;
         const content = document.querySelector("#page-content");
         if (content) {
           content.innerHTML = pageContent();
@@ -7729,6 +8052,41 @@ function bindPageEvents() {
       }
     });
   }
+
+  document.querySelectorAll("[data-planning-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      planningState.tab = button.dataset.planningTab || "grid";
+      renderApp();
+    });
+  });
+  document.querySelector("#planning-dept")?.addEventListener("change", (event) => {
+    planningState.dept = event.currentTarget.value || "cs";
+    renderApp();
+  });
+  document.querySelector("#planning-prev")?.addEventListener("click", () => {
+    const cursor = getPlanningCursor();
+    planningState.cursor = new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1);
+    const range = planningMonthRange();
+    teamPunchFilters = { ...teamPunchFilters, start: range.start, end: range.end };
+    if (usesDatabase() && canViewTeamPunches()) {
+      teamPunchesInitialLoadDone = false;
+      withAction(() => loadTeamPunches());
+    } else {
+      renderApp();
+    }
+  });
+  document.querySelector("#planning-next")?.addEventListener("click", () => {
+    const cursor = getPlanningCursor();
+    planningState.cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    const range = planningMonthRange();
+    teamPunchFilters = { ...teamPunchFilters, start: range.start, end: range.end };
+    if (usesDatabase() && canViewTeamPunches()) {
+      teamPunchesInitialLoadDone = false;
+      withAction(() => loadTeamPunches());
+    } else {
+      renderApp();
+    }
+  });
 
   document.querySelector("#team-punches-export")?.addEventListener("click", () => {
     exportTeamPunchesCsv();
@@ -8274,7 +8632,7 @@ function bindAppEvents() {
   document.querySelectorAll(".sidebar nav [data-page]").forEach((button) => {
     button.addEventListener("click", () => {
       const nextPage = button.dataset.page;
-      if (nextPage === "team-punches" || nextPage === "global") {
+      if (nextPage === "team-punches" || nextPage === "global" || nextPage === "planning") {
         teamPunchesInitialLoadDone = false;
       }
       if (nextPage === "journal") {
@@ -8521,7 +8879,7 @@ function hydrateDemoWorkspace() {
     { id: "u-sarah", email: "sarah.nguyen@humaine.fr", full_name: "Sarah Nguyen", job_title: "Responsable commercial", department: "Commercial", role: "manager", manager_id: "u-camille", matricule: "HUM-1088", leave_grade: "manager", shift_code: "cs", hired_at: "2019-09-01", leave_balance_cp: 24, leave_balance_rtt: 8 },
     { id: "u-lea", email: "lea.martin@humaine.fr", full_name: "Léa Martin", job_title: "Chargée de paie", department: "Ressources humaines", role: "employee", manager_id: "u-thomas", matricule: "HUM-1214", leave_grade: "employee", shift_code: "cs", hired_at: "2024-01-08", leave_balance_cp: 18, leave_balance_rtt: 5 },
     { id: "u-hugo", email: "hugo.petit@humaine.fr", full_name: "Hugo Petit", job_title: "Ingénieur R&D", department: "R&D", role: "employee", manager_id: "u-thomas", matricule: "HUM-1307", leave_grade: "employee", shift_code: "rnd", hired_at: "2023-06-12", leave_balance_cp: 18, leave_balance_rtt: 8 },
-    { id: "u-nina", email: "nina.rossi@humaine.fr", full_name: "Nina Rossi", job_title: "Commerciale", department: "Commercial", role: "employee", manager_id: "u-sarah", matricule: "HUM-1420", leave_grade: "employee", shift_code: "cs", hired_at: "2025-11-02", leave_balance_cp: 4, leave_balance_rtt: 2 }
+    { id: "u-nina", email: "nina.rossi@humaine.fr", full_name: "Nina Rossi", job_title: "Commerciale", department: "CES", role: "employee", manager_id: "u-sarah", matricule: "HUM-1420", leave_grade: "employee", shift_code: "ces", hired_at: "2025-11-02", leave_balance_cp: 4, leave_balance_rtt: 2 }
   ];
   session = {
     user: {
