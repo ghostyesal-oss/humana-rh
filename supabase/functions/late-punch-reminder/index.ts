@@ -20,8 +20,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as webpush from "https://esm.sh/web-push@3.6.7?target=deno";
 
 const SHIFT_PRESETS: Record<string, { start: string; label: string }> = {
-  cs: { start: "09:00", label: "CS / CES" },
-  rnd: { start: "10:00", label: "R&D" }
+  h7: { start: "07:00", label: "07h–17h" },
+  h8: { start: "08:00", label: "08h–18h" },
+  cs: { start: "08:00", label: "CS / CES" },
+  ces: { start: "08:00", label: "CES" },
+  rnd: { start: "09:00", label: "R&D" }
 };
 
 const LATE_OFFSET_MIN = 3;

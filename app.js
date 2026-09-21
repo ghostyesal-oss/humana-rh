@@ -3454,9 +3454,82 @@ function getTodayPunches(punches = getPunches()) {
 
 const LATE_REMINDER_OFFSET_MIN = 3;
 const LATE_REMINDER_STORE_KEY = "humana_late_reminder_shown";
+const GTA_NOTIF_STORE_KEY = "humana_gta_notif";
 let lateReminderWatcher = null;
 let lateReminderPopupOpen = false;
 let lateReminderNotificationRequested = false;
+
+function gtaNotifStorageKey(kind, extra = "") {
+  const dayKey = toDateKey(new Date());
+  const userId = session?.user?.id || "self";
+  return `${GTA_NOTIF_STORE_KEY}:${kind}:${userId}:${dayKey}${extra ? `:${extra}` : ""}`;
+}
+
+function gtaNotifAlreadyShown(key) {
+  return sessionStorage.getItem(key) === "shown";
+}
+
+function gtaNotifMarkShown(key) {
+  sessionStorage.setItem(key, "shown");
+}
+
+function formatNotifClock(date = new Date()) {
+  return `${String(date.getHours()).padStart(2, "0")}h${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatNotifMinutes(totalMin) {
+  const minutes = Math.max(0, Math.round(Number(totalMin) || 0));
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours > 0) return `${hours}h${String(rest).padStart(2, "0")}`;
+  return `${minutes} min`;
+}
+
+function requestDesktopNotificationPermission() {
+  if (typeof Notification === "undefined") return;
+  if (lateReminderNotificationRequested) return;
+  if (Notification.permission === "granted" || Notification.permission === "denied") return;
+  lateReminderNotificationRequested = true;
+  Notification.requestPermission().then((permission) => {
+    if (permission === "granted") ensureServiceWorkerAndPush();
+  }).catch(() => {});
+}
+
+function requestLateReminderPermission() {
+  requestDesktopNotificationPermission();
+}
+
+async function fireWindowsNotification({ title, body, tag, page = "pointeuse" }) {
+  if (typeof Notification === "undefined") return;
+  if (Notification.permission !== "granted") return;
+  const options = {
+    body,
+    tag: tag || "humana-gta",
+    renotify: true,
+    requireInteraction: true,
+    data: { url: "/", page }
+  };
+  try {
+    const registration = await navigator.serviceWorker?.ready;
+    if (registration?.showNotification) {
+      await registration.showNotification(title, options);
+      return;
+    }
+  } catch (error) {
+    console.warn("[humana] sw notification failed", error);
+  }
+  try {
+    const notif = new Notification(title, options);
+    notif.onclick = () => {
+      window.focus();
+      if (page && Object.prototype.hasOwnProperty.call(pages, page)) currentPage = page;
+      renderApp();
+      notif.close();
+    };
+  } catch (error) {
+    console.warn("[humana] notification failed", error);
+  }
+}
 
 function shouldTriggerLateReminder() {
   if (portalMode || !session?.user) return null;
@@ -3484,32 +3557,80 @@ function shouldTriggerLateReminder() {
   };
 }
 
-function requestLateReminderPermission() {
-  if (typeof Notification === "undefined") return;
-  if (lateReminderNotificationRequested) return;
-  if (Notification.permission === "granted" || Notification.permission === "denied") return;
-  lateReminderNotificationRequested = true;
-  Notification.requestPermission().catch(() => {});
+function shouldTriggerOvertimeNotice() {
+  if (portalMode || !session?.user) return null;
+  const { isWorking, onBreak } = getClockState();
+  if (!isWorking && !onBreak) return null;
+  const shift = getActiveShift();
+  const plannedMs = (Number(shift.plannedHours) || 8) * 3600000;
+  const workedMs = computeWorkedHours(getPunches()).today;
+  if (workedMs <= plannedMs) return null;
+  const extraMin = Math.round((workedMs - plannedMs) / 60000);
+  const bucket = Math.floor(extraMin / 30);
+  const storeKey = gtaNotifStorageKey("overtime", String(bucket));
+  if (gtaNotifAlreadyShown(storeKey)) return null;
+  return {
+    extraMin,
+    plannedHours: shift.plannedHours,
+    storeKey
+  };
+}
+
+function shouldTriggerLongBreakNotice() {
+  if (portalMode || !session?.user) return null;
+  if (!getClockState().onBreak) return null;
+  const shift = getActiveShift();
+  const allowedMin = Number(shift.lunchMin) || 60;
+  const breakMin = Math.round(computeBreakDuration(getTodayPunches()) / 60000);
+  if (breakMin <= allowedMin + 2) return null;
+  const bucket = Math.floor(Math.max(0, breakMin - allowedMin) / 15);
+  const storeKey = gtaNotifStorageKey("long-break", String(bucket));
+  if (gtaNotifAlreadyShown(storeKey)) return null;
+  return { breakMin, allowedMin, storeKey };
+}
+
+function notifyLateArrivalIfNeeded() {
+  const shift = getActiveShift();
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const lateAfterMin = minutesFromHhmm(shift.lateAfter);
+  const delayMin = nowMin - lateAfterMin;
+  if (delayMin <= 0) return;
+  const storeKey = gtaNotifStorageKey("late-arrival");
+  if (gtaNotifAlreadyShown(storeKey)) return;
+  gtaNotifMarkShown(storeKey);
+  fireWindowsNotification({
+    title: "Retard enregistré",
+    body: `Arrivée ${formatNotifClock(now)} — heure max attendue ${String(shift.lateAfter).replace(":", "h")} (retard ${formatNotifMinutes(delayMin)}).`,
+    tag: "humana-late-arrival",
+    page: "pointeuse"
+  });
+}
+
+function notifyOvertimeOnExitIfNeeded() {
+  const shift = getActiveShift();
+  const plannedMs = (Number(shift.plannedHours) || 8) * 3600000;
+  const workedMs = computeWorkedHours(getPunches()).today;
+  const extraMin = Math.round((workedMs - plannedMs) / 60000);
+  if (extraMin <= 0) return;
+  const storeKey = gtaNotifStorageKey("overtime-exit");
+  if (gtaNotifAlreadyShown(storeKey)) return;
+  gtaNotifMarkShown(storeKey);
+  fireWindowsNotification({
+    title: "Dépassement d'horaire",
+    body: `Journée clôturée avec ${formatNotifMinutes(extraMin)} au-delà des ${shift.plannedHours} h planifiées. Pensez à faire valider vos heures supplémentaires.`,
+    tag: "humana-overtime-exit",
+    page: "pointeuse"
+  });
 }
 
 function fireBrowserLateNotification(info) {
-  if (typeof Notification === "undefined") return;
-  if (Notification.permission !== "granted") return;
-  try {
-    const notif = new Notification("⏰ Pointage oublié", {
-      body: `Il est ${info.triggerLabel} passé et tu n'as pas encore pointé ton arrivée. Retard : ${info.delayMinutes} min.`,
-      tag: "humana-late-reminder",
-      requireInteraction: true
-    });
-    notif.onclick = () => {
-      window.focus();
-      currentPage = "pointeuse";
-      renderApp();
-      notif.close();
-    };
-  } catch (error) {
-    console.warn("[humana] notification failed", error);
-  }
+  fireWindowsNotification({
+    title: "⏰ Pointage oublié",
+    body: `Il est ${info.triggerLabel} passé et tu n'as pas encore pointé ton arrivée. Retard : ${formatNotifMinutes(info.delayMinutes)}.`,
+    tag: "humana-late-reminder",
+    page: "pointeuse"
+  });
 }
 
 function closeLateReminderPopup() {
@@ -3580,27 +3701,57 @@ function showLateReminderPopup(info) {
 function checkLateReminder() {
   const info = shouldTriggerLateReminder();
   if (!info) return;
-  requestLateReminderPermission();
+  requestDesktopNotificationPermission();
   showLateReminderPopup(info);
   fireBrowserLateNotification(info);
   sessionStorage.setItem(info.storeKey, "shown");
 }
 
+function checkGtaDesktopAlerts() {
+  try { checkLateReminder(); } catch (error) {
+    console.warn("[humana] late reminder check failed", error);
+  }
+  try {
+    const overtime = shouldTriggerOvertimeNotice();
+    if (overtime) {
+      gtaNotifMarkShown(overtime.storeKey);
+      fireWindowsNotification({
+        title: "Dépassement d'horaire",
+        body: `Vous avez dépassé les ${overtime.plannedHours} h planifiées (${formatNotifMinutes(overtime.extraMin)}). Pensez à faire valider vos heures supplémentaires.`,
+        tag: "humana-overtime",
+        page: "pointeuse"
+      });
+    }
+  } catch (error) {
+    console.warn("[humana] overtime notice failed", error);
+  }
+  try {
+    const longBreak = shouldTriggerLongBreakNotice();
+    if (longBreak) {
+      gtaNotifMarkShown(longBreak.storeKey);
+      fireWindowsNotification({
+        title: "Pause déjeuner dépassée",
+        body: `Pause en cours depuis ${formatNotifMinutes(longBreak.breakMin)} (prévu : ${formatNotifMinutes(longBreak.allowedMin)}).`,
+        tag: "humana-long-break",
+        page: "pointeuse"
+      });
+    }
+  } catch (error) {
+    console.warn("[humana] long break notice failed", error);
+  }
+}
+
 function startLateReminderWatcher() {
   if (typeof Notification !== "undefined" && Notification.permission === "default") {
-    requestLateReminderPermission();
+    requestDesktopNotificationPermission();
   }
   ensureServiceWorkerAndPush();
   if (lateReminderWatcher) return;
   lateReminderWatcher = setInterval(() => {
-    try {
-      checkLateReminder();
-    } catch (error) {
-      console.warn("[humana] late reminder check failed", error);
-    }
+    checkGtaDesktopAlerts();
   }, 60 * 1000);
   setTimeout(() => {
-    try { checkLateReminder(); } catch (error) { console.warn("[humana] late reminder check failed", error); }
+    checkGtaDesktopAlerts();
   }, 2500);
 }
 
@@ -3614,9 +3765,9 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 async function ensureServiceWorkerAndPush() {
-  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  if (!("serviceWorker" in navigator)) return;
   try {
-    const registration = await navigator.serviceWorker.register("/sw.js");
+    const registration = await navigator.serviceWorker.register("/sw.js?v=5");
     const onWorkerMessage = function (event) {
       if (event.origin !== location.origin) {
         return;
@@ -3636,6 +3787,7 @@ async function ensureServiceWorkerAndPush() {
 
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
     if (!session?.user?.id || !usesDatabase() || !supabaseClient) return;
+    if (!("PushManager" in window)) return;
 
     const vapidPublic = (window.HUMANA_CONFIG || {}).VAPID_PUBLIC_KEY || "";
     if (!vapidPublic) return;
@@ -7753,8 +7905,13 @@ function bindPageEvents() {
         punches.push(applyJournalMetaToDemoPunch(buildDemoClockPunch(punchType), meta, punchType));
         saveStore("punches", punches);
       }
-      if (starting) switchStatusClock(getCurrentWorkStatus());
-      else pauseStatusClock();
+      if (starting) {
+        switchStatusClock(getCurrentWorkStatus());
+        notifyLateArrivalIfNeeded();
+      } else {
+        pauseStatusClock();
+        notifyOvertimeOnExitIfNeeded();
+      }
     });
   });
 
