@@ -5,7 +5,8 @@
 -- Cette migration ne supprime aucun fichier. Elle :
 -- 1. recupere storage_path depuis les anciennes URL publiques ;
 -- 2. rend le bucket prive ;
--- 3. autorise les documents RH a tous les utilisateurs authentifies ;
+-- 3. autorise les documents RH selon visibility (all / managers / admins) ;
+--    le detail est aussi dans lock-rls-profiles-and-docs.sql ;
 -- 4. limite chaque bulletin a son collaborateur et aux admin/createur ;
 -- 5. reserve upload, modification et suppression aux admin/createur.
 
@@ -82,12 +83,52 @@ as $$
   );
 $$;
 
+create or replace function public.humana_is_manager_or_above()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from public.profiles
+    where id = auth.uid()
+      and role in ('admin', 'creator', 'manager')
+  );
+$$;
+
+create or replace function public.humana_can_read_hr_document(doc_visibility text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select
+    public.humana_is_admin()
+    or coalesce(doc_visibility, 'all') = 'all'
+    or (coalesce(doc_visibility, 'all') = 'managers' and public.humana_is_manager_or_above())
+    or (coalesce(doc_visibility, 'all') = 'admins' and public.humana_is_admin());
+$$;
+
 revoke all on function public.humana_is_admin() from public;
+revoke all on function public.humana_is_manager_or_above() from public;
+revoke all on function public.humana_can_read_hr_document(text) from public;
 grant execute on function public.humana_is_admin() to authenticated;
+grant execute on function public.humana_is_manager_or_above() to authenticated;
+grant execute on function public.humana_can_read_hr_document(text) to authenticated;
 
 -- Les metadonnees suivent les memes droits que les objets Storage.
 alter table public.hr_documents enable row level security;
 alter table public.payslips enable row level security;
+
+alter table if exists public.hr_documents
+  add column if not exists visibility text;
+
+update public.hr_documents
+set visibility = 'all'
+where coalesce(visibility, '') = '';
 
 drop policy if exists "hr_documents_select_guard" on public.hr_documents;
 create policy "hr_documents_select_guard"
@@ -95,14 +136,18 @@ on public.hr_documents
 as restrictive
 for select
 to public
-using (auth.uid() is not null);
+using (
+  auth.uid() is not null
+  and public.humana_can_read_hr_document(visibility)
+);
 
 drop policy if exists "hr_documents_authenticated_read" on public.hr_documents;
-create policy "hr_documents_authenticated_read"
+drop policy if exists hr_documents_select_by_visibility on public.hr_documents;
+create policy hr_documents_select_by_visibility
 on public.hr_documents
 for select
 to authenticated
-using (true);
+using (public.humana_can_read_hr_document(visibility));
 
 drop policy if exists "hr_documents_write_guard" on public.hr_documents;
 drop policy if exists "hr_documents_insert_guard" on public.hr_documents;
@@ -210,7 +255,15 @@ using (
   or (
     auth.uid() is not null
     and (
-      (storage.foldername(name))[1] = 'docs'
+      (
+        (storage.foldername(name))[1] = 'docs'
+        and exists (
+          select 1
+          from public.hr_documents document
+          where document.storage_path = name
+            and public.humana_can_read_hr_document(document.visibility)
+        )
+      )
       or (
         (storage.foldername(name))[1] = 'payslips'
         and (
@@ -268,7 +321,15 @@ to authenticated
 using (
   bucket_id = 'hr-documents'
   and (
-    (storage.foldername(name))[1] = 'docs'
+    (
+      (storage.foldername(name))[1] = 'docs'
+      and exists (
+        select 1
+        from public.hr_documents document
+        where document.storage_path = name
+          and public.humana_can_read_hr_document(document.visibility)
+      )
+    )
     or (
       (storage.foldername(name))[1] = 'payslips'
       and (

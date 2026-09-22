@@ -1745,10 +1745,35 @@ tbody tr:hover td { background: var(--surface-2); }
 .dtl-seg--future { background: #f1f5f9; }   /* Non écoulé   – gris pâle   */
 .dtl-seg--late   { background: #ef4444; }   /* Retard       – rouge       */
 
-.dtl-markers-row {
-  position: relative;
-  height: 20px;
-  margin-top: 2px;
+.dtl-limit {
+  position: absolute;
+  top: 48px;
+  width: 2px;
+  height: 28px;
+  background: #c2410c;
+  z-index: 4;
+  transform: translateX(-50%);
+  pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
+
+.dtl-limit::after {
+  display: none;
+}
+
+.dtl-bar-wrap--history .dtl-limit {
+  top: 0;
+  height: 14px;
+}
+
+[data-theme="dark"] .dtl-limit {
+  background: #fb923c;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.6);
+}
+
+.gta-shift-table input[type="time"] {
+  width: 100%;
+  max-width: 160px;
 }
 
 .dtl-marker {
@@ -5004,6 +5029,18 @@ tbody tr:hover td { background: var(--surface-2); }
 
 .late-reminder-actions button {
   min-height: 40px;
+}
+
+.late-reminder-hint {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #9a3412;
+}
+
+[data-theme="dark"] .late-reminder-hint {
+  color: #fdba74;
 }
 
 [data-theme="dark"] .late-reminder-card {

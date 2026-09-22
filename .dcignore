@@ -1,0 +1,5 @@
+# Fichiers générés / locaux exclus de Snyk Code
+config.js
+config.local.js
+.snyk-out/
+node_modules/

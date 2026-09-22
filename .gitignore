@@ -14,6 +14,9 @@
 config.js
 config.local.js
 
+# Sortie locale des scans Snyk
+.snyk-out/
+
 # Cles VAPID / service role (ne doivent JAMAIS partir sur git)
 vapid-*.txt
 service-role.txt

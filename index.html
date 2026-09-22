@@ -52,7 +52,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="stylesheet" href="style.css?v=104">
+  <link rel="stylesheet" href="style.css?v=108">
 </head>
 <body>
   <div id="auth-boot-screen" class="auth-boot-screen" aria-live="polite" aria-busy="true" hidden>
@@ -107,13 +107,8 @@
     integrity="sha384-iLddHTLokph6Omwoyid4XKxHaWa6w41BnoEj0q5oOrzmYPpHIKt1wyjReA7s//pP"
     crossorigin="anonymous"
     referrerpolicy="no-referrer"></script>
+  <script src="config.js"></script>
   <script>
-    window.HUMANA_CONFIG = {
-      SUPABASE_URL: "https://chrchwgsrqzmekdsmrub.supabase.co",
-      SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNocmNod2dzcnF6bWVrZHNtcnViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwMzY4NDUsImV4cCI6MjEwMjYxMjg0NX0.rpdYzi7UXIDFtyXyb3nLhAdYyyrX8Kjm9Kqdz4s4DBk",
-      REDIRECT_URL: "https://humana-rh.vercel.app"
-    };
-
     (function bootSupabase() {
       var config = window.HUMANA_CONFIG || {};
       var url = (config.SUPABASE_URL || "").replace(/\/rest\/v1\/?$/, "").replace(/\/$/, "");
@@ -314,6 +309,6 @@
       }
     }, true);
   </script>
-  <script src="app.js?v=139" charset="UTF-8"></script>
+  <script src="app.js?v=145" charset="UTF-8"></script>
 </body>
 </html>

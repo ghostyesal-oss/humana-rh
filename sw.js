@@ -1,6 +1,6 @@
 /* Humana Service Worker - gère les notifications push (rappel de pointage). */
 
-const SW_VERSION = "humana-sw-5";
+const SW_VERSION = "humana-sw-6";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();

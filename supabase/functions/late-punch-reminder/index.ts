@@ -29,26 +29,27 @@ const SHIFT_PRESETS: Record<string, { start: string; label: string }> = {
 
 const LATE_OFFSET_MIN = 3;
 
-function toParisNow(): Date {
-  // Deno n'a pas de timezone builtin ; on utilise l'astuce Intl.
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Europe/Paris",
-    hour12: false,
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit"
-  });
-  const parts = formatter.formatToParts(new Date());
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
-  const iso = `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}`;
-  return new Date(iso);
+function companyOffsetMinutes(timezone: string): number {
+  return timezone === "GMT" ? 0 : 60;
 }
 
-function shiftForProfile(profile: any): { start: string } {
+function toCompanyNow(offsetMinutes: number): Date {
+  return new Date(Date.now() + offsetMinutes * 60000);
+}
+
+function profileShiftKey(profile: any): string {
   const code = String(profile?.shift_code || "").toLowerCase();
-  if (SHIFT_PRESETS[code]) return SHIFT_PRESETS[code];
+  if (SHIFT_PRESETS[code]) return code;
   const dept = String(profile?.department || profile?.job_title || "").toLowerCase();
-  if (dept.includes("r&d") || dept.includes("r et d") || /\brd\b/.test(dept)) return SHIFT_PRESETS.rnd;
-  return SHIFT_PRESETS.cs;
+  if (dept.includes("r&d") || dept.includes("r et d") || /\brd\b/.test(dept)) return "rnd";
+  if (/\bces\b/.test(dept)) return "ces";
+  return "cs";
+}
+
+function shiftForProfile(profile: any, overrides: Record<string, { start?: string }> = {}): { start: string } {
+  const key = profileShiftKey(profile);
+  const start = overrides[key]?.start || SHIFT_PRESETS[key].start;
+  return { start };
 }
 
 function minutesFromHhmm(value: string): number {
@@ -57,14 +58,14 @@ function minutesFromHhmm(value: string): number {
 }
 
 function toDateKey(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
 
 function isWeekend(date: Date): boolean {
-  const day = date.getDay();
+  const day = date.getUTCDay();
   return day === 0 || day === 6;
 }
 
@@ -82,14 +83,23 @@ Deno.serve(async () => {
   webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
 
   const supabase = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
-  const now = toParisNow();
+  const { data: settings } = await supabase
+    .from("app_settings")
+    .select("key, value")
+    .in("key", ["company_timezone", "gta_shifts"]);
+  const timezoneRaw = (settings || []).find((row) => row.key === "company_timezone")?.value;
+  const timezone = (typeof timezoneRaw === "string" ? timezoneRaw : timezoneRaw?.id || timezoneRaw?.timezone) === "GMT"
+    ? "GMT"
+    : "GMT+1";
+  const shiftOverrides = ((settings || []).find((row) => row.key === "gta_shifts")?.value || {}) as Record<string, { start?: string }>;
+  const now = toCompanyNow(companyOffsetMinutes(timezone));
+  const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
 
   if (isWeekend(now)) {
     return new Response(JSON.stringify({ ok: true, skipped: "weekend" }), { status: 200 });
   }
 
   const dayKey = toDateKey(now);
-  const nowMin = now.getHours() * 60 + now.getMinutes();
 
   const { data: profiles, error: profilesError } = await supabase
     .from("profiles")
@@ -109,7 +119,7 @@ Deno.serve(async () => {
   const pointedUsers = new Set((punches || []).map((row) => row.user_id));
   const targets = (profiles || []).filter((profile) => {
     if (pointedUsers.has(profile.id)) return false;
-    const shift = shiftForProfile(profile);
+    const shift = shiftForProfile(profile, shiftOverrides);
     const shiftStart = minutesFromHhmm(shift.start);
     return nowMin >= shiftStart + LATE_OFFSET_MIN && nowMin < shiftStart + 180;
   });
@@ -136,7 +146,7 @@ Deno.serve(async () => {
 
   for (const profile of targets) {
     const list = subsByUser.get(profile.id) || [];
-    const shift = shiftForProfile(profile);
+    const shift = shiftForProfile(profile, shiftOverrides);
     const shiftStart = minutesFromHhmm(shift.start);
     const delay = nowMin - shiftStart;
     const payload = JSON.stringify({

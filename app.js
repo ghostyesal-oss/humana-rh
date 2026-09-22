@@ -55,7 +55,9 @@ let appData = {
   eventEditingId: "",
   eventDetailId: "",
   adminEditingId: "",
-  adminEditingInviteId: ""
+  adminEditingInviteId: "",
+  companyTimezone: "GMT+1",
+  shiftHours: null
 };
 
 const roleLabels = {
@@ -482,6 +484,128 @@ const SHIFT_PRESETS = {
     flexible: true
   }
 };
+const COMPANY_TIMEZONES = [
+  { id: "GMT+1", label: "GMT+1 (UTC+1)", offsetMinutes: 60 },
+  { id: "GMT", label: "GMT (UTC)", offsetMinutes: 0 }
+];
+const SHIFT_DEPT_META = [
+  { code: "cs", name: "CS" },
+  { code: "ces", name: "CES" },
+  { code: "rnd", name: "R&D" }
+];
+const TIMELINE_LIMITS_MIN = [7 * 60, 17 * 60];
+
+function normalizeHhmm(value, fallback = "08:00") {
+  const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return fallback;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes) || hours > 23 || minutes > 59) {
+    return fallback;
+  }
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function hhmmToLabel(value) {
+  const [hours, minutes] = normalizeHhmm(value).split(":");
+  return minutes === "00" ? `${hours}h` : `${hours}h${minutes}`;
+}
+
+function defaultShiftHours() {
+  return {
+    cs: { start: SHIFT_PRESETS.cs.start, end: SHIFT_PRESETS.cs.end },
+    ces: { start: SHIFT_PRESETS.ces.start, end: SHIFT_PRESETS.ces.end },
+    rnd: { start: SHIFT_PRESETS.rnd.start, end: SHIFT_PRESETS.rnd.end }
+  };
+}
+
+function normalizeShiftHours(raw) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const defaults = defaultShiftHours();
+  const next = {};
+  SHIFT_DEPT_META.forEach(({ code }) => {
+    const row = source[code] && typeof source[code] === "object" ? source[code] : {};
+    next[code] = {
+      start: normalizeHhmm(row.start, defaults[code].start),
+      end: normalizeHhmm(row.end, defaults[code].end)
+    };
+  });
+  return next;
+}
+
+function getCompanyTimezoneId() {
+  return appData.companyTimezone === "GMT" ? "GMT" : "GMT+1";
+}
+
+function getCompanyOffsetMinutes() {
+  const found = COMPANY_TIMEZONES.find((entry) => entry.id === getCompanyTimezoneId());
+  return found ? found.offsetMinutes : 60;
+}
+
+function toCompanyCivil(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  const shifted = new Date(date.getTime() + getCompanyOffsetMinutes() * 60000);
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth(),
+    day: shifted.getUTCDate(),
+    hours: shifted.getUTCHours(),
+    minutes: shifted.getUTCMinutes(),
+    seconds: shifted.getUTCSeconds()
+  };
+}
+
+function companyDateKey(value = new Date()) {
+  const civil = toCompanyCivil(value);
+  return `${civil.year}-${String(civil.month + 1).padStart(2, "0")}-${String(civil.day).padStart(2, "0")}`;
+}
+
+function companyMinutesOfDay(value = new Date()) {
+  const civil = toCompanyCivil(value);
+  return civil.hours * 60 + civil.minutes + civil.seconds / 60;
+}
+
+function formatShiftRange(start, end) {
+  return `${hhmmToLabel(start)}–${hhmmToLabel(end)}`;
+}
+
+function getConfiguredShiftHours() {
+  return normalizeShiftHours(appData.shiftHours);
+}
+
+function resolveShiftPreset(code) {
+  const key = String(code || "").toLowerCase();
+  const base = SHIFT_PRESETS[key] || SHIFT_PRESETS.cs;
+  const hours = getConfiguredShiftHours()[base.code] || { start: base.start, end: base.end };
+  const start = hours.start || base.start;
+  const end = hours.end || base.end;
+  const startMin = minutesFromHhmm(start);
+  const endMin = minutesFromHhmm(end);
+  const lunchMin = Number(base.lunchMin) || 60;
+  const span = Math.max(0, endMin - startMin);
+  const plannedHours = Math.max(0, (span - lunchMin) / 60);
+  const lateAfterMin = startMin + 15;
+  const lateAfter = `${String(Math.floor(lateAfterMin / 60) % 24).padStart(2, "0")}:${String(lateAfterMin % 60).padStart(2, "0")}`;
+  const deptName = (SHIFT_DEPT_META.find((entry) => entry.code === base.code) || {}).name || base.code.toUpperCase();
+  return {
+    ...base,
+    start,
+    end,
+    plannedHours,
+    lateAfter,
+    earliestEnd: end,
+    label: `${deptName} · ${formatShiftRange(start, end)}`
+  };
+}
+
+function shiftSelectOptions(selected) {
+  const current = String(selected || "cs").toLowerCase();
+  return SHIFT_DEPT_META.map(({ code }) => {
+    const shift = resolveShiftPreset(code);
+    const isSelected = current === code ? " selected" : "";
+    return `<option value="${code}"${isSelected}>${escapeHtml(shift.label)}</option>`;
+  }).join("");
+}
 const FR_HOLIDAYS_2026 = ["2026-01-01", "2026-04-06", "2026-05-01", "2026-05-08", "2026-05-14", "2026-05-25", "2026-07-14", "2026-08-15", "2026-11-01", "2026-11-11", "2026-12-25"];
 const MA_HOLIDAYS_2026 = ["2026-01-01", "2026-01-11", "2026-05-01", "2026-07-30", "2026-08-14", "2026-08-20", "2026-08-21", "2026-11-06", "2026-11-18"];
 const RAMADAN_2026 = { start: "2026-02-18", end: "2026-03-19" };
@@ -717,6 +841,65 @@ async function saveStudioCreators(emails) {
   appData.studioCreators = normalized;
 }
 
+async function loadGtaSettings() {
+  const fallbackTimezone = "GMT+1";
+  const fallbackHours = defaultShiftHours();
+  if (!usesDatabase()) {
+    appData.companyTimezone = loadStore("companyTimezone", fallbackTimezone) === "GMT" ? "GMT" : "GMT+1";
+    appData.shiftHours = normalizeShiftHours(loadStore("shiftHours", fallbackHours));
+    return;
+  }
+
+  const { data, error } = await supabaseClient
+    .from("app_settings")
+    .select("key, value")
+    .in("key", ["company_timezone", "gta_shifts"]);
+
+  if (error) {
+    if (error.message.includes("does not exist") || error.message.includes("app_settings")) {
+      appData.companyTimezone = fallbackTimezone;
+      appData.shiftHours = fallbackHours;
+      return;
+    }
+    throw error;
+  }
+
+  const rows = data || [];
+  const timezoneRow = rows.find((row) => row.key === "company_timezone");
+  const shiftsRow = rows.find((row) => row.key === "gta_shifts");
+  const timezoneValue = typeof timezoneRow?.value === "string"
+    ? timezoneRow.value
+    : timezoneRow?.value?.id || timezoneRow?.value?.timezone;
+  appData.companyTimezone = timezoneValue === "GMT" ? "GMT" : "GMT+1";
+  appData.shiftHours = normalizeShiftHours(shiftsRow?.value);
+}
+
+async function saveGtaSettings({ timezone, shiftHours }) {
+  if (!isAdmin()) {
+    throw new Error("Seul un administrateur peut modifier le paramétrage GTA.");
+  }
+  const nextTimezone = timezone === "GMT" ? "GMT" : "GMT+1";
+  const nextHours = normalizeShiftHours(shiftHours);
+  if (!usesDatabase()) {
+    saveStore("companyTimezone", nextTimezone);
+    saveStore("shiftHours", nextHours);
+    appData.companyTimezone = nextTimezone;
+    appData.shiftHours = nextHours;
+    return;
+  }
+
+  const { error: timezoneError } = await supabaseClient
+    .from("app_settings")
+    .upsert({ key: "company_timezone", value: nextTimezone }, { onConflict: "key" });
+  if (timezoneError) throw timezoneError;
+  const { error: hoursError } = await supabaseClient
+    .from("app_settings")
+    .upsert({ key: "gta_shifts", value: nextHours }, { onConflict: "key" });
+  if (hoursError) throw hoursError;
+  appData.companyTimezone = nextTimezone;
+  appData.shiftHours = nextHours;
+}
+
 function ensureAccessiblePage() {
   if (currentPage === "creator" && !isCreator()) {
     currentPage = "home";
@@ -931,6 +1114,20 @@ async function insertTimePunch(payload) {
 
 const LEAVE_GTA_FIELDS = ["unit", "half_day", "hours", "motif", "attachment_name", "workflow_step"];
 const PROFILE_GTA_FIELDS = ["hired_at", "shift_code", "leave_grade"];
+const PROFILE_DIRECTORY_FIELDS = [
+  "id",
+  "email",
+  "full_name",
+  "job_title",
+  "department",
+  "role",
+  "manager_id",
+  "shift_code",
+  "leave_grade",
+  "matricule",
+  "hired_at"
+];
+const HR_DOCUMENT_OPTIONAL_FIELDS = ["visibility"];
 const GTA_KINDS = {
   corrections: { store: "punchCorrections", table: "punch_corrections" },
   overtime: { store: "overtimeRequests", table: "overtime_requests" },
@@ -2127,9 +2324,7 @@ function renderUserAccountSection() {
             <label>
               Vacation
               <select name="shift_code">
-                <option value="cs"${(editing?.shift_code || "cs") === "cs" ? " selected" : ""}>CS · 08h–17h</option>
-                <option value="ces"${editing?.shift_code === "ces" ? " selected" : ""}>CES · 08h–17h</option>
-                <option value="rnd"${editing?.shift_code === "rnd" ? " selected" : ""}>R&amp;D · 8h + pause</option>
+                ${shiftSelectOptions(editing?.shift_code || "cs")}
               </select>
             </label>
           </div>
@@ -2246,6 +2441,26 @@ function bindUserAccountSection() {
       });
     });
   });
+
+  document.querySelector("#admin-gta-settings-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const shiftHours = {};
+    SHIFT_DEPT_META.forEach(({ code }) => {
+      shiftHours[code] = {
+        start: normalizeHhmm(data.get(`start_${code}`), defaultShiftHours()[code].start),
+        end: normalizeHhmm(data.get(`end_${code}`), defaultShiftHours()[code].end)
+      };
+    });
+    withAction(async () => {
+      await saveGtaSettings({
+        timezone: String(data.get("timezone") || "GMT+1"),
+        shiftHours
+      });
+      currentPage = "admin";
+    });
+  });
 }
 
 function storagePrefix() {
@@ -2290,19 +2505,14 @@ function isHrRequestPending(status) {
 }
 
 function formatTime(value) {
-  return new Date(value).toLocaleTimeString("fr-FR", {
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+  const civil = toCompanyCivil(value);
+  return `${String(civil.hours).padStart(2, "0")}:${String(civil.minutes).padStart(2, "0")}`;
 }
 
 function formatTimeSeconds(value) {
   if (!value) return "—";
-  return new Date(value).toLocaleTimeString("fr-FR", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  });
+  const civil = toCompanyCivil(value);
+  return `${String(civil.hours).padStart(2, "0")}:${String(civil.minutes).padStart(2, "0")}:${String(civil.seconds).padStart(2, "0")}`;
 }
 
 function getPunches() {
@@ -2945,7 +3155,7 @@ function renderDayTimeline(punches, profile, options = {}) {
   const compact = Boolean(opts.compact);
   const variant = opts.variant || (compact ? "compact" : "full");
   const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
-  if (!sorted.length && variant !== "compact") return "";
+  if (!sorted.length && variant === "history") return "";
 
   const shift = getActiveShift(profile);
   const lateAfterMin  = minutesFromHhmm(shift.lateAfter);
@@ -2958,15 +3168,12 @@ function renderDayTimeline(punches, profile, options = {}) {
   const toPercent = (min) => `${Math.min(100, Math.max(0, ((min - dispStart) / dispRange) * 100)).toFixed(3)}%`;
 
   // Convertit un timestamp en minute de la journée
-  const toMin = (t) => {
-    const d = new Date(t);
-    return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
-  };
+  const toMin = (t) => companyMinutesOfDay(t);
 
   const now = new Date();
   const nowMin = opts.asOfMin != null
     ? Number(opts.asOfMin)
-    : now.getHours() * 60 + now.getMinutes();
+    : companyMinutesOfDay(now);
   const dayLocation = getDayWorkLocation(sorted);
   const statusAt = (min) => {
     let status = null;
@@ -3128,7 +3335,11 @@ function renderDayTimeline(punches, profile, options = {}) {
     return `<div class="dtl-marker" style="left:${toPercent(m)}"><span>${label}</span></div>`;
   }).join("");
 
-  const lateBlock = lateMin > 0 ? `<div class="dtl-stat dtl-stat--late">Total retards <strong>${fmtMs(lateMs)}</strong></div>` : "";
+  const limitMarkup = TIMELINE_LIMITS_MIN.map((min) => {
+    const label = `${Math.floor(min / 60)}h`;
+    return `<div class="dtl-limit" style="left:${toPercent(min)}" data-label="${label}" title="Limite ${label}"></div>`;
+  }).join("");
+  const lateBlock  = lateMin > 0 ? `<div class="dtl-stat dtl-stat--late">Retard : <strong>${fmtMs(lateMs)}</strong></div>` : "";
   const lunchBlock = lunchMs > 0 ? `<div class="dtl-stat dtl-stat--lunch">Durée pause déjeuner : <strong>${fmtMs(lunchMs)}</strong></div>` : "";
   const workBlock  = workMs > 0  ? `<div class="dtl-stat">Durée de travail <strong>${fmtMs(workMs)}</strong></div>` : "";
 
@@ -3145,6 +3356,7 @@ function renderDayTimeline(punches, profile, options = {}) {
       <div class="day-timeline day-timeline--history" aria-label="Chronologie">
         <div class="dtl-bar-wrap dtl-bar-wrap--history">
           <div class="dtl-bar">${segmentMarkup}</div>
+          ${limitMarkup}
           <div class="dtl-hit-row">${hitMarkup}</div>
           ${opts.showMarkers ? `<div class="dtl-markers-row">${markerMarkup}</div>` : ""}
         </div>
@@ -3155,6 +3367,7 @@ function renderDayTimeline(punches, profile, options = {}) {
     <div class="day-timeline" aria-label="Chronologie de la journée">
       <div class="dtl-bar-wrap">
         <div class="dtl-bar">${segmentMarkup}</div>
+        ${limitMarkup}
         <div class="dtl-hit-row">${hitMarkup}</div>
         <div class="dtl-markers-row">${markerMarkup}</div>
       </div>
@@ -3177,7 +3390,7 @@ function groupPunchesByDay(punches) {
   [...punches]
     .sort((a, b) => new Date(a.time) - new Date(b.time))
     .forEach((punch) => {
-      const key = toDateKey(new Date(punch.time));
+      const key = companyDateKey(punch.time);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(punch);
     });
@@ -3195,10 +3408,7 @@ function historyAsOfMin(dayPunches, dayKey, profile) {
   if (dayPunches.some((punch) => punch.type === "out")) return null;
   const shift = getActiveShift(profile);
   const endMin = minutesFromHhmm(shift.end || "18:00");
-  const lastMin = Math.max(...dayPunches.map((punch) => {
-    const d = new Date(punch.time);
-    return d.getHours() * 60 + d.getMinutes();
-  }));
+  const lastMin = Math.max(...dayPunches.map((punch) => companyMinutesOfDay(punch.time)));
   return Math.max(endMin, lastMin);
 }
 
@@ -3448,8 +3658,8 @@ function getClockState() {
 }
 
 function getTodayPunches(punches = getPunches()) {
-  const today = new Date().toDateString();
-  return punches.filter((punch) => new Date(punch.time).toDateString() === today);
+  const today = companyDateKey();
+  return punches.filter((punch) => companyDateKey(punch.time) === today);
 }
 
 const LATE_REMINDER_OFFSET_MIN = 3;
@@ -3458,6 +3668,8 @@ const GTA_NOTIF_STORE_KEY = "humana_gta_notif";
 let lateReminderWatcher = null;
 let lateReminderPopupOpen = false;
 let lateReminderNotificationRequested = false;
+let pendingDesktopNotif = null;
+let serviceWorkerBound = false;
 
 function gtaNotifStorageKey(kind, extra = "") {
   const dayKey = toDateKey(new Date());
@@ -3474,7 +3686,8 @@ function gtaNotifMarkShown(key) {
 }
 
 function formatNotifClock(date = new Date()) {
-  return `${String(date.getHours()).padStart(2, "0")}h${String(date.getMinutes()).padStart(2, "0")}`;
+  const civil = toCompanyCivil(date);
+  return `${String(civil.hours).padStart(2, "0")}h${String(civil.minutes).padStart(2, "0")}`;
 }
 
 function formatNotifMinutes(totalMin) {
@@ -3485,39 +3698,99 @@ function formatNotifMinutes(totalMin) {
   return `${minutes} min`;
 }
 
-function requestDesktopNotificationPermission() {
-  if (typeof Notification === "undefined") return;
-  if (lateReminderNotificationRequested) return;
-  if (Notification.permission === "granted" || Notification.permission === "denied") return;
-  lateReminderNotificationRequested = true;
-  Notification.requestPermission().then((permission) => {
-    if (permission === "granted") ensureServiceWorkerAndPush();
-  }).catch(() => {});
+function desktopNotificationPermission() {
+  if (typeof Notification === "undefined") return "unsupported";
+  return Notification.permission;
+}
+
+function getNotificationIcon() {
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return undefined;
+    ctx.fillStyle = "#022341";
+    ctx.fillRect(0, 0, 64, 64);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 36px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("H", 32, 36);
+    return canvas.toDataURL("image/png");
+  } catch (_) {
+    return undefined;
+  }
+}
+
+function withTimeout(promise, ms) {
+  if (!promise || typeof promise.then !== "function") {
+    return Promise.reject(new Error("unavailable"));
+  }
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("timeout")), ms);
+    })
+  ]);
+}
+
+async function requestDesktopNotificationPermission(options = {}) {
+  const fromGesture = Boolean(options.userGesture);
+  if (typeof Notification === "undefined") return "unsupported";
+  if (Notification.permission === "granted") {
+    ensureServiceWorkerAndPush();
+    return "granted";
+  }
+  if (Notification.permission === "denied") return "denied";
+  if (!fromGesture) {
+    if (lateReminderNotificationRequested) return Notification.permission;
+    lateReminderNotificationRequested = true;
+  }
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+      ensureServiceWorkerAndPush();
+      await flushPendingDesktopNotifications();
+    }
+    return permission;
+  } catch (_) {
+    return Notification.permission;
+  }
 }
 
 function requestLateReminderPermission() {
-  requestDesktopNotificationPermission();
+  requestDesktopNotificationPermission({ userGesture: true });
+}
+
+async function flushPendingDesktopNotifications() {
+  const payload = pendingDesktopNotif;
+  if (!payload) return false;
+  pendingDesktopNotif = null;
+  return fireWindowsNotification(payload);
 }
 
 async function fireWindowsNotification({ title, body, tag, page = "pointeuse" }) {
-  if (typeof Notification === "undefined") return;
-  if (Notification.permission !== "granted") return;
+  const payload = { title, body, tag, page };
+  if (typeof Notification === "undefined") return false;
+  if (Notification.permission !== "granted") {
+    pendingDesktopNotif = payload;
+    return false;
+  }
+  const icon = getNotificationIcon();
   const options = {
     body,
     tag: tag || "humana-gta",
     renotify: true,
     requireInteraction: true,
+    silent: false,
     data: { url: "/", page }
   };
-  try {
-    const registration = await navigator.serviceWorker?.ready;
-    if (registration?.showNotification) {
-      await registration.showNotification(title, options);
-      return;
-    }
-  } catch (error) {
-    console.warn("[humana] sw notification failed", error);
+  if (icon) {
+    options.icon = icon;
+    options.badge = icon;
   }
+
   try {
     const notif = new Notification(title, options);
     notif.onclick = () => {
@@ -3526,9 +3799,21 @@ async function fireWindowsNotification({ title, body, tag, page = "pointeuse" })
       renderApp();
       notif.close();
     };
+    return true;
   } catch (error) {
     console.warn("[humana] notification failed", error);
   }
+
+  try {
+    const registration = await withTimeout(navigator.serviceWorker?.ready, 1200);
+    if (registration?.showNotification) {
+      await registration.showNotification(title, options);
+      return true;
+    }
+  } catch (error) {
+    console.warn("[humana] sw notification failed", error);
+  }
+  return false;
 }
 
 function shouldTriggerLateReminder() {
@@ -3539,7 +3824,7 @@ function shouldTriggerLateReminder() {
 
   const shift = getActiveShift();
   const startMin = minutesFromHhmm(shift.start);
-  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const nowMin = companyMinutesOfDay(now);
   const triggerMin = startMin + LATE_REMINDER_OFFSET_MIN;
   if (nowMin < triggerMin) return null;
 
@@ -3550,7 +3835,7 @@ function shouldTriggerLateReminder() {
   if (sessionStorage.getItem(storeKey) === "shown") return null;
 
   return {
-    delayMinutes: nowMin - startMin,
+    delayMinutes: Math.round(nowMin - startMin),
     shift,
     triggerLabel: `${String(Math.floor(triggerMin / 60)).padStart(2, "0")}:${String(triggerMin % 60).padStart(2, "0")}`,
     storeKey
@@ -3592,7 +3877,7 @@ function shouldTriggerLongBreakNotice() {
 function notifyLateArrivalIfNeeded() {
   const shift = getActiveShift();
   const now = new Date();
-  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const nowMin = companyMinutesOfDay(now);
   const lateAfterMin = minutesFromHhmm(shift.lateAfter);
   const delayMin = nowMin - lateAfterMin;
   if (delayMin <= 0) return;
@@ -3639,6 +3924,15 @@ function closeLateReminderPopup() {
   lateReminderPopupOpen = false;
 }
 
+function lateReminderWindowsMarkup() {
+  const permission = desktopNotificationPermission();
+  if (permission === "granted" || permission === "unsupported") return "";
+  if (permission === "denied") {
+    return `<p class="late-reminder-hint">Les notifications Windows sont bloquées. Cliquez sur le cadenas dans la barre d'adresse, autorisez ce site, puis rechargez.</p>`;
+  }
+  return `<button type="button" class="outline-button" id="late-reminder-windows">Activer l'alerte Windows</button>`;
+}
+
 function showLateReminderPopup(info) {
   if (lateReminderPopupOpen) return;
   lateReminderPopupOpen = true;
@@ -3666,6 +3960,7 @@ function showLateReminderPopup(info) {
       <div class="late-reminder-actions">
         <button type="button" class="primary" id="late-reminder-clock">Pointer maintenant</button>
         <button type="button" class="outline-button" id="late-reminder-snooze">Me rappeler dans 5 min</button>
+        ${lateReminderWindowsMarkup()}
         <button type="button" class="outline-button" id="late-reminder-close" aria-label="Fermer">Fermer</button>
       </div>
     </div>`;
@@ -3696,12 +3991,35 @@ function showLateReminderPopup(info) {
     closeLateReminderPopup();
     sessionStorage.setItem(info.storeKey, "shown");
   });
+
+  overlay.querySelector("#late-reminder-windows")?.addEventListener("click", async () => {
+    const permission = await requestDesktopNotificationPermission({ userGesture: true });
+    const btn = overlay.querySelector("#late-reminder-windows");
+    if (permission === "granted") {
+      await fireWindowsNotification({
+        title: "⏰ Pointage oublié",
+        body: `Il est ${info.triggerLabel} passé et tu n'as pas encore pointé ton arrivée. Retard : ${formatNotifMinutes(info.delayMinutes)}.`,
+        tag: "humana-late-reminder",
+        page: "pointeuse"
+      });
+      const hint = document.createElement("p");
+      hint.className = "late-reminder-hint";
+      hint.textContent = "Alerte Windows activée : regardez aussi la barre de notifications.";
+      btn?.replaceWith(hint);
+      return;
+    }
+    if (permission === "denied") {
+      const hint = document.createElement("p");
+      hint.className = "late-reminder-hint";
+      hint.textContent = "Notifications Windows bloquées. Cliquez sur le cadenas dans la barre d'adresse, autorisez ce site, puis rechargez.";
+      btn?.replaceWith(hint);
+    }
+  });
 }
 
 function checkLateReminder() {
   const info = shouldTriggerLateReminder();
   if (!info) return;
-  requestDesktopNotificationPermission();
   showLateReminderPopup(info);
   fireBrowserLateNotification(info);
   sessionStorage.setItem(info.storeKey, "shown");
@@ -3742,9 +4060,6 @@ function checkGtaDesktopAlerts() {
 }
 
 function startLateReminderWatcher() {
-  if (typeof Notification !== "undefined" && Notification.permission === "default") {
-    requestDesktopNotificationPermission();
-  }
   ensureServiceWorkerAndPush();
   if (lateReminderWatcher) return;
   lateReminderWatcher = setInterval(() => {
@@ -3767,7 +4082,8 @@ function urlBase64ToUint8Array(base64String) {
 async function ensureServiceWorkerAndPush() {
   if (!("serviceWorker" in navigator)) return;
   try {
-    const registration = await navigator.serviceWorker.register("/sw.js?v=5");
+    const swUrl = new URL("sw.js?v=6", window.location.href).href;
+    const registration = await navigator.serviceWorker.register(swUrl);
     const onWorkerMessage = function (event) {
       if (event.origin !== location.origin) {
         return;
@@ -3782,8 +4098,11 @@ async function ensureServiceWorkerAndPush() {
       currentPage = requestedPage;
       renderApp();
     };
-    navigator.serviceWorker.addEventListener("message", onWorkerMessage);
-    window.addEventListener("message", onWorkerMessage);
+    if (!serviceWorkerBound) {
+      serviceWorkerBound = true;
+      navigator.serviceWorker.addEventListener("message", onWorkerMessage);
+      window.addEventListener("message", onWorkerMessage);
+    }
 
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
     if (!session?.user?.id || !usesDatabase() || !supabaseClient) return;
@@ -3952,9 +4271,20 @@ const demoHrDocuments = [
   { id: "d4", title: "Note de service Q1", description: "Actualités RH", category: "Communication", file_url: "#", published_at: "2026-03-01" }
 ];
 
+function canSeeHrDocument(doc) {
+  const visibility = String(doc?.visibility || "all");
+  if (visibility === "admins") return isAdmin();
+  if (visibility === "managers") {
+    return isAdmin() || appData.profile?.role === "manager" || hasDirectReports();
+  }
+  return true;
+}
+
 function getHrDocuments() {
-  if (usesDatabase()) return appData.hrDocuments || [];
-  return loadStore("hrDocuments", demoHrDocuments);
+  const docs = usesDatabase()
+    ? (appData.hrDocuments || [])
+    : loadStore("hrDocuments", demoHrDocuments);
+  return docs.filter(canSeeHrDocument);
 }
 
 function getPrivateStoragePath(fileRecord) {
@@ -5728,6 +6058,45 @@ function creatorPage() {
     ${renderCreatorAccountsSection()}`;
 }
 
+function renderGtaSettingsSection() {
+  const timezone = getCompanyTimezoneId();
+  const hours = getConfiguredShiftHours();
+  return `
+    <article class="card form-card page-spacer">
+      ${cardHeading("Paramétrage des horaires")}
+      <form id="admin-gta-settings-form" class="feature-form">
+        <label>
+          Fuseau horaire de l'entreprise
+          <select name="timezone">
+            ${COMPANY_TIMEZONES.map((entry) => `
+              <option value="${entry.id}"${timezone === entry.id ? " selected" : ""}>${escapeHtml(entry.label)}</option>`).join("")}
+          </select>
+        </label>
+        <p class="hierarchy-meta">Les heures de pointage et la chronologie s'affichent dans ce fuseau, quel que soit le fuseau du navigateur.</p>
+        <div class="table-wrap">
+          <table class="gta-shift-table">
+            <thead>
+              <tr>
+                <th>Département</th>
+                <th>Heure d'entrée</th>
+                <th>Heure de sortie</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${SHIFT_DEPT_META.map(({ code, name }) => `
+                <tr>
+                  <td><strong>${escapeHtml(name)}</strong></td>
+                  <td><input type="time" name="start_${code}" value="${escapeHtml(hours[code].start)}" required></td>
+                  <td><input type="time" name="end_${code}" value="${escapeHtml(hours[code].end)}" required></td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+        <button type="submit" class="primary">Enregistrer les horaires</button>
+      </form>
+    </article>`;
+}
+
 function adminPage() {
   if (!isAdmin()) {
     return `<article class="card"><p class="empty-state">Accès réservé aux administrateurs.</p></article>`;
@@ -5735,6 +6104,7 @@ function adminPage() {
 
   return `
     ${renderUserAccountSection()}
+    ${renderGtaSettingsSection()}
     <div class="feature-grid page-spacer">
       <article class="card form-card">
         ${cardHeading("Publier un document RH")}
@@ -5750,6 +6120,12 @@ function adminPage() {
           <label>
             Catégorie
             <input type="text" name="category" value="General">
+          </label>
+          <label>
+            Visibilité
+            <select name="visibility">
+              ${EVENT_VISIBILITIES.map((vis) => `<option value="${vis.id}">${escapeHtml(vis.label)}</option>`).join("")}
+            </select>
           </label>
           <label class="file-upload">
             Fichier a publier
@@ -5801,18 +6177,19 @@ function adminPage() {
       <div class="toolbar"><h3>Documents RH publiés</h3></div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Document</th><th>Catégorie</th><th>Date</th><th>Fichier</th><th></th></tr></thead>
+          <thead><tr><th>Document</th><th>Catégorie</th><th>Visibilité</th><th>Date</th><th>Fichier</th><th></th></tr></thead>
           <tbody>
             ${getHrDocuments().length
               ? getHrDocuments().map((doc) => `
                 <tr>
                   <td><strong>${escapeHtml(doc.title)}</strong><br><small>${escapeHtml(doc.description || "")}</small></td>
                   <td>${escapeHtml(doc.category || "General")}</td>
+                  <td>${escapeHtml(eventVisibilityLabel(doc.visibility || "all"))}</td>
                   <td>${formatDate(doc.published_at)}</td>
                   <td><a ${privateFileLinkAttributes("hr-document", doc)} target="_blank" rel="noopener noreferrer">Ouvrir</a></td>
                   <td><button type="button" class="outline-button admin-delete-hr-doc" data-doc-id="${doc.id}" data-storage-path="${escapeHtml(doc.storage_path || "")}">Supprimer</button></td>
                 </tr>`).join("")
-              : `<tr><td colspan="5" class="empty-cell">Aucun document publié.</td></tr>`}
+              : `<tr><td colspan="6" class="empty-cell">Aucun document publié.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -7024,16 +7401,44 @@ async function ensureProfile() {
   });
 }
 
+function mergeOrgProfiles(directoryRows, detailedRows) {
+  const byId = new Map();
+  (directoryRows || []).forEach((row) => {
+    if (!row?.id) return;
+    byId.set(row.id, { ...row });
+  });
+  (detailedRows || []).forEach((row) => {
+    if (!row?.id) return;
+    byId.set(row.id, { ...(byId.get(row.id) || {}), ...row });
+  });
+  return [...byId.values()].sort((left, right) =>
+    String(left.full_name || "").localeCompare(String(right.full_name || ""), "fr")
+  );
+}
+
+async function fetchOrgDirectoryRows() {
+  const directoryRes = await supabaseClient
+    .from("profiles_directory")
+    .select(PROFILE_DIRECTORY_FIELDS.join(","))
+    .order("full_name");
+  if (!directoryRes.error) return directoryRes.data || [];
+  if (!isMissingDbObjectError(directoryRes.error)) {
+    console.warn("profiles_directory:", directoryRes.error.message);
+  }
+  return [];
+}
+
 async function refreshAppData() {
   if (!usesDatabase()) return;
 
   const userId = session.user.id;
   await withSupabaseRetry(async () => {
-    const [punchesRes, leaveRes, attestationRes, profilesRes, profileRes] = await withTimeout(
+    const [punchesRes, leaveRes, attestationRes, directoryRows, profilesRes, profileRes] = await withTimeout(
       Promise.all([
         supabaseClient.from("time_punches").select("*").eq("user_id", userId).order("punched_at", { ascending: true }),
         supabaseClient.from("leave_requests").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
         supabaseClient.from("attestation_requests").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+        fetchOrgDirectoryRows(),
         supabaseClient.from("profiles").select("*").order("full_name"),
         supabaseClient.from("profiles").select("*").eq("id", userId).maybeSingle()
       ]),
@@ -7050,7 +7455,7 @@ async function refreshAppData() {
     appData.punches = punchesRes.data || [];
     appData.leaveRequests = leaveRes.data || [];
     appData.attestationRequests = attestationRes.data || [];
-    appData.orgProfiles = profilesRes.data || [];
+    appData.orgProfiles = mergeOrgProfiles(directoryRows, profilesRes.data || []);
     appData.profile = profileRes.data || appData.profile;
     appData.pendingInvites = [];
 
@@ -7108,6 +7513,7 @@ async function refreshAppData() {
 
     await loadNavVisibility();
     await loadStudioCreators();
+    await loadGtaSettings();
     await loadCompanyEvents();
 
     if (canViewTeamPunches()) {
@@ -7417,11 +7823,11 @@ function isRamadanDay(dayKey) {
 
 function getProfileShift(profile = appData.profile) {
   const code = String(profile?.shift_code || "").toLowerCase();
-  if (SHIFT_PRESETS[code]) return SHIFT_PRESETS[code];
+  if (SHIFT_PRESETS[code]) return resolveShiftPreset(code);
   const dept = String(profile?.department || profile?.job_title || "").toLowerCase();
-  if (dept.includes("r&d") || dept.includes("r et d") || /\brd\b/.test(dept)) return SHIFT_PRESETS.rnd;
-  if (/\bces\b/.test(dept)) return SHIFT_PRESETS.ces;
-  return SHIFT_PRESETS.cs;
+  if (dept.includes("r&d") || dept.includes("r et d") || /\brd\b/.test(dept)) return resolveShiftPreset("rnd");
+  if (/\bces\b/.test(dept)) return resolveShiftPreset("ces");
+  return resolveShiftPreset("cs");
 }
 
 function getActiveShift(profile, dayKey = toDateKey(new Date())) {
@@ -8629,6 +9035,7 @@ function bindPageEvents() {
         title: String(data.get("title") || "").trim(),
         description: String(data.get("description") || "").trim(),
         category: String(data.get("category") || "General").trim(),
+        visibility: String(data.get("visibility") || "all"),
         published_at: new Date().toISOString().slice(0, 10),
         created_by: session.user.id,
         file_url: "",
@@ -8643,7 +9050,14 @@ function bindPageEvents() {
         const uploaded = await uploadHrDocumentFile(fileEntry);
         payload.storage_path = uploaded.storagePath;
         const { error } = await supabaseClient.from("hr_documents").insert(payload);
-        if (error) throw error;
+        if (error && errorMentionsAny(error, HR_DOCUMENT_OPTIONAL_FIELDS)) {
+          const retry = await supabaseClient
+            .from("hr_documents")
+            .insert(stripFields(payload, HR_DOCUMENT_OPTIONAL_FIELDS));
+          if (retry.error) throw retry.error;
+        } else if (error) {
+          throw error;
+        }
       } else {
         if (!fileEntry) throw new Error("Sélectionnez un fichier ou connectez-vous avec Microsoft.");
         const docs = loadStore("hrDocuments", demoHrDocuments);
@@ -9049,6 +9463,8 @@ function hydrateDemoWorkspace() {
   appData.orgProfiles = profiles;
   appData.navVisibility = normalizeNavVisibility(loadStore("navVisibility", null));
   appData.studioCreators = normalizeStudioCreators(loadStore("studioCreators", [session.user.email]));
+  appData.companyTimezone = loadStore("companyTimezone", "GMT+1") === "GMT" ? "GMT" : "GMT+1";
+  appData.shiftHours = normalizeShiftHours(loadStore("shiftHours", defaultShiftHours()));
   const punches = [];
   profiles.forEach((profile, index) => {
     for (let daysAgo = 2; daysAgo >= 0; daysAgo -= 1) {
