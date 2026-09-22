@@ -20,7 +20,9 @@ function navigateToPage(nextPage, options = {}) {
     try { closeJournalFullscreen(); } catch (_) { /* ok si non défini encore */ }
   }
   if (mpaMode) {
-    window.location.href = `/${target}.html`;
+    // URL relative pour supporter aussi bien http:// (Vercel) que file:// (test local direct)
+    // et un éventuel déploiement sous un sous-chemin.
+    window.location.href = `${target}.html`;
     return;
   }
   currentPage = target;
@@ -6551,13 +6553,13 @@ function setLoginState({ ready = false, error } = {}) {
 
 function renderLogin(error = "") {
   hideAuthBootScreen();
-  // En MPA, la page de login est /index.html. Toute autre page doit rediriger
+  // En MPA, la page de login est index.html. Toute autre page doit rediriger
   // au lieu d'afficher un login local (sinon la sidebar apparaît un instant).
   if (mpaMode) {
     const pathname = String(window.location.pathname || "").toLowerCase();
     const onLoginHost = pathname === "/" || pathname === "" || pathname.endsWith("/index.html") || pathname === "/index.html";
     if (!onLoginHost) {
-      window.location.href = "/";
+      window.location.href = "index.html";
       return;
     }
   }
@@ -8195,7 +8197,7 @@ function bindAppEvents() {
       adminEditingInviteId: ""
     };
     if (mpaMode) {
-      window.location.href = "/";
+      window.location.href = "index.html";
       return;
     }
     renderLogin();
@@ -8327,7 +8329,7 @@ async function initialize() {
 
     if (!supabaseClient) {
       hideAuthBootScreen();
-      if (mpaMode) window.location.href = "/";
+      if (mpaMode) window.location.href = "index.html";
       return;
     }
 
@@ -8338,10 +8340,10 @@ async function initialize() {
         session = nextSession;
         demoMode = false;
         showAuthBootScreen();
-        // Sur / (login), l'app est en mode SPA sans pages/*.js chargées.
+        // Sur index.html (login), l'app est en mode SPA sans pages/*.js chargées.
         // Toute session valide doit basculer vers la vraie home MPA.
         if (!mpaMode) {
-          window.location.href = "/home.html";
+          window.location.href = "home.html";
           return;
         }
         await bootstrapUser({ showSpinner: false });
@@ -8351,7 +8353,7 @@ async function initialize() {
       if (event === "SIGNED_OUT") {
         initialAuthHandled = false;
         if (mpaMode) {
-          window.location.href = "/";
+          window.location.href = "index.html";
         } else {
           renderLogin();
         }
@@ -8366,14 +8368,14 @@ async function initialize() {
       demoMode = false;
       showAuthBootScreen();
       if (!mpaMode) {
-        window.location.href = "/home.html";
+        window.location.href = "home.html";
         return;
       }
       await bootstrapUser({ showSpinner: false });
       clearAuthParamsFromUrl();
     } else if (!data.session) {
       hideAuthBootScreen();
-      if (mpaMode) window.location.href = "/";
+      if (mpaMode) window.location.href = "index.html";
     }
   } catch (error) {
     hideAuthBootScreen();
@@ -8388,7 +8390,7 @@ window.humanaRender = async function (authSession) {
   ensureAppContainer();
   showAuthBootScreen();
   if (!mpaMode) {
-    window.location.href = "/home.html";
+    window.location.href = "home.html";
     return;
   }
   await bootstrapUser({ showSpinner: false });
@@ -8504,7 +8506,7 @@ window.humanaStartDemo = function () {
     // Le mode démo doit rejoindre la vraie home MPA (avec pages/*.js chargés).
     // Le state démo est déjà hydraté et sera repris via la session côté nouvelle page.
     try { sessionStorage.setItem("humana_demo_mode", "1"); } catch (_) { /* ignore */ }
-    window.location.href = "/home.html";
+    window.location.href = "home.html";
     return;
   }
   renderApp();
