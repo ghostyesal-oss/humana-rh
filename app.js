@@ -7,7 +7,29 @@ let app = null;
 let session = null;
 let demoMode = false;
 let portalMode = false;
-let currentPage = "home";
+// MPA mode : chaque HTML porte <body data-page="xxx">.
+// Fallback SPA : index.html sans data-page → navigation interne classique.
+const mpaMode = typeof document !== "undefined" && !!document.body?.dataset?.page;
+let currentPage = (mpaMode && document.body.dataset.page) || "home";
+
+function navigateToPage(nextPage, options = {}) {
+  const target = String(nextPage || "home");
+  document.querySelector(".sidebar")?.classList.remove("open");
+  if (target === "team-punches" || target === "global" || target === "planning") {
+    teamPunchesInitialLoadDone = false;
+  }
+  if (target === "journal") {
+    journalPunchesInitialLoadDone = false;
+  } else if (currentPage === "journal") {
+    try { closeJournalFullscreen(); } catch (_) { /* ok si non défini encore */ }
+  }
+  if (mpaMode) {
+    window.location.href = `/${target}.html`;
+    return;
+  }
+  currentPage = target;
+  if (options.render !== false) renderApp();
+}
 let bootstrapInFlight = null;
 let hierarchySearch = "";
 const collapsedOrgNodes = new Set();
@@ -7633,6 +7655,16 @@ function setLoginState({ ready = false, error } = {}) {
 
 function renderLogin(error = "") {
   hideAuthBootScreen();
+  // En MPA, la page de login est /index.html. Toute autre page doit rediriger
+  // au lieu d'afficher un login local (sinon la sidebar apparaît un instant).
+  if (mpaMode) {
+    const pathname = String(window.location.pathname || "").toLowerCase();
+    const onLoginHost = pathname === "/" || pathname === "" || pathname.endsWith("/index.html") || pathname === "/index.html";
+    if (!onLoginHost) {
+      window.location.href = "/";
+      return;
+    }
+  }
   if (!document.querySelector(".login-page")) {
     app.innerHTML = `
       <main class="login-page">
@@ -8281,8 +8313,7 @@ function bindPageEvents() {
   document.querySelector("#export-punch-history")?.addEventListener("click", exportPunchHistoryExcel);
   document.querySelectorAll("[data-goto-page]").forEach((button) => {
     button.addEventListener("click", () => {
-      currentPage = button.dataset.gotoPage;
-      renderApp();
+      navigateToPage(button.dataset.gotoPage);
     });
   });
 
@@ -9195,25 +9226,12 @@ function bindAppEvents() {
   bindPrivateFileLinks();
 
   document.querySelector("#brand-home")?.addEventListener("click", () => {
-    currentPage = "home";
-    document.querySelector(".sidebar")?.classList.remove("open");
-    renderApp();
+    navigateToPage("home");
   });
 
   document.querySelectorAll(".sidebar nav [data-page]").forEach((button) => {
     button.addEventListener("click", () => {
-      const nextPage = button.dataset.page;
-      if (nextPage === "team-punches" || nextPage === "global" || nextPage === "planning") {
-        teamPunchesInitialLoadDone = false;
-      }
-      if (nextPage === "journal") {
-        journalPunchesInitialLoadDone = false;
-      } else if (currentPage === "journal") {
-        closeJournalFullscreen();
-      }
-      currentPage = nextPage;
-      document.querySelector(".sidebar")?.classList.remove("open");
-      renderApp();
+      navigateToPage(button.dataset.page);
     });
   });
 
@@ -9280,6 +9298,10 @@ function bindAppEvents() {
       adminEditingId: "",
       adminEditingInviteId: ""
     };
+    if (mpaMode) {
+      window.location.href = "/";
+      return;
+    }
     renderLogin();
   });
 
@@ -9395,6 +9417,7 @@ async function initialize() {
 
     if (!supabaseClient) {
       hideAuthBootScreen();
+      if (mpaMode) window.location.href = "/";
       return;
     }
 
@@ -9411,7 +9434,11 @@ async function initialize() {
       }
       if (event === "SIGNED_OUT") {
         initialAuthHandled = false;
-        renderLogin();
+        if (mpaMode) {
+          window.location.href = "/";
+        } else {
+          renderLogin();
+        }
       }
     });
 
@@ -9426,6 +9453,7 @@ async function initialize() {
       clearAuthParamsFromUrl();
     } else if (!data.session) {
       hideAuthBootScreen();
+      if (mpaMode) window.location.href = "/";
     }
   } catch (error) {
     hideAuthBootScreen();
