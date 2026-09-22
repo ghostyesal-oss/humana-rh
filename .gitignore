@@ -36,6 +36,9 @@ pnpm-debug.log*
 *.swo
 *.sublime-workspace
 
+# Sauvegardes locales (produites par scripts/extract-pages.mjs, etc.)
+*.bak
+
 # OS
 Thumbs.db
 .DS_Store

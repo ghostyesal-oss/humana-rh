@@ -1,7 +1,3 @@
-(function () {
-  if (window.__humanaAppLoaded) return;
-  window.__humanaAppLoaded = true;
-
 let supabaseClient = null;
 let app = null;
 let session = null;
@@ -4486,43 +4482,7 @@ function dayGreeting() {
   return "Bonsoir";
 }
 
-function homePage() {
-  const firstName = escapeHtml(getUserName().split(" ")[0] || "vous");
-  const clockStatus = getClockStatusCopy();
-  const hours = computeWorkedHours(getPunches());
-  const todayLabel = new Date().toLocaleDateString("fr-FR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long"
-  });
-
-  return `
-    <section class="home-welcome">
-      <h2 class="home-title">${dayGreeting()}, <b>${firstName}</b></h2>
-      <p class="home-subtitle">Nous sommes ${todayLabel}. Voici votre espace du jour.</p>
-    </section>
-
-    <section class="home-day-wrap page-spacer">
-      <article class="card home-widget home-day-widget">
-        <div class="card-heading">
-          <h3>Ma journée</h3>
-          <button type="button" class="home-link" data-goto-page="pointeuse">Historique</button>
-        </div>
-        <div class="home-clock">
-          ${renderClockStatus(clockStatus, "home-clock-status")}
-          ${renderHomeShiftSummary()}
-          <p class="home-hours-today">Temps aujourd'hui : <b>${formatDuration(hours.today)}</b></p>
-          ${renderWorkLocationSelector()}
-          ${renderClockActions()}
-        </div>
-      </article>
-    </section>
-
-    <section class="home-grid page-spacer">
-      ${canViewHrAlerts() ? renderHrAlertsCard() : ""}
-      ${renderHomeEventsCard()}
-    </section>`;
-}
+/* homePage() moved to pages/home.js */
 
 function renderGtaClockTools() {
   const used = correctionsThisMonth().length;
@@ -4650,59 +4610,7 @@ function renderGtaTeamInbox() {
     </article>`;
 }
 
-function pointeusePage() {
-  const { punches } = getClockState();
-  const clockStatus = getClockStatusCopy();
-  const hours = computeWorkedHours(punches);
-  const todayPunches = getTodayPunches(punches);
-  const breakDuration = computeBreakDuration(todayPunches);
-  const dbNote = usesDatabase()
-    ? ""
-    : `<p class="data-note demo">Mode démo : données locales uniquement. Connectez-vous avec Microsoft pour sauvegarder.</p>`;
-
-  return `
-    ${dbNote}
-    <article class="card">
-      ${cardHeading("Chronologie du jour")}
-      ${renderDayTimeline(todayPunches, appData.profile || {})}
-    </article>
-    <section class="hours-grid page-spacer">
-      ${hoursCard("Aujourd'hui", hours.today)}
-      ${hoursCard("Pause dej", breakDuration)}
-      ${hoursCard("Cette semaine", hours.week)}
-    </section>
-    <section class="clock-grid page-spacer">
-      <article class="card clock-card">
-        ${renderClockStatus(clockStatus)}
-        ${renderWorkLocationSelector(punches)}
-        ${renderClockActions()}
-        <p class="clock-hint">${new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</p>
-      </article>
-      <article class="card">
-        ${cardHeading("Pointages du jour")}
-        <div class="punch-list">
-          ${todayPunches.length
-            ? todayPunches.map((punch) => `
-              <div class="punch-item">
-                <div class="punch-item-main">
-                  <span class="punch-type ${punch.type}">${punchTypeLabel(punch.type)}</span>
-                  ${punch.type === "in" ? renderWorkLocationBadge(punch.workLocation) : ""}
-                </div>
-                <strong>${formatTime(punch.time)}</strong>
-              </div>`).join("")
-            : `<p class="empty-state">Aucun pointage aujourd'hui.</p>`}
-        </div>
-      </article>
-    </section>
-    <article class="card page-spacer punch-history-card">
-      <div class="card-heading">
-        <h3>Historique récent</h3>
-        <button type="button" id="export-punch-history" class="export-excel-btn">Extraire Excel</button>
-      </div>
-      ${renderPunchHistory(punches, appData.profile || {})}
-    </article>
-    ${renderGtaClockTools()}`;
-}
+/* pointeusePage() moved to pages/pointeuse.js */
 
 function canViewJournalTeam() {
   return isAdmin() || hasDirectReports();
@@ -5090,374 +4998,11 @@ function renderJournalColumnMenu(column) {
     </div>`;
 }
 
-function journalPage() {
-  if (!canViewJournal()) {
-    return `<article class="card"><p class="empty-state">Accès au journal non autorisé pour votre profil.</p></article>`;
-  }
-  if (!journalFilters.start || !journalFilters.end) {
-    journalFilters = { ...journalFilters, ...getDefaultTeamPunchRange() };
-  }
+/* journalPage() moved to pages/journal.js */
 
-  const range = getJournalRange();
-  const sessions = getJournalSessions();
-  const profiles = getJournalProfiles();
-  const openCount = sessions.filter((session) => session.status === "Connecté").length;
-  const canFilterPeople = usesDatabase();
-  let dbNote = "";
-  if (!usesDatabase()) {
-    dbNote = `<p class="data-note demo">Mode démo : journal local. Connectez-vous avec Microsoft pour voir les sessions réelles.</p>`;
-  } else if (appData.journalMetaMissing) {
-    dbNote = `<p class="data-note">Colonnes techniques absentes de la base. Exécutez <code>supabase/time-punches-journal.sql</code> dans Supabase SQL Editor, puis refaites un pointage d'entrée.</p>`;
-  } else if (sessions.length && sessions.every((session) => session.method === "—" && session.os === "—" && session.browser === "—" && session.ip === "—")) {
-    dbNote = `<p class="data-note">Les sessions déjà enregistrées n'ont pas d'IP, d'OS ni de navigateur. Ces détails apparaîtront au prochain pointage d'entrée.</p>`;
-  }
+/* teamPunchesPage() moved to pages/team-punches.js */
 
-  return `
-    ${dbNote}
-    <article class="card form-card page-spacer">
-      ${cardHeading("Filtres")}
-      <form id="journal-filter" class="feature-form team-punches-filter">
-        <div class="form-row">
-          <label>
-            Du
-            <input type="date" name="start" value="${escapeHtml(range.start)}" required>
-          </label>
-          <label>
-            Au
-            <input type="date" name="end" value="${escapeHtml(range.end)}" required>
-          </label>
-        </div>
-        ${canFilterPeople ? `
-        <label>
-          Collaborateur
-          <select name="userId">
-            <option value="">Tous</option>
-            ${profiles.map((profile) => `
-              <option value="${profile.id}"${journalFilters.userId === profile.id ? " selected" : ""}>
-                ${escapeHtml(profile.full_name)}
-              </option>`).join("")}
-          </select>
-        </label>` : ""}
-        <label>
-          Recherche
-          <input type="search" name="query" value="${escapeHtml(journalFilters.query || "")}" placeholder="Nom, matricule, IP, statut...">
-        </label>
-        <div class="team-punches-actions">
-          <button type="submit" class="primary">Actualiser</button>
-          <button type="button" id="journal-export" class="outline-button"${sessions.length ? "" : " disabled"}>Exporter CSV</button>
-        </div>
-      </form>
-    </article>
-    <section class="team-punches-summary page-spacer">
-      <article class="hours-card team-punch-summary-card">
-        <span>Sessions</span>
-        <strong>${sessions.length}</strong>
-        <small>sur la période</small>
-      </article>
-      <article class="hours-card team-punch-summary-card">
-        <span>En cours</span>
-        <strong>${openCount}</strong>
-        <small>connexion active</small>
-      </article>
-      <article class="hours-card team-punch-summary-card">
-        <span>Déconnectées</span>
-        <strong>${sessions.length - openCount}</strong>
-        <small>sessions closes</small>
-      </article>
-    </section>
-    <div class="journal-table-host">
-    <article class="card table-card page-spacer journal-card${journalFullscreen ? " is-journal-expanded" : ""}">
-      <div class="toolbar">
-        <h3>Journal</h3>
-        <div class="toolbar-actions">
-          <span class="hierarchy-result-count">${sessions.length} ligne${sessions.length > 1 ? "s" : ""}</span>
-          <button type="button" id="journal-fullscreen" class="outline-button" aria-pressed="${journalFullscreen ? "true" : "false"}">
-            ${journalFullscreen ? "Fermer le plein écran" : "Ouvrir en plein écran"}
-          </button>
-        </div>
-      </div>
-      <div class="table-wrap journal-table-wrap">
-        <table class="journal-table">
-          <thead>
-            <tr>
-              ${JOURNAL_COLUMNS.map((column) => `
-                <th class="journal-th${journalSort.key === column.key ? " is-sorted" : ""}${journalColumnFilters[column.key] ? " is-filtered" : ""}">
-                  <button type="button" class="journal-th-btn" data-journal-col="${column.key}" aria-haspopup="true" aria-expanded="${journalOpenColumn === column.key}">
-                    <span>${column.label}</span>
-                    <span class="journal-th-arrow" aria-hidden="true"></span>
-                  </button>
-                  ${renderJournalColumnMenu(column)}
-                </th>`).join("")}
-            </tr>
-          </thead>
-          <tbody>
-            ${sessions.length
-              ? sessions.map((session) => `
-                <tr>
-                  <td><code class="journal-id">${escapeHtml(session.sessionId)}</code></td>
-                  <td>${escapeHtml(session.matricule)}</td>
-                  <td><strong>${escapeHtml(session.name)}</strong></td>
-                  <td>${escapeHtml(session.department)}</td>
-                  <td>${escapeHtml(session.dateIn)}</td>
-                  <td>${escapeHtml(session.timeIn)}</td>
-                  <td>${escapeHtml(session.dateOut)}</td>
-                  <td>${escapeHtml(session.timeOut)}</td>
-                  <td><strong>${escapeHtml(session.duration)}</strong></td>
-                  <td>${escapeHtml(session.method)}</td>
-                  <td>${escapeHtml(session.os)}</td>
-                  <td>${escapeHtml(session.browser)}</td>
-                  <td><code class="journal-id">${escapeHtml(session.ip)}</code></td>
-                  <td>${escapeHtml(session.network)}</td>
-                  <td>${escapeHtml(session.location)}</td>
-                  <td>${renderJournalStatus(session.status)}</td>
-                  <td>${escapeHtml(session.reason)}</td>
-                </tr>`).join("")
-              : `<tr><td colspan="${JOURNAL_COLUMNS.length}" class="empty-cell">Aucune session pour cette période. Ajustez les filtres ou pointez une entrée.</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    </article>
-    </div>`;
-}
-
-function teamPunchesPage() {
-  if (!usesDatabase() && !demoMode) {
-    return `<article class="card"><p class="empty-state">Connectez-vous avec Microsoft pour consulter les pointages de votre équipe.</p></article>`;
-  }
-
-  if (!canViewTeamPunches()) {
-    return `<article class="card"><p class="empty-state">Accès réservé aux managers et aux administrateurs.</p></article>`;
-  }
-
-  const range = teamPunchFilters.start && teamPunchFilters.end
-    ? teamPunchFilters
-    : getDefaultTeamPunchRange();
-  const scope = getTeamPunchScope();
-  const profiles = getTeamPunchProfiles(scope);
-  const scopedProfiles = teamPunchFilters.userId
-    ? profiles.filter((profile) => profile.id === teamPunchFilters.userId)
-    : profiles;
-  const summary = summarizeTeamPunchesByUser(appData.teamPunches, scopedProfiles, range.start, range.end);
-  const dailyRows = summarizeTeamPunchesByDay(appData.teamPunches, range.start, range.end);
-  const showLocationHint = dailyRows.some((row) => row.hasStarted)
-    && !dailyRows.some((row) => resolveDailyRowWorkLocation(row));
-  const scopeLabel = isAdmin()
-    ? (scope === "team" ? "mon équipe directe" : "tous les collaborateurs")
-    : "votre équipe directe";
-  const directReports = getDirectReportProfiles();
-
-  return `
-    <p class="data-note">Périmètre : ${scopeLabel} · ${profiles.length} collaborateur${profiles.length > 1 ? "s" : ""}</p>
-    <article class="card form-card page-spacer">
-      ${cardHeading("Filtres")}
-      <form id="team-punches-filter" class="feature-form team-punches-filter">
-        ${isAdmin() ? `
-        <label>
-          Périmètre
-          <select name="scope">
-            <option value="all"${scope === "all" ? " selected" : ""}>Tous les collaborateurs</option>
-            <option value="team"${scope === "team" ? " selected" : ""}>Mon équipe directe${directReports.length ? ` (${directReports.length})` : ""}</option>
-          </select>
-        </label>` : ""}
-        <div class="form-row">
-          <label>
-            Du
-            <input type="date" name="start" value="${escapeHtml(range.start)}" required>
-          </label>
-          <label>
-            Au
-            <input type="date" name="end" value="${escapeHtml(range.end)}" required>
-          </label>
-        </div>
-        <label>
-          Collaborateur
-          <select name="userId">
-            <option value="">Tous</option>
-            ${profiles.map((profile) => `
-              <option value="${profile.id}"${teamPunchFilters.userId === profile.id ? " selected" : ""}>
-                ${escapeHtml(profile.full_name)}
-              </option>`).join("")}
-          </select>
-        </label>
-        <div class="team-punches-actions">
-          <button type="submit" class="primary">Actualiser</button>
-          <button type="button" id="team-punches-export" class="outline-button"${dailyRows.length ? "" : " disabled"}>Exporter CSV</button>
-        </div>
-      </form>
-    </article>
-    <section class="team-punches-summary page-spacer">
-      ${summary.length
-        ? summary.map((item, index) => `
-          <article class="hours-card team-punch-summary-card">
-            <span>${escapeHtml(item.profile.full_name || "Collaborateur")}</span>
-            <strong>${formatDuration(item.workedMs)}</strong>
-            <small>${item.punchCount} pointage${item.punchCount > 1 ? "s" : ""}</small>
-          </article>`).join("")
-        : `<article class="card"><p class="empty-state">Aucun collaborateur dans votre périmètre.</p></article>`}
-    </section>
-    <article class="card table-card page-spacer">
-      <div class="toolbar">
-        <h3>Détail des pointages</h3>
-        <span class="hierarchy-result-count">${dailyRows.length} jour${dailyRows.length > 1 ? "s" : ""}</span>
-      </div>
-      ${showLocationHint ? `<p class="data-note">Le lieu n'est renseigné que sur les pointages d'entrée. Si la colonne est vide, exécutez <code>supabase/time-punches-location.sql</code>, puis refaites un pointage d'entrée.</p>` : ""}
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Collaborateur</th>
-              <th>Date</th>
-              <th>Lieu</th>
-              <th>Début</th>
-              <th>Fin</th>
-              <th>Pause déjeuner</th>
-              <th>Heures planifiées</th>
-              <th>Heures réalisées</th>
-              <th>Retard</th>
-              <th>Heures manquantes</th>
-              <th>HS payables</th>
-              <th>Journal du service</th>
-              <th>Heure rectifiée</th>
-              <th>Modifié par</th>
-              <th>Motif</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${dailyRows.length
-              ? dailyRows.map((row) => {
-                  const profile = profileById(row.userId) || { full_name: row.name, id: row.userId };
-                  const stats = analyzeWorkedDay(row, profile);
-                  const correction = formatDayCorrectionSummary(row.userId, row.dayKey);
-                  return `
-                <tr>
-                  <td><strong>${escapeHtml(row.name)}</strong></td>
-                  <td>${formatDate(row.dayKey)}</td>
-                  <td>${resolveWorkLocationLabel(row)}</td>
-                  <td>${row.startTime ? formatTime(row.startTime) : "—"}</td>
-                  <td>${formatDayEndTime(row)}</td>
-                  <td>${row.breakDurationMs ? formatDuration(row.breakDurationMs) : "—"}</td>
-                  <td>${formatDuration(stats.plannedMs)}</td>
-                  <td><strong>${formatDuration(stats.realizedMs)}</strong></td>
-                  <td>${stats.delayMin ? `${stats.delayMin} min` : "—"}</td>
-                  <td>${stats.missingMs ? formatDuration(stats.missingMs) : "—"}</td>
-                  <td>${stats.payableOtMs ? formatDuration(stats.payableOtMs) : "—"}</td>
-                  <td>${formatDayPunchLog(row)}</td>
-                  <td>${correction.rectified === "Oui" ? badge("Oui") : escapeHtml(correction.rectified)}</td>
-                  <td>${escapeHtml(correction.who)}</td>
-                  <td>${escapeHtml(correction.motif)}</td>
-                </tr>`;
-                }).join("")
-              : `<tr><td colspan="15" class="empty-cell">Aucun pointage pour cette période. Ajustez les filtres, puis actualisez.</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    </article>`;
-}
-
-function leavePage() {
-  if (!isNavPageVisible("leave")) {
-    return `<article class="card"><p class="empty-state">L'onglet Congés n'est pas disponible pour votre profil.</p></article>`;
-  }
-
-  const requests = getLeaveRequests();
-  const balances = getLeaveBalances();
-  const pending = pendingLeaveForValidator();
-  const months = seniorityMonths();
-  const carryFlag = balances[0] && balances[0].remaining > 3 && new Date().getMonth() === 11;
-  const chain = getLeaveValidatorChain(session?.user?.id);
-
-  return `
-    ${carryFlag ? `<p class="data-note">Alerte de report : plus de 3 jours de CP restants au 31/12. Le solde non consommé est reportable une seule année.</p>` : ""}
-    ${months < 6 && !isAdmin() ? `<p class="data-note">Ancienneté : ${months} mois. La durée légale requise est de 6 mois, sauf dérogation RH.</p>` : ""}
-    <section class="balance-grid">
-      ${balances.map((balance) => balanceCard(balance)).join("")}
-    </section>
-    ${renderLeaveCalendar()}
-    ${pending.length ? `
-    <article class="card table-card page-spacer">
-      <div class="toolbar"><h3>Demandes à valider</h3></div>
-      <p class="hierarchy-meta">Circuit : ${chain.map((item) => item.role).join(" → ")}</p>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Collaborateur</th><th>Type</th><th>Période</th><th>Statut</th><th></th></tr></thead>
-          <tbody>
-            ${pending.map((request) => `
-              <tr>
-                <td>${escapeHtml(request.name || profileById(request.userId || request.user_id)?.full_name || getUserName())}</td>
-                <td>${escapeHtml(request.type)}${request.motif ? `<br><small>${escapeHtml(request.motif)}</small>` : ""}</td>
-                <td>${formatDate(request.start)} - ${formatDate(request.end)} · ${request.days || request.hours || 0}${leaveIsHoursUnit(request.type) ? " h" : " j"}</td>
-                <td>${badge(request.status)}</td>
-                <td>
-                  <button type="button" class="primary leave-approve" data-leave-id="${request.id}">Valider</button>
-                  <button type="button" class="outline-button leave-reject" data-leave-id="${request.id}">Refuser</button>
-                </td>
-              </tr>`).join("")}
-          </tbody>
-        </table>
-      </div>
-    </article>` : ""}
-    <div class="feature-grid page-spacer">
-      <article class="card form-card">
-        ${cardHeading("Nouvelle demande")}
-        <form id="leave-form" class="feature-form">
-          <label>
-            Code d'absence
-            <select name="type" id="leave-type" required>
-              ${leaveTypeOptionsHtml()}
-            </select>
-          </label>
-          <div class="form-row">
-            <label>
-              Date de début
-              <input type="date" name="start" required>
-            </label>
-            <label>
-              Date de fin
-              <input type="date" name="end" required>
-            </label>
-          </div>
-          <label>
-            Durée
-            <select name="unit">
-              <option value="days">Jours ouvrés</option>
-              <option value="half">Demi-journée</option>
-              <option value="hours">Heures (retard / départ)</option>
-            </select>
-          </label>
-          <label id="leave-half-wrap" hidden>
-            Demi-journée
-            <select name="half_day">
-              <option value="morning">Matin</option>
-              <option value="afternoon">Après-midi</option>
-            </select>
-          </label>
-          <label id="leave-hours-wrap" hidden>
-            Heures
-            <input type="number" name="hours" min="0.5" step="0.5" value="1">
-          </label>
-          <label>
-            Commentaire
-            <textarea name="comment" rows="3" placeholder="Precisez le contexte si besoin..."></textarea>
-          </label>
-          <label id="leave-file-wrap">
-            Justificatif
-            <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.doc,.docx">
-          </label>
-          <button type="submit" class="primary">Envoyer la demande</button>
-        </form>
-        <p class="hierarchy-meta">Validation : ${chain.map((item) => escapeHtml(item.role)).join(" → ")}. Les absences ne peuvent pas se chevaucher.</p>
-      </article>
-      <article class="card table-card">
-        <div class="toolbar"><h3>Mes demandes</h3></div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Type</th><th>Période</th><th>Durée</th><th>Justificatif</th><th>Statut</th></tr></thead>
-            <tbody>${leaveRows(requests)}</tbody>
-          </table>
-        </div>
-      </article>
-    </div>`;
-}
+/* leavePage() moved to pages/leave.js */
 
 function leaveRows(requests) {
   if (!requests.length) {
@@ -5523,263 +5068,7 @@ function sanitizeEventPosterUrl(event) {
   return event?.poster_url ? safeExternalUrl(event.poster_url) : "";
 }
 
-function eventsPage() {
-  const admin = isAdmin();
-  const events = getCompanyEvents();
-  const now = Date.now();
-  const upcoming = events
-    .filter((event) => {
-      const end = event.ends_at ? new Date(event.ends_at).getTime() : new Date(event.starts_at).getTime();
-      return Number.isFinite(end) && end >= now;
-    })
-    .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
-  const past = events
-    .filter((event) => {
-      const end = event.ends_at ? new Date(event.ends_at).getTime() : new Date(event.starts_at).getTime();
-      return Number.isFinite(end) && end < now;
-    })
-    .sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at))
-    .slice(0, 12);
-
-  const featured = upcoming[0] || null;
-  const rest = upcoming.slice(1);
-
-  const editingId = appData.eventEditingId || "";
-  const editing = editingId ? events.find((event) => String(event.id) === String(editingId)) : null;
-  const defaultStart = editing?.starts_at
-    ? eventLocalDateTimeValue(editing.starts_at)
-    : eventLocalDateTimeValue(new Date(Date.now() + 60 * 60 * 1000).toISOString());
-  const defaultEnd = editing?.ends_at ? eventLocalDateTimeValue(editing.ends_at) : "";
-
-  const tableMissingWarning = appData.companyEventsTableMissing && admin
-    ? `<article class="card error-card">
-        <p class="error-message">Table <code>company_events</code> introuvable. Exécutez <code>supabase/company-events.sql</code> dans SQL Editor pour activer les événements.</p>
-      </article>`
-    : "";
-
-  const renderFeatured = (event) => {
-    const meta = eventTypeMeta(event.event_type);
-    const countdown = formatCountdown(event.starts_at);
-    const author = profileById(event.created_by)?.full_name || "";
-    const posterUrl = sanitizeEventPosterUrl(event);
-    return `
-      <article class="event-hero event-hero--${meta.id}${posterUrl ? " has-poster" : ""}" data-event-open="${event.id}" role="button" tabindex="0" aria-label="Voir le détail de ${escapeHtml(event.title)}">
-        ${posterUrl ? `<div class="event-hero__poster" style="background-image:url('${encodeURI(posterUrl).replace(/'/g, "%27")}')" aria-hidden="true"></div>` : ""}
-        <button type="button" class="event-hero__expand" data-event-open="${event.id}" aria-label="Agrandir">⤢</button>
-        <div class="event-hero__overlay">
-          <div class="event-hero__meta">
-            <span class="event-type-pill event-type--${meta.id}">${meta.icon} ${meta.label}</span>
-            ${countdown ? `<span class="event-hero__countdown">${escapeHtml(countdown)}</span>` : ""}
-          </div>
-          <h2 class="event-hero__title">${escapeHtml(event.title)}</h2>
-          <div class="event-hero__info">
-            <span>🗓️ ${escapeHtml(formatEventWhen(event))}</span>
-            ${event.location ? `<span>📍 ${escapeHtml(event.location)}</span>` : ""}
-            <span>👥 ${escapeHtml(eventVisibilityLabel(event.visibility))}</span>
-          </div>
-          ${event.description ? `<p class="event-hero__desc">${escapeHtml(event.description)}</p>` : ""}
-          <div class="event-hero__footer">
-            <span class="event-hero__author">${author ? `Publié par ${escapeHtml(author)}` : ""}</span>
-            ${admin ? `
-              <div class="event-actions">
-                <button type="button" class="outline-button" data-event-edit="${event.id}">Modifier</button>
-                <button type="button" class="outline-button danger" data-event-delete="${event.id}">Supprimer</button>
-              </div>` : ""}
-          </div>
-        </div>
-      </article>`;
-  };
-
-  const renderEventCard = (event, options = {}) => {
-    const meta = eventTypeMeta(event.event_type);
-    const author = profileById(event.created_by)?.full_name || "";
-    const canManage = admin;
-    const compact = Boolean(options.compact);
-    const past = Boolean(options.past);
-
-    if (compact) {
-      return `
-        <article class="event-row${past ? " event-row--past" : ""}" data-event-open="${event.id}" role="button" tabindex="0" aria-label="Voir le détail de ${escapeHtml(event.title)}">
-          ${renderDateBadge(event.starts_at)}
-          <div class="event-row__body">
-            <div class="event-row__head">
-              <span class="event-type-pill event-type--${meta.id}">${meta.icon} ${meta.label}</span>
-              <span class="event-row__time">${escapeHtml(formatEventTimeShort(event))}</span>
-            </div>
-            <h4 class="event-row__title">${escapeHtml(event.title)}</h4>
-            ${event.location ? `<span class="event-row__location">📍 ${escapeHtml(event.location)}</span>` : ""}
-          </div>
-          ${canManage ? `
-            <div class="event-row__actions">
-              <button type="button" class="icon-button" data-event-edit="${event.id}" title="Modifier" aria-label="Modifier">✎</button>
-              <button type="button" class="icon-button danger" data-event-delete="${event.id}" title="Supprimer" aria-label="Supprimer">×</button>
-            </div>` : ""}
-        </article>`;
-    }
-
-    const posterUrl = sanitizeEventPosterUrl(event);
-    return `
-      <article class="event-card event-card--${meta.id}${past ? " event-card--past" : ""}" data-event-open="${event.id}" role="button" tabindex="0" aria-label="Voir le détail de ${escapeHtml(event.title)}">
-        <div class="event-card__media">
-          ${posterUrl
-            ? `<div class="event-card__poster-wrap">
-                <img class="event-card__poster" src="${escapeHtml(posterUrl)}" alt="Affiche ${escapeHtml(event.title)}" loading="lazy">
-              </div>`
-            : `<div class="event-card__poster-placeholder" aria-hidden="true"><span>${meta.icon}</span></div>`}
-          ${renderDateBadge(event.starts_at)}
-          <span class="event-type-pill event-type-pill--floating event-type--${meta.id}">${meta.icon} ${meta.label}</span>
-          <span class="event-card__expand" aria-hidden="true">⤢</span>
-        </div>
-        <div class="event-card__body">
-          <h3 class="event-card__title">${escapeHtml(event.title)}</h3>
-          <div class="event-card__meta">
-            <span>🕒 ${escapeHtml(formatEventTimeShort(event))}</span>
-            ${event.location ? `<span>📍 ${escapeHtml(event.location)}</span>` : ""}
-          </div>
-          ${event.description ? `<p class="event-card__desc">${escapeHtml(event.description)}</p>` : ""}
-          <div class="event-card__footer">
-            <span class="event-card__author">${author ? escapeHtml(author) : ""}${author && event.visibility !== "all" ? " · " : ""}${event.visibility !== "all" ? escapeHtml(eventVisibilityLabel(event.visibility)) : ""}</span>
-            ${canManage ? `
-              <div class="event-actions">
-                <button type="button" class="outline-button" data-event-edit="${event.id}">Modifier</button>
-                <button type="button" class="outline-button danger" data-event-delete="${event.id}">Supprimer</button>
-              </div>` : ""}
-          </div>
-        </div>
-      </article>`;
-  };
-
-  const adminForm = admin
-    ? `
-      <aside class="events-composer">
-        <article class="card events-composer__card">
-          <div class="events-composer__head">
-            <div>
-              <h3>${editing ? "Modifier l'événement" : "Créer un événement"}</h3>
-              <p>${editing ? "Ajustez les détails puis enregistrez." : "Diffusez une annonce, une réunion, une célébration…"}</p>
-            </div>
-            <span class="events-composer__icon" aria-hidden="true">${editing ? "✎" : "＋"}</span>
-          </div>
-          <form id="event-form" class="events-composer__form" data-event-id="${editing?.id || ""}">
-            <label class="field field--wide">
-              <span>Titre</span>
-              <input type="text" name="title" maxlength="140" value="${escapeHtml(editing?.title || "")}" placeholder="Ex. Réunion mensuelle" required>
-            </label>
-            <label class="field">
-              <span>Type</span>
-              <select name="event_type">
-                ${EVENT_TYPES.map((type) => {
-                  const selected = editing?.event_type === type.id ? " selected" : "";
-                  return `<option value="${type.id}"${selected}>${type.icon} ${type.label}</option>`;
-                }).join("")}
-              </select>
-            </label>
-            <label class="field">
-              <span>Visibilité</span>
-              <select name="visibility">
-                ${EVENT_VISIBILITIES.map((vis) => {
-                  const selected = (editing?.visibility || "all") === vis.id ? " selected" : "";
-                  return `<option value="${vis.id}"${selected}>${vis.label}</option>`;
-                }).join("")}
-              </select>
-            </label>
-            <label class="field field--wide event-checkbox">
-              <input type="checkbox" name="all_day" ${editing?.all_day ? "checked" : ""}>
-              <span>Toute la journée</span>
-            </label>
-            <label class="field">
-              <span>Début</span>
-              <input type="datetime-local" name="starts_at" value="${defaultStart}" required>
-            </label>
-            <label class="field">
-              <span>Fin <em>(facultatif)</em></span>
-              <input type="datetime-local" name="ends_at" value="${defaultEnd}">
-            </label>
-            <label class="field field--wide">
-              <span>Lieu <em>(facultatif)</em></span>
-              <input type="text" name="location" maxlength="180" value="${escapeHtml(editing?.location || "")}" placeholder="Ex. Salle Zenith · Visio Teams">
-            </label>
-            <label class="field field--wide">
-              <span>Description</span>
-              <textarea name="description" rows="4" maxlength="2000" placeholder="Détails, agenda, lien de visio, etc.">${escapeHtml(editing?.description || "")}</textarea>
-            </label>
-            <label class="field field--wide event-poster-field">
-              <span>Affiche <em>(JPG, PNG, WEBP, GIF · max 5 Mo)</em></span>
-              <input type="file" name="poster" accept="image/jpeg,image/png,image/webp,image/gif">
-            </label>
-          ${sanitizeEventPosterUrl(editing) ? `
-            <div class="field field--wide event-poster-preview">
-              <img src="${escapeHtml(sanitizeEventPosterUrl(editing))}" alt="Affiche actuelle">
-              <label class="event-checkbox">
-                <input type="checkbox" name="remove_poster">
-                <span>Supprimer l'affiche actuelle</span>
-              </label>
-            </div>` : ""}
-            <div class="events-composer__actions">
-              ${editing ? `<button type="button" class="outline-button" id="event-cancel">Annuler</button>` : ""}
-              <button type="submit" class="primary">${editing ? "Enregistrer" : "Publier l'événement"}</button>
-            </div>
-          </form>
-        </article>
-      </aside>`
-    : "";
-
-  const heroBlock = featured
-    ? renderFeatured(featured)
-    : `<article class="event-hero event-hero--empty">
-        <div class="event-hero__overlay">
-          <span class="event-type-pill event-type--general">📣 Aucun événement</span>
-          <h2 class="event-hero__title">${admin ? "Rien de prévu pour l'instant" : "Aucune annonce à venir"}</h2>
-          <p class="event-hero__desc">${admin ? "Utilisez le formulaire pour publier votre première annonce à toute l'équipe." : "Les administrateurs partageront ici les prochains temps forts."}</p>
-        </div>
-      </article>`;
-
-  const upcomingGrid = rest.length
-    ? `
-      <section class="events-section">
-        <div class="events-section__head">
-          <h3>Prochains rendez-vous</h3>
-          <span class="events-section__count">${rest.length} événement${rest.length > 1 ? "s" : ""}</span>
-        </div>
-        <div class="event-grid">
-          ${rest.map((event) => renderEventCard(event)).join("")}
-        </div>
-      </section>`
-    : "";
-
-  const pastBlock = past.length
-    ? `
-      <section class="events-section events-section--past">
-        <div class="events-section__head">
-          <h3>Historique récent</h3>
-          <span class="events-section__count">${past.length}</span>
-        </div>
-        <div class="event-row-list">
-          ${past.map((event) => renderEventCard(event, { compact: true, past: true })).join("")}
-        </div>
-      </section>`
-    : "";
-
-  const stats = `
-    <div class="events-stats">
-      <div class="events-stat"><strong>${upcoming.length}</strong><span>À venir</span></div>
-      <div class="events-stat"><strong>${featured ? formatCountdown(featured.starts_at) : "—"}</strong><span>Prochain</span></div>
-      <div class="events-stat"><strong>${past.length}</strong><span>Passés (30j)</span></div>
-    </div>`;
-
-  return `
-    ${tableMissingWarning}
-    <div class="events-page">
-      <div class="events-main">
-        ${stats}
-        ${heroBlock}
-        ${upcomingGrid}
-        ${pastBlock}
-      </div>
-      ${adminForm}
-    </div>
-    ${renderEventDetailOverlay(events, admin)}`;
-}
+/* eventsPage() moved to pages/events.js */
 
 function renderEventDetailOverlay(events, admin) {
   const id = appData.eventDetailId || "";
@@ -5823,64 +5112,7 @@ function renderEventDetailOverlay(events, admin) {
     </div>`;
 }
 
-function attestationsPage() {
-  if (!isNavPageVisible("attestations")) {
-    return `<article class="card"><p class="empty-state">L'onglet Demande RH n'est pas disponible pour votre profil.</p></article>`;
-  }
-
-  const requests = getHrRequests();
-  const tableMissing = usesDatabase() && appData.salaryAdvanceTableMissing
-    ? `<p class="data-note">Les avances sur salaire seront enregistrées après exécution de <code>supabase/salary-advance-requests.sql</code> dans SQL Editor.</p>`
-    : "";
-
-  return `
-    ${tableMissing}
-    <div class="feature-grid">
-      <article class="card form-card">
-        ${cardHeading("Avance sur salaire")}
-        <form id="salary-advance-form" class="feature-form">
-          <label>
-            Montant
-            <input type="number" name="amount" min="1" step="0.01" required placeholder="Ex. 2000">
-          </label>
-          <label>
-            Date souhaitée
-            <input type="date" name="requested_date">
-          </label>
-          <label>
-            Motif
-            <textarea name="reason" rows="4" placeholder="Ex. urgence familiale, frais exceptionnels..." required></textarea>
-          </label>
-          <button type="submit" class="primary">Envoyer la demande</button>
-        </form>
-      </article>
-      <article class="card form-card">
-        ${cardHeading("Nouvelle attestation")}
-        <form id="attestation-form" class="feature-form">
-          <label>
-            Type de document
-            <select name="type" required>
-              ${attestationTypes.map((type) => `<option value="${type}">${type}</option>`).join("")}
-            </select>
-          </label>
-          <label>
-            Motif / précision
-            <textarea name="reason" rows="4" placeholder="Ex. dossier de location, banque, administration..." required></textarea>
-          </label>
-          <button type="submit" class="primary">Envoyer la demande</button>
-        </form>
-      </article>
-    </div>
-    <article class="card table-card page-spacer">
-      <div class="toolbar"><h3>Mes demandes RH</h3></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Type</th><th>Détail</th><th>Date</th><th>Statut</th></tr></thead>
-          <tbody>${hrRequestRows(requests)}</tbody>
-        </table>
-      </div>
-    </article>`;
-}
+/* attestationsPage() moved to pages/attestations.js */
 
 function hrRequestRows(requests) {
   if (!requests.length) {
@@ -5962,123 +5194,9 @@ function renderOrgNode(node, options = {}) {
     </div>`;
 }
 
-function hierarchyPage() {
-  if (!isNavPageVisible("hierarchy")) {
-    return `<article class="card"><p class="empty-state">L'onglet Hiérarchie n'est pas disponible pour votre profil.</p></article>`;
-  }
+/* hierarchyPage() moved to pages/hierarchy.js */
 
-  if (!usesDatabase() && !demoMode) {
-    return `<article class="card"><p class="empty-state">Connectez-vous avec Microsoft pour afficher l'organigramme de l'entreprise.</p></article>`;
-  }
-
-  const profiles = appData.orgProfiles;
-  const chain = getManagerChain(profiles, session.user.id);
-  const tree = buildOrgTree(profiles);
-  const manager = chain.length > 1 ? chain[chain.length - 2] : null;
-  const directReports = profiles.filter((profile) => profile.manager_id === session.user.id);
-  const searchQuery = hierarchySearch.trim();
-  const searching = Boolean(searchQuery);
-  const displayTree = searching ? filterOrgTree(tree, searchQuery) : tree;
-  const visibleCount = countOrgNodes(displayTree);
-
-  return `
-    <section class="hierarchy-grid">
-      <article class="card">
-        ${cardHeading("Ma ligne hierarchique")}
-        <div class="chain-list">
-          ${chain.map((profile, index) => `
-            <div class="chain-item ${profile.id === session.user.id ? "is-me" : ""}">
-              ${avatarForProfile(profile, index, "org-avatar")}
-              <div>
-                <strong>${escapeHtml(profile.full_name)}</strong>
-                <span>${escapeHtml(profile.job_title || "Collaborateur")}</span>
-              </div>
-            </div>`).join("")}
-        </div>
-        ${manager
-          ? `<p class="hierarchy-meta">Votre manager : <strong>${escapeHtml(manager.full_name)}</strong></p>`
-          : `<p class="hierarchy-meta">Vous n'avez pas de manager assigne.</p>`}
-      </article>
-      <article class="card">
-        ${cardHeading("Mon équipe directe")}
-        <div class="team-grid">
-          ${directReports.length
-            ? directReports.map((profile, index) => `
-              <div class="team-card-wrap">
-                ${renderProfilePyramidCard(profile, index, { isMe: profile.id === session.user.id })}
-              </div>`).join("")
-            : `<p class="empty-inline">Aucun collaborateur rattaché pour le moment.</p>`}
-        </div>
-      </article>
-    </section>
-    <article class="card page-spacer hierarchy-org-card">
-      <div class="card-heading hierarchy-org-heading">
-        <h3>Organigramme</h3>
-        <span class="hierarchy-result-count" id="hierarchy-result-count">${searching ? `${visibleCount} resultat${visibleCount > 1 ? "s" : ""}` : `${profiles.length} collaborateurs`}</span>
-      </div>
-      <label class="hierarchy-search" for="hierarchy-search">
-        <span class="hierarchy-search-icon" aria-hidden="true"></span>
-        <input
-          type="search"
-          id="hierarchy-search"
-          placeholder="Rechercher par nom, poste, service..."
-          value="${escapeHtml(searchQuery)}"
-          autocomplete="off"
-        >
-      </label>
-      <div class="org-tree" id="org-tree">
-        ${displayTree.length
-          ? displayTree.map((node) => renderOrgNode(node, { forceExpand: searching })).join("")
-          : `<p class="empty-state">Aucun collaborateur ne correspond à votre recherche.</p>`}
-      </div>
-      <p class="hierarchy-meta">${isAdmin() ? "Les administrateurs peuvent modifier la hiérarchie dans Administration." : "Contactez un administrateur pour modifier la hiérarchie."}</p>
-    </article>`;
-}
-
-function creatorPage() {
-  if (!isCreator()) {
-    return `<article class="card"><p class="empty-state">Accès réservé au créateur de l'application.</p></article>`;
-  }
-
-  const visibility = getNavVisibility();
-
-  return `
-    <article class="card form-card">
-      ${cardHeading("Visibilité des onglets")}
-      <p class="creator-intro">Activez ou masquez les onglets <strong>Congés</strong>, <strong>Demande RH</strong>, <strong>Planning</strong>, <strong>Hiérarchie</strong>, <strong>Rapports</strong> et <strong>Journal</strong> pour chaque type de profil.</p>
-      <form id="creator-nav-form" class="feature-form creator-nav-form">
-        <div class="table-wrap">
-          <table class="creator-nav-table">
-            <thead>
-              <tr>
-                <th>Onglet</th>
-                ${NAV_VISIBILITY_AUDIENCES.map((audience) => `<th>${audience.label}</th>`).join("")}
-              </tr>
-            </thead>
-            <tbody>
-              ${NAV_VISIBILITY_PAGES.map((page) => `
-                <tr>
-                  <td><strong>${page.label}</strong></td>
-                  ${NAV_VISIBILITY_AUDIENCES.map((audience) => `
-                    <td>
-                      <label class="creator-toggle">
-                        <input
-                          type="checkbox"
-                          name="${page.id}_${audience.id}"
-                          ${visibility[page.id]?.[audience.id] !== false ? "checked" : ""}
-                        >
-                        <span>Visible</span>
-                      </label>
-                    </td>`).join("")}
-                </tr>`).join("")}
-            </tbody>
-          </table>
-        </div>
-        <button type="submit" class="primary">Enregistrer les réglages</button>
-      </form>
-    </article>
-    ${renderCreatorAccountsSection()}`;
-}
+/* creatorPage() moved to pages/creator.js */
 
 function renderGtaSettingsSection() {
   const timezone = getCompanyTimezoneId();
@@ -6119,104 +5237,7 @@ function renderGtaSettingsSection() {
     </article>`;
 }
 
-function adminPage() {
-  if (!isAdmin()) {
-    return `<article class="card"><p class="empty-state">Accès réservé aux administrateurs.</p></article>`;
-  }
-
-  return `
-    ${renderUserAccountSection()}
-    ${renderGtaSettingsSection()}
-    <div class="feature-grid page-spacer">
-      <article class="card form-card">
-        ${cardHeading("Publier un document RH")}
-        <form id="admin-hr-doc-form" class="feature-form" enctype="multipart/form-data">
-          <label>
-            Titre
-            <input type="text" name="title" required placeholder="Ex. Règlement intérieur">
-          </label>
-          <label>
-            Description
-            <input type="text" name="description" placeholder="Courte description">
-          </label>
-          <label>
-            Catégorie
-            <input type="text" name="category" value="General">
-          </label>
-          <label>
-            Visibilité
-            <select name="visibility">
-              ${EVENT_VISIBILITIES.map((vis) => `<option value="${vis.id}">${escapeHtml(vis.label)}</option>`).join("")}
-            </select>
-          </label>
-          <label class="file-upload">
-            Fichier a publier
-            <input type="file" name="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,application/pdf" ${usesDatabase() ? "required" : ""}>
-            <span class="file-upload-hint">PDF, Word, Excel ou image — maximum 10 Mo</span>
-          </label>
-          <button type="submit" class="primary">Televerser et publier</button>
-        </form>
-        ${usesDatabase() ? "" : `<p class="hierarchy-meta">Le téléversement de fichiers est disponible après connexion à Microsoft.</p>`}
-      </article>
-      <article class="card form-card">
-        ${cardHeading("Ajouter un bulletin de paie")}
-        <form id="admin-payslip-form" class="feature-form" enctype="multipart/form-data">
-          <label>
-            Collaborateur
-            <select name="user_id" required>
-              <option value="">Selectionner...</option>
-              ${appData.orgProfiles.map((profile) => `
-                <option value="${profile.id}">${escapeHtml(profile.full_name)} (${escapeHtml(profile.email)})</option>`).join("")}
-            </select>
-          </label>
-          <div class="form-row">
-            <label>
-              Mois
-              <select name="period_month" required>
-                ${Array.from({ length: 12 }, (_, index) => {
-                  const month = index + 1;
-                  const label = new Date(2026, index, 1).toLocaleDateString("fr-FR", { month: "long" });
-                  return `<option value="${month}">${label}</option>`;
-                }).join("")}
-              </select>
-            </label>
-            <label>
-              Annee
-              <input type="number" name="period_year" min="2020" max="2099" value="${new Date().getFullYear()}" required>
-            </label>
-          </div>
-          <label class="file-upload">
-            Fichier bulletin (PDF)
-            <input type="file" name="file" accept=".pdf,application/pdf" ${usesDatabase() ? "required" : ""}>
-            <span class="file-upload-hint">PDF uniquement — maximum 10 Mo</span>
-          </label>
-          <button type="submit" class="primary">Televerser le bulletin</button>
-        </form>
-        ${usesDatabase() ? "" : `<p class="hierarchy-meta">Le téléversement de fichiers est disponible après connexion à Microsoft.</p>`}
-      </article>
-    </div>
-    <article class="card table-card page-spacer">
-      <div class="toolbar"><h3>Documents RH publiés</h3></div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Document</th><th>Catégorie</th><th>Visibilité</th><th>Date</th><th>Fichier</th><th></th></tr></thead>
-          <tbody>
-            ${getHrDocuments().length
-              ? getHrDocuments().map((doc) => `
-                <tr>
-                  <td><strong>${escapeHtml(doc.title)}</strong><br><small>${escapeHtml(doc.description || "")}</small></td>
-                  <td>${escapeHtml(doc.category || "General")}</td>
-                  <td>${escapeHtml(eventVisibilityLabel(doc.visibility || "all"))}</td>
-                  <td>${formatDate(doc.published_at)}</td>
-                  <td><a ${privateFileLinkAttributes("hr-document", doc)} target="_blank" rel="noopener noreferrer">Ouvrir</a></td>
-                  <td><button type="button" class="outline-button admin-delete-hr-doc" data-doc-id="${doc.id}" data-storage-path="${escapeHtml(doc.storage_path || "")}">Supprimer</button></td>
-                </tr>`).join("")
-              : `<tr><td colspan="6" class="empty-cell">Aucun document publié.</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    </article>`;
-}
+/* adminPage() moved to pages/admin.js */
 
 function getReportProfiles() {
   if (isAdmin()) return appData.orgProfiles.filter(Boolean);
@@ -6704,37 +5725,7 @@ function buildPlanningModel() {
   return { cursor, range, days, dept, flexible, profiles, rows, logs, gapAgents };
 }
 
-function planningPage() {
-  if (!canViewPlanning()) {
-    return `<article class="card"><p class="empty-state">L'onglet Planning n'est pas disponible pour votre profil.</p></article>`;
-  }
-  const model = buildPlanningModel();
-  const monthLabel = model.cursor.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-  return `
-    <div class="planning-toolbar">
-      <div class="segmented" role="tablist">
-        <button type="button" class="planning-tab${planningState.tab === "grid" ? " is-active" : ""}" data-planning-tab="grid">Planning</button>
-        <button type="button" class="planning-tab${planningState.tab === "log" ? " is-active" : ""}" data-planning-tab="log">Log</button>
-        <button type="button" class="planning-tab${planningState.tab === "gaps" ? " is-active" : ""}" data-planning-tab="gaps">Écarts</button>
-      </div>
-      <div class="planning-filters">
-        <label>
-          Département
-          <select id="planning-dept">
-            ${PLANNING_DEPTS.map((item) => `<option value="${item.id}"${item.id === model.dept ? " selected" : ""}>${item.label}</option>`).join("")}
-          </select>
-        </label>
-        <div class="planning-month">
-          <button type="button" class="outline-button" id="planning-prev">‹</button>
-          <strong>${escapeHtml(monthLabel)}</strong>
-          <button type="button" class="outline-button" id="planning-next">›</button>
-        </div>
-      </div>
-    </div>
-    ${planningState.tab === "log" ? renderPlanningLog(model)
-      : planningState.tab === "gaps" ? renderPlanningGaps(model)
-      : renderPlanningGrid(model)}`;
-}
+/* planningPage() moved to pages/planning.js */
 
 function renderPlanningGrid(model) {
   if (!model.profiles.length) {
@@ -6828,45 +5819,7 @@ function renderPlanningGaps(model) {
     </article>`;
 }
 
-function reportsPage() {
-  if (!canViewReports()) {
-    return `<article class="card"><p class="empty-state">Accès aux rapports non autorisé pour votre profil.</p></article>`;
-  }
-  const range = getEdsRange();
-  const rows = buildEdsRows();
-  const teamScope = canViewTeamPunches() || isAdmin();
-  return `
-    <p class="data-note">Cycle de paie EDS : du ${formatDate(range.start)} au ${formatDate(range.end)} (du 21 du mois précédent au 20 du mois en cours). ${teamScope ? "Vue équipe." : "Votre temps uniquement."} Les primes et salaires restent à renseigner pour la paie.</p>
-    ${renderGtaTeamInbox()}
-    <article class="card form-card page-spacer">
-      ${cardHeading("Exports")}
-      <div class="team-punches-actions">
-        <button type="button" id="export-eds" class="primary">Export EDS consolide</button>
-        <button type="button" id="export-absences" class="outline-button">Absences / congés</button>
-        <button type="button" id="export-retards" class="outline-button">Retards et heures manquantes</button>
-      </div>
-    </article>
-    <article class="card table-card page-spacer">
-      <div class="toolbar"><h3>Aperçu EDS</h3></div>
-      <div class="table-wrap eds-table-wrap">
-        <table class="eds-table">
-          <thead><tr>${EDS_COLUMNS.map((col) => `<th>${escapeHtml(col.label)}</th>`).join("")}</tr></thead>
-          <tbody>
-            ${rows.length
-              ? rows.map((row) => `
-                <tr>
-                  ${EDS_COLUMNS.map((col) => {
-                    const value = row[col.key] ?? "";
-                    const display = col.key === "nom" || col.key === "prenom" ? `<strong>${escapeHtml(value)}</strong>` : escapeHtml(value);
-                    return `<td title="${escapeHtml(value)}">${display}</td>`;
-                  }).join("")}
-                </tr>`).join("")
-              : `<tr><td colspan="${EDS_COLUMNS.length}" class="empty-cell">Aucune donnée pour ce cycle.</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    </article>`;
-}
+/* reportsPage() moved to pages/reports.js */
 
 function buildGlobalDashboardData() {
   const range = teamPunchFilters.start && teamPunchFilters.end
@@ -7229,55 +6182,7 @@ function renderGlobalDepartments(data) {
     </article>`;
 }
 
-function globalPage() {
-  if (!canViewGlobal()) {
-    return `<article class="card"><p class="empty-state">Accès au tableau de bord global réservé aux managers et administrateurs.</p></article>`;
-  }
-  if (!usesDatabase() && !demoMode) {
-    return `<article class="card"><p class="empty-state">Connectez-vous avec Microsoft pour consulter le tableau de bord global.</p></article>`;
-  }
-
-  if (!teamPunchFilters.start || !teamPunchFilters.end) {
-    teamPunchFilters = { ...teamPunchFilters, ...getDefaultTeamPunchRange() };
-  }
-  const data = buildGlobalDashboardData();
-
-  return `
-    <p class="data-note">Périmètre : ${data.profiles.length} collaborateur${data.profiles.length > 1 ? "s" : ""} · Période du ${formatDate(data.range.start)} au ${formatDate(data.range.end)}.</p>
-    <article class="card form-card page-spacer">
-      ${cardHeading("Période")}
-      <form id="global-filter" class="feature-form team-punches-filter">
-        <div class="form-row">
-          <label>
-            Du
-            <input type="date" name="start" value="${escapeHtml(data.range.start)}" required>
-          </label>
-          <label>
-            Au
-            <input type="date" name="end" value="${escapeHtml(data.range.end)}" required>
-          </label>
-        </div>
-        ${isAdmin() ? `
-        <label>
-          Périmètre
-          <select name="scope">
-            <option value="all"${teamPunchFilters.scope !== "team" ? " selected" : ""}>Tous les collaborateurs</option>
-            <option value="team"${teamPunchFilters.scope === "team" ? " selected" : ""}>Mon équipe directe</option>
-          </select>
-        </label>` : ""}
-        <div class="team-punches-actions">
-          <button type="submit" class="primary">Actualiser</button>
-        </div>
-      </form>
-    </article>
-    ${renderGlobalKpiCards(data)}
-    <div class="global-charts-grid">
-      ${renderGlobalDailyChart(data)}
-      ${renderGlobalDonut(data)}
-      ${renderGlobalTopDelays(data)}
-      ${renderGlobalDepartments(data)}
-    </div>`;
-}
+/* globalPage() moved to pages/global.js */
 
 function pageContent() {
   if (appData.loading) {
@@ -7290,21 +6195,12 @@ function pageContent() {
         <button type="button" id="retry-load" class="primary">Réessayer</button>
       </article>`;
   }
-  return {
-    home: homePage,
-    pointeuse: pointeusePage,
-    global: globalPage,
-    journal: journalPage,
-    "team-punches": teamPunchesPage,
-    reports: reportsPage,
-    leave: leavePage,
-    attestations: attestationsPage,
-    planning: planningPage,
-    events: eventsPage,
-    hierarchy: hierarchyPage,
-    admin: adminPage,
-    creator: creatorPage
-  }[currentPage]();
+  const registry = (window.Humana && window.Humana.pages) || {};
+  const renderer = registry[currentPage];
+  if (typeof renderer !== "function") {
+    return `<article class="card error-card"><p class="error-message">Module de page introuvable : ${escapeHtml(currentPage)}. Assurez-vous que pages/${currentPage}.js est charge.</p></article>`;
+  }
+  return renderer();
 }
 
 function isJwtClockError(error) {
@@ -9388,6 +8284,20 @@ async function initialize() {
     ensureAppContainer();
     if (shouldBootAuthenticatedUi()) showAuthBootScreen();
     bindLoginEvents();
+    // Reprise du mode démo après redirection depuis / vers /home.html.
+    if (mpaMode) {
+      let demoFlag = false;
+      try { demoFlag = sessionStorage.getItem("humana_demo_mode") === "1"; } catch (_) {}
+      if (demoFlag) {
+        try { sessionStorage.removeItem("humana_demo_mode"); } catch (_) {}
+        demoMode = true;
+        supabaseClient = getSupabaseClient();
+        hideAuthBootScreen();
+        hydrateDemoWorkspace();
+        renderApp();
+        return;
+      }
+    }
     if (window.__authReady) await window.__authReady;
     supabaseClient = getSupabaseClient();
     if (!shouldBootAuthenticatedUi()) {
@@ -9428,6 +8338,12 @@ async function initialize() {
         session = nextSession;
         demoMode = false;
         showAuthBootScreen();
+        // Sur / (login), l'app est en mode SPA sans pages/*.js chargées.
+        // Toute session valide doit basculer vers la vraie home MPA.
+        if (!mpaMode) {
+          window.location.href = "/home.html";
+          return;
+        }
         await bootstrapUser({ showSpinner: false });
         clearAuthParamsFromUrl();
         return;
@@ -9449,6 +8365,10 @@ async function initialize() {
       session = data.session;
       demoMode = false;
       showAuthBootScreen();
+      if (!mpaMode) {
+        window.location.href = "/home.html";
+        return;
+      }
       await bootstrapUser({ showSpinner: false });
       clearAuthParamsFromUrl();
     } else if (!data.session) {
@@ -9467,6 +8387,10 @@ window.humanaRender = async function (authSession) {
   initialAuthHandled = true;
   ensureAppContainer();
   showAuthBootScreen();
+  if (!mpaMode) {
+    window.location.href = "/home.html";
+    return;
+  }
   await bootstrapUser({ showSpinner: false });
   clearAuthParamsFromUrl();
 };
@@ -9576,8 +8500,14 @@ window.humanaStartDemo = function () {
   ensureAppContainer();
   hideAuthBootScreen();
   hydrateDemoWorkspace();
+  if (!mpaMode) {
+    // Le mode démo doit rejoindre la vraie home MPA (avec pages/*.js chargés).
+    // Le state démo est déjà hydraté et sera repris via la session côté nouvelle page.
+    try { sessionStorage.setItem("humana_demo_mode", "1"); } catch (_) { /* ignore */ }
+    window.location.href = "/home.html";
+    return;
+  }
   renderApp();
 };
 
 initialize();
-})();
