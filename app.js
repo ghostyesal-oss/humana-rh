@@ -6522,6 +6522,12 @@ function bindLoginEvents() {
   if (demoBtn && !demoBtn.dataset.humanaBound) {
     demoBtn.dataset.humanaBound = "1";
     demoBtn.addEventListener("click", () => {
+      // Passe par humanaStartDemo pour bénéficier de la redirection MPA
+      // (sinon sur index.html on tenterait un renderApp sans pages/*.js chargés).
+      if (typeof window.humanaStartDemo === "function") {
+        window.humanaStartDemo();
+        return;
+      }
       demoMode = true;
       hydrateDemoWorkspace();
       renderApp();
@@ -8155,6 +8161,8 @@ function bindAppEvents() {
       }
       orphans.forEach((key) => localStorage.removeItem(key));
     } catch (_) { /* ignore quota / privacy mode errors */ }
+    // Coupe le mode démo (persistant en sessionStorage entre les pages MPA).
+    try { sessionStorage.removeItem("humana_demo_mode"); } catch (_) { /* ignore */ }
     session = null;
     demoMode = false;
     currentPage = "home";
@@ -8287,11 +8295,12 @@ async function initialize() {
     if (shouldBootAuthenticatedUi()) showAuthBootScreen();
     bindLoginEvents();
     // Reprise du mode démo après redirection depuis / vers /home.html.
+    // Le flag reste dans sessionStorage tant que l'utilisateur ne se déconnecte
+    // pas : chaque navigation MPA (page reload) re-hydrate l'état démo.
     if (mpaMode) {
       let demoFlag = false;
       try { demoFlag = sessionStorage.getItem("humana_demo_mode") === "1"; } catch (_) {}
       if (demoFlag) {
-        try { sessionStorage.removeItem("humana_demo_mode"); } catch (_) {}
         demoMode = true;
         supabaseClient = getSupabaseClient();
         hideAuthBootScreen();
@@ -8512,4 +8521,12 @@ window.humanaStartDemo = function () {
   renderApp();
 };
 
-initialize();
+// Retarde initialize() jusqu'à ce que tous les scripts synchrones du HTML aient
+// été exécutés (dont pages/<key>.js). Sans cela, un renderApp() déclenché dans
+// initialize (portalMode, demoMode via flag, session Supabase déjà présente…)
+// pourrait tirer avant que le registre window.Humana.pages soit peuplé.
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initialize, { once: true });
+} else {
+  initialize();
+}
