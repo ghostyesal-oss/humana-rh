@@ -1,4 +1,4 @@
-{$CADDY_ADDRESS} {
+(humana_proxy) {
   encode gzip
 
   handle /api/* {
@@ -10,4 +10,12 @@
   }
 
   reverse_proxy web:80
+}
+
+:80 {
+  import humana_proxy
+}
+
+{$CADDY_ADDRESS} {
+  import humana_proxy
 }
