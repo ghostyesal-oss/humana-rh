@@ -50,6 +50,15 @@ pnpm-debug.log*
 # Sauvegardes locales (produites par scripts/extract-pages.mjs, etc.)
 *.bak
 
+# Dumps Supabase et archives (scripts/backup-supabase.ps1). Ces fichiers
+# contiennent des donnees personnelles : ne JAMAIS les commiter. Le script
+# ecrit par defaut dans %USERPROFILE%\backups\humana-supabase\, mais on
+# protege aussi le dossier du projet au cas ou -OutputRoot pointe ici.
+backups/
+humana_[0-9]*/
+humana_[0-9]*.7z
+*.dump
+
 # OS
 Thumbs.db
 .DS_Store

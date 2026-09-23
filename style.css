@@ -6523,3 +6523,214 @@ small { font-size: 11px; }
   background: var(--forest-mid);
   border-radius: 99px;
 }
+
+/* ==========================================================================
+ * Fluid 3D animations layer (Humana animations.js companion).
+ *
+ * S'ajoute par-dessus les regles existantes. Ne redefinit rien : ne fait que
+ * completer avec des transforms 3D activees par des classes ajoutees en JS.
+ * Toutes ces regles se desactivent proprement en `prefers-reduced-motion`.
+ * ========================================================================== */
+
+/* ----- Cross-document View Transitions (Chromium >= 126) ------------------ */
+@view-transition {
+  navigation: auto;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 340ms;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+::view-transition-new(root) { animation-name: hu-view-in; }
+::view-transition-old(root) { animation-name: hu-view-out; }
+@keyframes hu-view-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0)     scale(1); }
+}
+@keyframes hu-view-out {
+  from { opacity: 1; transform: translateY(0)     scale(1); }
+  to   { opacity: 0; transform: translateY(-8px)  scale(0.995); }
+}
+
+/* ----- Fallback fondu de navigation (Safari/Firefox) ---------------------- */
+html.hu-nav-leaving body {
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+body {
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+/* ----- Reveal on scroll --------------------------------------------------- */
+.hu-reveal {
+  opacity: 0;
+  transform: perspective(900px) translateY(22px) rotateX(4deg);
+  transition:
+    opacity 520ms cubic-bezier(0.2, 0.9, 0.2, 1) var(--hu-reveal-delay, 0ms),
+    transform 560ms cubic-bezier(0.2, 0.9, 0.2, 1) var(--hu-reveal-delay, 0ms);
+  will-change: opacity, transform;
+}
+.hu-reveal.hu-revealed {
+  opacity: 1;
+  transform: none;
+  will-change: auto;
+}
+
+/* ----- Tilt 3D souris sur les cartes -------------------------------------- */
+/* Preparent le contexte 3D ; le tilt reel est applique via .hu-tilt-active. */
+.card,
+.home-widget,
+.stat-card,
+.balance-card,
+.hours-card,
+.document-card {
+  position: relative;
+  transform-style: preserve-3d;
+  --hu-tiltX: 0deg;
+  --hu-tiltY: 0deg;
+  --hu-spotX: 50%;
+  --hu-spotY: 50%;
+}
+.card.hu-tilt-active,
+.home-widget.hu-tilt-active,
+.stat-card.hu-tilt-active,
+.balance-card.hu-tilt-active,
+.hours-card.hu-tilt-active,
+.document-card.hu-tilt-active {
+  transform:
+    perspective(1000px)
+    rotateX(var(--hu-tiltX))
+    rotateY(var(--hu-tiltY))
+    translateY(-3px)
+    translateZ(6px);
+  box-shadow: 0 18px 42px rgba(2, 35, 65, 0.16);
+  transition:
+    transform 220ms cubic-bezier(0.2, 0.9, 0.2, 1),
+    box-shadow 220ms ease;
+}
+[data-theme="dark"] .card.hu-tilt-active,
+[data-theme="dark"] .home-widget.hu-tilt-active,
+[data-theme="dark"] .stat-card.hu-tilt-active {
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.55);
+}
+
+/* Spot lumineux qui suit la souris. On l'inhibe sur home-widget qui a deja
+ * `overflow: hidden` : la lueur reste dans la carte. */
+.card.hu-tilt-active::after,
+.home-widget.hu-tilt-active::after,
+.stat-card.hu-tilt-active::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(
+    circle 220px at var(--hu-spotX) var(--hu-spotY),
+    rgba(255, 255, 255, 0.18),
+    rgba(255, 255, 255, 0) 60%
+  );
+  mix-blend-mode: overlay;
+  opacity: 1;
+  transition: opacity 200ms ease;
+}
+[data-theme="dark"] .card.hu-tilt-active::after,
+[data-theme="dark"] .home-widget.hu-tilt-active::after,
+[data-theme="dark"] .stat-card.hu-tilt-active::after {
+  background: radial-gradient(
+    circle 220px at var(--hu-spotX) var(--hu-spotY),
+    rgba(159, 190, 255, 0.22),
+    rgba(159, 190, 255, 0) 60%
+  );
+}
+
+/* Ne pas s'appliquer aux cartes qui contiennent un timeline visible ou un
+ * contenu qui deborde volontairement. */
+.card:has(.day-timeline),
+.card.punch-history-card {
+  transform-style: flat !important;
+}
+.card:has(.day-timeline).hu-tilt-active,
+.card.punch-history-card.hu-tilt-active {
+  transform: none !important;
+  box-shadow: 0 8px 24px rgba(2, 35, 65, 0.12);
+}
+
+/* ----- Press effect + ripple sur boutons ---------------------------------- */
+button,
+.primary,
+[role="button"],
+a.primary,
+a.button {
+  position: relative;
+  overflow: hidden;
+  transition: transform 140ms cubic-bezier(0.2, 0.9, 0.2, 1), box-shadow 200ms ease;
+}
+button:not(:disabled):active,
+.primary:not(:disabled):active,
+[role="button"]:not([aria-disabled="true"]):active,
+a.primary:active {
+  transform: translateZ(-4px) scale(0.97);
+}
+button.hu-ripple-active::after,
+.primary.hu-ripple-active::after,
+[role="button"].hu-ripple-active::after,
+a.primary.hu-ripple-active::after {
+  content: "";
+  position: absolute;
+  left: var(--hu-ripple-x, 50%);
+  top: var(--hu-ripple-y, 50%);
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  transform: scale(0);
+  animation: hu-ripple 620ms cubic-bezier(0.2, 0.9, 0.2, 1) forwards;
+  pointer-events: none;
+}
+[data-theme="dark"] button.hu-ripple-active::after,
+[data-theme="dark"] .primary.hu-ripple-active::after {
+  background: rgba(159, 190, 255, 0.35);
+}
+@keyframes hu-ripple {
+  0%   { transform: scale(0);  opacity: 0.55; }
+  100% { transform: scale(28); opacity: 0; }
+}
+/* Icones flat-buttons : pas de ripple lourd, juste une pulse. */
+.icon-button.hu-ripple-active::after,
+.close-button.hu-ripple-active::after { display: none; }
+.icon-button:not(:disabled):active,
+.close-button:not(:disabled):active {
+  transform: scale(0.9);
+}
+
+/* ----- Compteurs animes --------------------------------------------------- */
+[data-animate-count] {
+  font-variant-numeric: tabular-nums;
+  transition: color 200ms ease;
+}
+
+/* ----- Reduced motion ----------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .hu-reveal,
+  .hu-reveal.hu-revealed {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+  .card.hu-tilt-active,
+  .home-widget.hu-tilt-active,
+  .stat-card.hu-tilt-active {
+    transform: none !important;
+    box-shadow: none !important;
+  }
+  .card.hu-tilt-active::after,
+  .home-widget.hu-tilt-active::after,
+  .stat-card.hu-tilt-active::after { display: none; }
+  html.hu-nav-leaving body { opacity: 1; transform: none; }
+  button.hu-ripple-active::after,
+  .primary.hu-ripple-active::after { display: none; }
+  ::view-transition-old(root),
+  ::view-transition-new(root) { animation: none !important; }
+}
