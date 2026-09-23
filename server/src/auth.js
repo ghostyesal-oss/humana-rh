@@ -79,15 +79,20 @@ export function requireAuth(req, res, next) {
   next();
 }
 
+function entraEnv(name) {
+  return String(process.env[name] || "").trim();
+}
+
 function tenantUrl() {
-  const tenant = process.env.ENTRA_TENANT_ID || "common";
+  let tenant = entraEnv("ENTRA_TENANT_ID") || "common";
+  if (tenant === "commun") tenant = "common";
   return `https://login.microsoftonline.com/${tenant}/oauth2/v2.0`;
 }
 
 function callbackUrl(req) {
-  const configured = String(process.env.ENTRA_REDIRECT_URI || "").trim();
+  const configured = entraEnv("ENTRA_REDIRECT_URI");
   if (configured) return configured;
-  const origin = String(process.env.APP_ORIGIN || "").trim().replace(/\/$/, "");
+  const origin = entraEnv("APP_ORIGIN").replace(/\/$/, "");
   if (origin) return `${origin}/api/auth/microsoft/callback`;
   const proto = req.headers["x-forwarded-proto"] || req.protocol;
   const host = req.headers["x-forwarded-host"] || req.headers.host;
@@ -95,7 +100,7 @@ function callbackUrl(req) {
 }
 
 export function startMicrosoftLogin(req, res) {
-  const clientId = process.env.ENTRA_CLIENT_ID;
+  const clientId = entraEnv("ENTRA_CLIENT_ID");
   if (!clientId) {
     return res.status(500).send("ENTRA_CLIENT_ID manquant.");
   }
@@ -143,8 +148,8 @@ export async function finishMicrosoftLogin(req, res) {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        client_id: process.env.ENTRA_CLIENT_ID,
-        client_secret: process.env.ENTRA_CLIENT_SECRET,
+        client_id: entraEnv("ENTRA_CLIENT_ID"),
+        client_secret: entraEnv("ENTRA_CLIENT_SECRET"),
         grant_type: "authorization_code",
         code: String(code),
         redirect_uri: callbackUrl(req)
