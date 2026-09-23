@@ -1192,7 +1192,8 @@ button.brand:focus-visible {
 /* Page */
 
 .page {
-  max-width: 1100px;
+  max-width: 1480px;
+  width: min(1480px, calc(100% - 32px));
   margin: 0 auto;
   padding: var(--s3) var(--s4) var(--s5);
 }
@@ -3782,12 +3783,12 @@ tbody tr:hover td { background: var(--surface-2); }
 }
 
 .home-day-widget {
-  width: min(100%, 960px);
+  width: min(100%, 1320px);
   min-height: 0;
 }
 
 .home-day-widget .home-clock {
-  max-width: 820px;
+  max-width: 1200px;
   margin: 0 auto;
   padding-bottom: var(--s5);
 }
@@ -4477,7 +4478,8 @@ tbody tr:hover td { background: var(--surface-2); }
 /* Tableau de bord Global */
 
 .app-shell[data-current-page="global"] .page {
-  max-width: 1280px;
+  max-width: 1640px;
+  width: min(1640px, calc(100% - 32px));
 }
 
 .global-kpi-grid {
