@@ -294,6 +294,11 @@ html.auth-booting #app {
   overflow: hidden;
 }
 
+.login-bg,
+.main-bg {
+  display: none !important;
+}
+
 .login-bg {
   position: absolute;
   inset: 0;

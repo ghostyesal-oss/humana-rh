@@ -6614,11 +6614,6 @@ function renderLogin(error = "") {
     app.innerHTML = `
       <main class="login-page">
         <section class="login-brand">
-          <div class="login-bg" aria-hidden="true">
-            <span class="login-blob login-blob-1"></span>
-            <span class="login-blob login-blob-2"></span>
-            <span class="login-blob login-blob-3"></span>
-          </div>
           <div class="brand brand-large"><span>H</span> Humana</div>
           <div class="login-message">
             <span class="eyebrow">Humana RH</span>
@@ -6719,10 +6714,6 @@ function renderApp() {
       </aside>
       <button class="backdrop" type="button" aria-label="Fermer le menu"></button>
       <main class="main-content">
-        <div class="main-bg" aria-hidden="true">
-          <span class="main-blob main-blob-1"></span>
-          <span class="main-blob main-blob-2"></span>
-        </div>
         <header class="topbar">
           <button class="menu-button" type="button" aria-label="Menu"></button>
           <div class="topbar-page">${pages[currentPage][0]}</div>
