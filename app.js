@@ -8,25 +8,70 @@ let portalMode = false;
 const mpaMode = typeof document !== "undefined" && !!document.body?.dataset?.page;
 let currentPage = (mpaMode && document.body.dataset.page) || "home";
 
+const pageModulePromises = {};
+
+function ensurePageModule(page) {
+  if (window.Humana?.pages?.[page]) return Promise.resolve();
+  if (pageModulePromises[page]) return pageModulePromises[page];
+  pageModulePromises[page] = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = `pages/${page}.js?v=2`;
+    script.charset = "UTF-8";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`Module ${page} introuvable`));
+    document.body.appendChild(script);
+  });
+  return pageModulePromises[page];
+}
+
+function pageFromPath() {
+  const file = String(window.location.pathname.split("/").pop() || "").replace(/\.html$/i, "");
+  if (file && Object.prototype.hasOwnProperty.call(pages, file)) return file;
+  const fromBody = document.body?.dataset?.page;
+  if (fromBody && Object.prototype.hasOwnProperty.call(pages, fromBody)) return fromBody;
+  return "home";
+}
+
+function syncPageUrl(page) {
+  if (!mpaMode) return;
+  try {
+    const next = `${page}.html`;
+    const current = String(window.location.pathname.split("/").pop() || "");
+    if (current !== next) {
+      window.history.pushState({ humanaPage: page }, "", next);
+    }
+    document.body.dataset.page = page;
+    if (pages[page]) document.title = `${pages[page][0]} — Humana`;
+  } catch (_) { /* ignore */ }
+}
+
 function navigateToPage(nextPage, options = {}) {
   const target = String(nextPage || "home");
   document.querySelector(".sidebar")?.classList.remove("open");
-  if (target === "team-punches" || target === "global" || target === "planning") {
-    teamPunchesInitialLoadDone = false;
-  }
-  if (target === "journal") {
-    journalPunchesInitialLoadDone = false;
-  } else if (currentPage === "journal") {
+  if (currentPage === "journal" && target !== "journal") {
     try { closeJournalFullscreen(); } catch (_) { /* ok si non défini encore */ }
   }
-  if (mpaMode) {
-    // URL relative pour supporter aussi bien http:// (Vercel) que file:// (test local direct)
-    // et un éventuel déploiement sous un sous-chemin.
-    window.location.href = `${target}.html`;
-    return;
-  }
   currentPage = target;
-  if (options.render !== false) renderApp();
+  syncPageUrl(target);
+  ensurePageModule(target)
+    .then(() => {
+      if (options.render !== false) renderApp();
+    })
+    .catch(() => {
+      window.location.href = `${target}.html`;
+    });
+}
+
+if (typeof window !== "undefined" && !window.__humanaPopstateBound) {
+  window.__humanaPopstateBound = true;
+  window.addEventListener("popstate", () => {
+    if (!session?.user && !demoMode) return;
+    const target = pageFromPath();
+    currentPage = target;
+    ensurePageModule(target).then(() => renderApp()).catch(() => {
+      window.location.href = `${target}.html`;
+    });
+  });
 }
 let bootstrapInFlight = null;
 let hierarchySearch = "";
@@ -6435,10 +6480,6 @@ async function refreshAppData() {
     await loadStudioCreators();
     await loadGtaSettings();
     await loadCompanyEvents();
-
-    if (canViewTeamPunches()) {
-      await loadTeamPunches(teamPunchFilters);
-    }
 
     try {
       await loadGtaCollections(userId);
