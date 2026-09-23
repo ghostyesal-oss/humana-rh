@@ -12,21 +12,42 @@ run_sql() {
   fi
 }
 
+run_data() {
+  file=$1
+  if [ -f "$file" ]; then
+    echo ">>> $file (triggers off)"
+    { echo "SET session_replication_role = replica;"; cat "$file"; echo "SET session_replication_role = origin;"; } \
+      | docker compose exec -T postgres psql -U humana -d humana -v ON_ERROR_STOP=0 || true
+  else
+    echo ">>> skip (absent): $file"
+  fi
+}
+
 echo "Restore $DUMP dans Postgres Docker..."
+echo "Reset du schéma public (données incomplètes d'un essai précédent)..."
+docker compose exec -T postgres psql -U humana -d humana -v ON_ERROR_STOP=0 <<'SQL' || true
+drop schema if exists public cascade;
+create schema public;
+grant all on schema public to humana;
+grant all on schema public to public;
+SQL
+
 run_sql server/sql/before-restore.sql
 
 if [ -d "$DUMP" ]; then
   echo "Dossier SQL détecté."
   run_sql "$DUMP/schema-public.sql"
+  run_sql server/sql/drop-auth-fks.sql
   run_sql "$DUMP/schema-storage.sql"
-  run_sql "$DUMP/data-public.sql"
-  run_sql "$DUMP/data-storage.sql"
-  run_sql "$DUMP/auth-users.sql"
+  run_sql server/sql/drop-auth-fks.sql
+  run_data "$DUMP/data-public.sql"
+  run_data "$DUMP/data-storage.sql"
+  echo ">>> skip auth-users.sql (SSO Microsoft, pas Supabase Auth)"
 elif [ -f "$DUMP" ]; then
   if grep -q "PostgreSQL custom database dump" "$DUMP" 2>/dev/null; then
     docker compose exec -T postgres pg_restore -U humana -d humana --no-owner --no-acl --verbose < "$DUMP" || true
   else
-    run_sql "$DUMP"
+    run_data "$DUMP"
   fi
 else
   echo "Fichier ou dossier introuvable: $DUMP"

@@ -1,6 +1,30 @@
--- A lancer APRES restauration du dump (désactive le RLS Supabase : l'API Node filtre).
+-- Après restauration : l'API Node filtre, plus de RLS / triggers Supabase.
 create extension if not exists pgcrypto;
 create extension if not exists "uuid-ossp";
+
+do $$
+declare r record;
+begin
+  for r in
+    select n.nspname as sch, c.relname as tbl, t.tgname
+    from pg_trigger t
+    join pg_class c on c.oid = t.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where not t.tgisinternal
+      and n.nspname in ('public', 'storage')
+  loop
+    execute format('drop trigger if exists %I on %I.%I', r.tgname, r.sch, r.tbl);
+  end loop;
+end $$;
+
+do $$
+declare r record;
+begin
+  for r in select schemaname, tablename, policyname from pg_policies
+  loop
+    execute format('drop policy if exists %I on %I.%I', r.policyname, r.schemaname, r.tablename);
+  end loop;
+end $$;
 
 do $$
 declare r record;
