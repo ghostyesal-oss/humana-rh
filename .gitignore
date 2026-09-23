@@ -1,7 +1,18 @@
+# Dumps Postgres (ne jamais committer une base RH)
+bd_dump
+*.dump
+dumps/
+auth-users.sql
+data-public.sql
+data-storage.sql
+schema-public.sql
+schema-storage.sql
+
 # Environnement local / secrets
 .env
 .env.local
 .env.*.local
+deploy/.env
 *.pem
 *.key
 *.p12

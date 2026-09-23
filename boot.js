@@ -2,12 +2,12 @@
    Chargé après supabase-js et avant app.js. Partagé par tous les HTML (SPA + MPA). */
 (function bootSupabase() {
   var config = window.HUMANA_CONFIG || {};
-  var url = (config.SUPABASE_URL || "").replace(/\/rest\/v1\/?$/, "").replace(/\/$/, "");
-  var key = config.SUPABASE_ANON_KEY || "";
+  var url = (config.API_URL || config.SUPABASE_URL || "").replace(/\/rest\/v1\/?$/, "").replace(/\/$/, "");
+  var key = config.SUPABASE_ANON_KEY || "local";
   var loginButton = document.getElementById("microsoft-login");
   var configNote = document.getElementById("config-note");
 
-  if (!url || !key || !window.supabase || !window.supabase.createClient) {
+  if (!window.supabase || !window.supabase.createClient) {
     if (configNote) configNote.hidden = false;
     return;
   }
@@ -38,13 +38,13 @@
   function formatOAuthError(message) {
     if (!message) return "Impossible de finaliser la connexion Microsoft.";
     if (message.indexOf("code verifier") !== -1 || message.indexOf("PKCE") !== -1) {
-      return "Connexion Microsoft interrompue : le retour OAuth n'est pas revenu sur la même adresse (ex. localhost vs 127.0.0.1, ou local vs Vercel). Ajoutez " + getAuthRedirectTo() + " dans Supabase > Authentication > URL Configuration > Redirect URLs, puis reconnectez-vous depuis cette même URL.";
+      return "Connexion Microsoft interrompue : reconnectez-vous depuis l'adresse de production " + getAuthRedirectTo() + ".";
     }
     if (message.indexOf("Unable to exchange external code") !== -1) {
-      return "Configuration Microsoft incorrecte dans Supabase. Vérifiez : (1) le Client Secret Azure = la Valeur, pas l'ID du secret, (2) l'URI de redirection Azure en type Web, (3) l'URL du tenant Azure dans Supabase.";
+      return "Configuration Microsoft incorrecte. Vérifiez le secret Azure, l'URI de redirection Web https://votre-domaine/api/auth/microsoft/callback, et ENTRA_CLIENT_ID / ENTRA_CLIENT_SECRET sur le serveur.";
     }
-    if (message.indexOf("Error getting user email") !== -1) {
-      return "Microsoft n'a pas transmis l'e-mail. Ajoutez les autorisations email/openid dans Azure et le scope email dans Supabase.";
+    if (message.indexOf("Error getting user email") !== -1 || message.indexOf("n'a pas transmis") !== -1) {
+      return "Microsoft n'a pas transmis l'e-mail. Ajoutez les autorisations email/openid et User.Read dans Entra.";
     }
     return message;
   }
@@ -125,7 +125,7 @@
     if (!client) {
       if (errorBox) {
         errorBox.hidden = false;
-        errorBox.textContent = "Connexion Supabase indisponible.";
+        errorBox.textContent = "Connexion indisponible. Rechargez la page.";
       }
       return;
     }

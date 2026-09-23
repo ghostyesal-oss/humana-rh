@@ -1,0 +1,79 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: humana
+      POSTGRES_USER: humana
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./server/sql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U humana -d humana"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - humana
+
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://humana:${POSTGRES_PASSWORD}@postgres:5432/humana
+      PORT: "3000"
+      STORAGE_ROOT: /data/storage
+      HUMANA_DOMAIN: ${HUMANA_DOMAIN}
+      APP_ORIGIN: ${APP_ORIGIN}
+    volumes:
+      - storage:/data/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - humana
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+    restart: unless-stopped
+    environment:
+      API_URL: ""
+      REDIRECT_URL: ${APP_ORIGIN}
+    depends_on:
+      - api
+    networks:
+      - humana
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      HUMANA_DOMAIN: ${HUMANA_DOMAIN}
+      CADDY_ADDRESS: ${CADDY_ADDRESS:-${HUMANA_DOMAIN}}
+    volumes:
+      - ./deploy/Caddyfile.selfhost:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - api
+    networks:
+      - humana
+
+volumes:
+  pgdata:
+  storage:
+  caddy_data:
+  caddy_config:
+
+networks:
+  humana:

@@ -1,0 +1,37 @@
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file: .env
+    restart: unless-stopped
+    networks:
+      - humana
+      - supabase_default
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      HUMANA_DOMAIN: ${HUMANA_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    networks:
+      - humana
+      - supabase_default
+
+networks:
+  humana:
+  supabase_default:
+    external: true
+
+volumes:
+  caddy_data:
+  caddy_config:

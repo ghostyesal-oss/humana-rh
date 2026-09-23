@@ -1,0 +1,225 @@
+import crypto from "node:crypto";
+import jwt from "jsonwebtoken";
+import { query } from "./db.js";
+
+const COOKIE = "humana_session";
+const STATE_COOKIE = "humana_oauth_state";
+
+function jwtSecret() {
+  const secret = process.env.JWT_SECRET || "";
+  if (secret.length < 32) {
+    throw new Error("JWT_SECRET doit faire au moins 32 caractères.");
+  }
+  return secret;
+}
+
+export function signUser(profile) {
+  return jwt.sign(
+    {
+      sub: profile.id,
+      email: profile.email,
+      role: profile.role || "employee",
+      name: profile.full_name || ""
+    },
+    jwtSecret(),
+    { expiresIn: "7d" }
+  );
+}
+
+export function readToken(req) {
+  const header = req.headers.authorization || "";
+  const bearer = header.startsWith("Bearer ") ? header.slice(7) : "";
+  const token = bearer || req.cookies?.[COOKIE] || "";
+  if (!token) return null;
+  try {
+    return jwt.verify(token, jwtSecret());
+  } catch {
+    return null;
+  }
+}
+
+export function setSessionCookie(res, token) {
+  res.cookie(COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.COOKIE_SECURE !== "false",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    path: "/"
+  });
+}
+
+export function clearSessionCookie(res) {
+  res.clearCookie(COOKIE, {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.COOKIE_SECURE !== "false"
+  });
+}
+
+export async function loadProfile(userId) {
+  const { rows } = await query("select * from public.profiles where id = $1 limit 1", [userId]);
+  return rows[0] || null;
+}
+
+export async function findProfileByEmail(email) {
+  const { rows } = await query(
+    "select * from public.profiles where lower(email) = lower($1) limit 1",
+    [email]
+  );
+  return rows[0] || null;
+}
+
+export function requireAuth(req, res, next) {
+  const payload = readToken(req);
+  if (!payload?.sub) {
+    return res.status(401).json({ error: "Non authentifié." });
+  }
+  req.user = payload;
+  next();
+}
+
+function tenantUrl() {
+  const tenant = process.env.ENTRA_TENANT_ID || "common";
+  return `https://login.microsoftonline.com/${tenant}/oauth2/v2.0`;
+}
+
+function callbackUrl(req) {
+  if (process.env.ENTRA_REDIRECT_URI) return process.env.ENTRA_REDIRECT_URI;
+  const proto = req.headers["x-forwarded-proto"] || req.protocol;
+  const host = req.headers["x-forwarded-host"] || req.headers.host;
+  return `${proto}://${host}/api/auth/microsoft/callback`;
+}
+
+export function startMicrosoftLogin(req, res) {
+  const clientId = process.env.ENTRA_CLIENT_ID;
+  if (!clientId) {
+    return res.status(500).send("ENTRA_CLIENT_ID manquant.");
+  }
+  const state = crypto.randomBytes(16).toString("hex");
+  res.cookie(STATE_COOKIE, state, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.COOKIE_SECURE !== "false",
+    maxAge: 10 * 60 * 1000,
+    path: "/"
+  });
+  const params = new URLSearchParams({
+    client_id: clientId,
+    response_type: "code",
+    redirect_uri: callbackUrl(req),
+    response_mode: "query",
+    scope: "openid email profile User.Read",
+    state
+  });
+  res.redirect(`${tenantUrl()}/authorize?${params.toString()}`);
+}
+
+function decodeJwtPayload(token) {
+  try {
+    const part = String(token || "").split(".")[1];
+    if (!part) return {};
+    return JSON.parse(Buffer.from(part, "base64url").toString("utf8"));
+  } catch {
+    return {};
+  }
+}
+
+export async function finishMicrosoftLogin(req, res) {
+  try {
+    const { code, state, error, error_description: description } = req.query;
+    if (error) {
+      return res.redirect(`/?error=${encodeURIComponent(description || error)}`);
+    }
+    if (!code || !state || state !== req.cookies?.[STATE_COOKIE]) {
+      return res.redirect("/?error=Etat+OAuth+invalide");
+    }
+    res.clearCookie(STATE_COOKIE, { path: "/" });
+
+    const tokenRes = await fetch(`${tenantUrl()}/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: process.env.ENTRA_CLIENT_ID,
+        client_secret: process.env.ENTRA_CLIENT_SECRET,
+        grant_type: "authorization_code",
+        code: String(code),
+        redirect_uri: callbackUrl(req)
+      })
+    });
+    const tokenJson = await tokenRes.json();
+    if (!tokenRes.ok) {
+      return res.redirect(`/?error=${encodeURIComponent(tokenJson.error_description || "Echange+token+Microsoft+echoue")}`);
+    }
+
+    const claims = decodeJwtPayload(tokenJson.id_token);
+    let email = String(claims.email || claims.preferred_username || "").trim().toLowerCase();
+    let fullName = String(claims.name || "").trim();
+    if (!email && tokenJson.access_token) {
+      const me = await fetch("https://graph.microsoft.com/v1.0/me", {
+        headers: { Authorization: `Bearer ${tokenJson.access_token}` }
+      });
+      if (me.ok) {
+        const body = await me.json();
+        email = String(body.mail || body.userPrincipalName || "").trim().toLowerCase();
+        fullName = fullName || String(body.displayName || "").trim();
+      }
+    }
+    if (!email) {
+      return res.redirect("/?error=Microsoft+n+a+pas+transmis+d+e-mail");
+    }
+
+    let profile = await findProfileByEmail(email);
+    if (!profile) {
+      let row = null;
+      try {
+        const invite = await query(
+          "select * from public.pending_invites where lower(email) = $1 limit 1",
+          [email]
+        );
+        row = invite.rows[0];
+      } catch (_) {
+        row = null;
+      }
+      if (!row && process.env.ALLOW_UNKNOWN_LOGIN !== "true") {
+        return res.redirect("/?error=Compte+non+invite.+Contactez+un+administrateur.");
+      }
+      const created = await query(
+        `insert into public.profiles (id, email, full_name, role, job_title, department)
+         values (gen_random_uuid(), $1, $2, $3, $4, $5)
+         returning *`,
+        [
+          email,
+          row?.full_name || fullName || email,
+          row?.role || "employee",
+          row?.job_title || "Collaborateur",
+          row?.department || "General"
+        ]
+      );
+      profile = created.rows[0];
+      if (row?.id) {
+        await query("delete from public.pending_invites where id = $1", [row.id]);
+      }
+    }
+
+    const token = signUser(profile);
+    setSessionCookie(res, token);
+    res.redirect("/");
+  } catch (error) {
+    console.error(error);
+    res.redirect("/?error=Connexion+Microsoft+impossible");
+  }
+}
+
+export function sessionPayload(user, profile) {
+  return {
+    access_token: "cookie",
+    token_type: "bearer",
+    user: {
+      id: user.sub,
+      email: user.email,
+      role: profile?.role || user.role,
+      user_metadata: { full_name: profile?.full_name || user.name || user.email }
+    }
+  };
+}

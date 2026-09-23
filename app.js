@@ -6613,7 +6613,7 @@ function renderLogin(error = "") {
 async function signInWithMicrosoft() {
   if (!supabaseClient) supabaseClient = getSupabaseClient();
   if (!supabaseClient) {
-    setLoginState({ ready: false, error: "Connexion Supabase indisponible. Rechargez la page." });
+    setLoginState({ ready: false, error: "Connexion indisponible. Rechargez la page." });
     return;
   }
   const button = document.querySelector("#microsoft-login");
@@ -8251,10 +8251,13 @@ function readPortalUser() {
 }
 
 function getSupabaseSettings() {
-  const { SUPABASE_URL = "", SUPABASE_ANON_KEY = "" } = window.HUMANA_CONFIG || {};
+  const cfg = window.HUMANA_CONFIG || {};
+  const url = (cfg.API_URL || cfg.SUPABASE_URL || window.location.origin || "")
+    .replace(/\/rest\/v1\/?$/, "")
+    .replace(/\/$/, "");
   return {
-    url: SUPABASE_URL.replace(/\/rest\/v1\/?$/, "").replace(/\/$/, ""),
-    key: SUPABASE_ANON_KEY
+    url,
+    key: cfg.SUPABASE_ANON_KEY || "local"
   };
 }
 

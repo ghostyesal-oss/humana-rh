@@ -1,12 +1,7 @@
-// Copiez ce fichier en "config.js" et renseignez vos clés Supabase.
-// config.js n'est pas versionné (voir .gitignore).
+// Copiez ce fichier en "config.js" pour un test local sans Docker.
 window.HUMANA_CONFIG = {
-  SUPABASE_URL: "https://chrchwgsrqzmekdsmrub.supabase.co",
-  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNocmNod2dzcnF6bWVrZHNtcnViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwMzY4NDUsImV4cCI6MjEwMjYxMjg0NX0.rpdYzi7UXIDFtyXyb3nLhAdYyyrX8Kjm9Kqdz4s4DBk",
-  REDIRECT_URL: "https://humana-rh.vercel.app",
-  // Facultatif : clé publique VAPID pour activer les notifications Web Push
-  // lorsque l'onglet Humana n'est pas ouvert. Générez-la avec :
-  //   npx web-push generate-vapid-keys
-  // La clé privée reste côté serveur (Edge Function Supabase).
-  VAPID_PUBLIC_KEY: ""
+  API_URL: "",
+  SUPABASE_URL: "",
+  SUPABASE_ANON_KEY: "local",
+  REDIRECT_URL: "https://rh.exemple.fr"
 };
