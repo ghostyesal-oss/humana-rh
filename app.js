@@ -15,7 +15,7 @@ function ensurePageModule(page) {
   if (pageModulePromises[page]) return pageModulePromises[page];
   pageModulePromises[page] = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = `pages/${page}.js?v=2`;
+    script.src = `pages/${page}.js?v=3`;
     script.charset = "UTF-8";
     script.onload = () => resolve();
     script.onerror = () => reject(new Error(`Module ${page} introuvable`));
@@ -5387,6 +5387,12 @@ function earlyLeaveMinutes(row, profile) {
   return Math.max(0, expected - endMin);
 }
 
+const EDS_PAYROLL_EMAILS = [
+  "yzniber@cegid.com",
+  "tslaoui@cegid.com",
+  "mkhalki@cegid.com"
+];
+
 const EDS_COLUMNS = [
   { key: "statut", label: "Statut" },
   { key: "nom", label: "Nom" },
@@ -5417,39 +5423,52 @@ const EDS_COLUMNS = [
   { key: "maternityDesc", label: "Maternité Description" },
   { key: "recup", label: "Récupération" },
   { key: "recupDesc", label: "Récupération Description" },
-  { key: "primesExcept", label: "Primes except" },
-  { key: "primeOutbound", label: "Prime outbound" },
-  { key: "primeProjet", label: "Prime projet" },
-  { key: "primeChallenge", label: "Prime challenge" },
-  { key: "primeEid", label: "Prime Eid - Exonérée" },
-  { key: "primeParrainage", label: "Prime parrainage" },
-  { key: "primeLangue", label: "Prime langue" },
-  { key: "primeProd", label: "Prime productivité" },
-  { key: "regulM1", label: "Régul M-1" },
-  { key: "primeAnciennete", label: "Prime ancienneté" },
-  { key: "hs100", label: "Heures sup 100%" },
-  { key: "hs125", label: "Heures sup 125% (entre 5h et 20h)" },
-  { key: "hs150", label: "Heures sup 150% (entre 20h et 5h)" },
-  { key: "avance", label: "Avance (à déduire)" },
-  { key: "preavis", label: "Retenues préavis (Jrs)" },
-  { key: "chifaa", label: "Chifaa Monde" },
-  { key: "retraiteSal", label: "% Retraite salariale" },
-  { key: "retraitePat", label: "% Retraite patronale" },
-  { key: "salaireBrut", label: "Salaire mensuel brut" },
-  { key: "salaireNet", label: "Salaire mensuel net" },
+  { key: "primesExcept", label: "Primes except", payroll: true },
+  { key: "primeOutbound", label: "Prime outbound", payroll: true },
+  { key: "primeProjet", label: "Prime projet", payroll: true },
+  { key: "primeChallenge", label: "Prime challenge", payroll: true },
+  { key: "primeEid", label: "Prime Eid - Exonérée", payroll: true },
+  { key: "primeParrainage", label: "Prime parrainage", payroll: true },
+  { key: "primeLangue", label: "Prime langue", payroll: true },
+  { key: "primeProd", label: "Prime productivité", payroll: true },
+  { key: "regulM1", label: "Régul M-1", payroll: true },
+  { key: "primeAnciennete", label: "Prime ancienneté", payroll: true },
+  { key: "hs100", label: "Heures sup 100%", payroll: true },
+  { key: "hs125", label: "Heures sup 125% (entre 5h et 20h)", payroll: true },
+  { key: "hs150", label: "Heures sup 150% (entre 20h et 5h)", payroll: true },
+  { key: "avance", label: "Avance (à déduire)", payroll: true },
+  { key: "preavis", label: "Retenues préavis (Jrs)", payroll: true },
+  { key: "chifaa", label: "Chifaa Monde", payroll: true },
+  { key: "retraiteSal", label: "% Retraite salariale", payroll: true },
+  { key: "retraitePat", label: "% Retraite patronale", payroll: true },
+  { key: "salaireBrut", label: "Salaire mensuel brut", payroll: true },
+  { key: "salaireNet", label: "Salaire mensuel net", payroll: true },
   { key: "soldeConge", label: "Solde de congé" },
   { key: "totalHeuresAbs", label: "Total Heures Absences" },
   { key: "joursTravailles", label: "Jours travaillés" },
-  { key: "primesFixesPror", label: "Primes fixes pror." },
-  { key: "variablePror", label: "Variable Pror." },
-  { key: "salaireEstime", label: "Salaire estimé" },
+  { key: "primesFixesPror", label: "Primes fixes pror.", payroll: true },
+  { key: "variablePror", label: "Variable Pror.", payroll: true },
+  { key: "salaireEstime", label: "Salaire estimé", payroll: true },
   { key: "commentaires", label: "Commentaires" },
   { key: "absHorsRetard", label: "Absences Hors Retard" },
   { key: "unpaidHours", label: "Congé Sans Solde H" },
   { key: "totalAbsJut", label: "Total ABS JUT" },
-  { key: "primeProjet2", label: "Prime Projet" },
-  { key: "primeOutbound2", label: "Prime Outbound" }
+  { key: "primeProjet2", label: "Prime Projet", payroll: true },
+  { key: "primeOutbound2", label: "Prime Outbound", payroll: true }
 ];
+
+function currentUserEmail() {
+  return String(session?.user?.email || appData.profile?.email || "").trim().toLowerCase();
+}
+
+function canViewEdsPayrollColumns() {
+  return EDS_PAYROLL_EMAILS.includes(currentUserEmail());
+}
+
+function visibleEdsColumns() {
+  const showPayroll = canViewEdsPayrollColumns();
+  return EDS_COLUMNS.filter((col) => !col.payroll || showPayroll);
+}
 
 function buildEdsRows() {
   const range = getEdsRange();
@@ -5520,8 +5539,9 @@ function buildEdsRows() {
     const totalHeuresAbs = edsQty(absenceDays * 8 + earlyHours + retardHours);
     const absHorsRetard = edsQty(absenceDays * 8 + earlyHours);
     const hsHours = edsQty(otMs / 3600000);
+    const showPayroll = canViewEdsPayrollColumns();
 
-    return {
+    const row = {
       statut: "Actif",
       nom: names.last,
       prenom: names.first,
@@ -5551,48 +5571,53 @@ function buildEdsRows() {
       maternityDesc: maternity.desc,
       recup: recup.qty,
       recupDesc: recup.desc,
-      primesExcept: 0,
-      primeOutbound: 0,
-      primeProjet: 0,
-      primeChallenge: 0,
-      primeEid: 0,
-      primeParrainage: 0,
-      primeLangue: 0,
-      primeProd: 0,
-      regulM1: 0,
-      primeAnciennete: 0,
-      hs100: 0,
-      hs125: hsHours,
-      hs150: 0,
-      avance: 0,
-      preavis: 0,
-      chifaa: 0,
-      retraiteSal: "",
-      retraitePat: "",
-      salaireBrut: "",
-      salaireNet: "",
       soldeConge: edsQty(cpBalance),
       totalHeuresAbs,
       joursTravailles: workedDays,
-      primesFixesPror: 0,
-      variablePror: 0,
-      salaireEstime: "",
       commentaires: "",
       absHorsRetard,
       unpaidHours: edsQty(unpaid.qty * 8),
       totalAbsJut: just.qty,
-      primeProjet2: 0,
-      primeOutbound2: 0,
       planned,
       realized,
       missing,
       range
     };
+    if (showPayroll) {
+      Object.assign(row, {
+        primesExcept: 0,
+        primeOutbound: 0,
+        primeProjet: 0,
+        primeChallenge: 0,
+        primeEid: 0,
+        primeParrainage: 0,
+        primeLangue: 0,
+        primeProd: 0,
+        regulM1: 0,
+        primeAnciennete: 0,
+        hs100: 0,
+        hs125: hsHours,
+        hs150: 0,
+        avance: 0,
+        preavis: 0,
+        chifaa: 0,
+        retraiteSal: "",
+        retraitePat: "",
+        salaireBrut: "",
+        salaireNet: "",
+        primesFixesPror: 0,
+        variablePror: 0,
+        salaireEstime: "",
+        primeProjet2: 0,
+        primeOutbound2: 0
+      });
+    }
+    return row;
   });
 }
 
-function edsRowCells(row) {
-  return EDS_COLUMNS.map((col) => row[col.key] ?? "");
+function edsRowCells(row, columns = visibleEdsColumns()) {
+  return columns.map((col) => row[col.key] ?? "");
 }
 
 const PLANNING_DEPTS = [
@@ -7468,9 +7493,10 @@ function bindPageEvents() {
   document.querySelector("#export-eds")?.addEventListener("click", () => {
     const rows = buildEdsRows();
     const range = getEdsRange();
+    const columns = visibleEdsColumns();
     downloadCsv(`eds_${range.start}_${range.end}.csv`,
-      EDS_COLUMNS.map((col) => col.label),
-      rows.map((row) => edsRowCells(row)));
+      columns.map((col) => col.label),
+      rows.map((row) => edsRowCells(row, columns)));
   });
   document.querySelector("#export-absences")?.addEventListener("click", () => {
     const requests = [...getLeaveRequests(), ...(appData.teamLeaveRequests || [])];

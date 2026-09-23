@@ -12,9 +12,13 @@
     }
     const range = getEdsRange();
     const rows = buildEdsRows();
+    const columns = visibleEdsColumns();
     const teamScope = canViewTeamPunches() || isAdmin();
+    const payrollNote = canViewEdsPayrollColumns()
+      ? "Les colonnes jaunes (primes, salaires, heures sup paie) sont visibles pour votre compte."
+      : "Les colonnes paie (primes, salaires, heures sup) sont masquées.";
     return `
-      <p class="data-note">Cycle de paie EDS : du ${formatDate(range.start)} au ${formatDate(range.end)} (du 21 du mois précédent au 20 du mois en cours). ${teamScope ? "Vue équipe." : "Votre temps uniquement."} Les primes et salaires restent à renseigner pour la paie.</p>
+      <p class="data-note">Cycle de paie EDS : du ${formatDate(range.start)} au ${formatDate(range.end)} (du 21 du mois précédent au 20 du mois en cours). ${teamScope ? "Vue équipe." : "Votre temps uniquement."} ${payrollNote}</p>
       ${renderGtaTeamInbox()}
       <article class="card form-card page-spacer">
         ${cardHeading("Exports")}
@@ -28,18 +32,18 @@
         <div class="toolbar"><h3>Aperçu EDS</h3></div>
         <div class="table-wrap eds-table-wrap">
           <table class="eds-table">
-            <thead><tr>${EDS_COLUMNS.map((col) => `<th>${escapeHtml(col.label)}</th>`).join("")}</tr></thead>
+            <thead><tr>${columns.map((col) => `<th${col.payroll ? " class=\"eds-payroll\"" : ""}>${escapeHtml(col.label)}</th>`).join("")}</tr></thead>
             <tbody>
               ${rows.length
                 ? rows.map((row) => `
                   <tr>
-                    ${EDS_COLUMNS.map((col) => {
+                    ${columns.map((col) => {
                       const value = row[col.key] ?? "";
                       const display = col.key === "nom" || col.key === "prenom" ? `<strong>${escapeHtml(value)}</strong>` : escapeHtml(value);
-                      return `<td title="${escapeHtml(value)}">${display}</td>`;
+                      return `<td${col.payroll ? " class=\"eds-payroll\"" : ""} title="${escapeHtml(value)}">${display}</td>`;
                     }).join("")}
                   </tr>`).join("")
-                : `<tr><td colspan="${EDS_COLUMNS.length}" class="empty-cell">Aucune donnée pour ce cycle.</td></tr>`}
+                : `<tr><td colspan="${columns.length}" class="empty-cell">Aucune donnée pour ce cycle.</td></tr>`}
             </tbody>
           </table>
         </div>

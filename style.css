@@ -1480,6 +1480,18 @@ button.brand:focus-visible {
   white-space: normal;
 }
 
+.eds-table th.eds-payroll,
+.eds-table td.eds-payroll {
+  background: #ffe566;
+  color: #3a3208;
+}
+
+[data-theme="dark"] .eds-table th.eds-payroll,
+[data-theme="dark"] .eds-table td.eds-payroll {
+  background: #8a7410;
+  color: #fff6c2;
+}
+
 .table-wrap {
   overflow-x: auto;
   overflow-y: auto;
