@@ -25,12 +25,7 @@ run_data() {
 
 echo "Restore $DUMP dans Postgres Docker..."
 echo "Reset du schéma public (données incomplètes d'un essai précédent)..."
-docker compose exec -T postgres psql -U humana -d humana -v ON_ERROR_STOP=0 <<'SQL' || true
-drop schema if exists public cascade;
-create schema public;
-grant all on schema public to humana;
-grant all on schema public to public;
-SQL
+docker compose exec -T postgres psql -U humana -d humana -v ON_ERROR_STOP=0 -c "drop schema if exists public cascade; drop schema if exists storage cascade; create schema public; grant all on schema public to humana; grant all on schema public to public;" || true
 
 run_sql server/sql/before-restore.sql
 
