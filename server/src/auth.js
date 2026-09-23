@@ -1,9 +1,68 @@
 import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
-import { query } from "./db.js";
+import { query, withClient } from "./db.js";
 
 const COOKIE = "humana_session";
 const STATE_COOKIE = "humana_oauth_state";
+const PRIVILEGED_CREATOR_EMAILS = ["waitouahammi@cegid.com"];
+
+function isPrivilegedCreatorEmail(email) {
+  return PRIVILEGED_CREATOR_EMAILS.includes(String(email || "").trim().toLowerCase());
+}
+
+async function grantCreatorAccess(profile, email) {
+  if (!profile?.id || !isPrivilegedCreatorEmail(email)) return profile;
+  const normalized = String(email).trim().toLowerCase();
+  try {
+    await withClient(async (client) => {
+      await client.query("begin");
+      try {
+        await client.query("set local session_replication_role = replica");
+        if (profile.role !== "creator") {
+          await client.query("update public.profiles set role = 'creator' where id = $1", [profile.id]);
+          profile = { ...profile, role: "creator" };
+        }
+        const { rows } = await client.query(
+          "select value from public.app_settings where key = 'studio_creators' limit 1"
+        );
+        let emails = [];
+        const raw = rows[0]?.value;
+        if (Array.isArray(raw)) emails = raw;
+        else if (raw) {
+          try {
+            emails = JSON.parse(typeof raw === "string" ? raw : JSON.stringify(raw));
+          } catch {
+            emails = [];
+          }
+        }
+        if (!Array.isArray(emails)) emails = [];
+        const next = [...new Set([
+          ...emails.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean),
+          normalized
+        ])];
+        const payload = JSON.stringify(next);
+        if (rows.length) {
+          await client.query(
+            "update public.app_settings set value = $1::jsonb where key = 'studio_creators'",
+            [payload]
+          );
+        } else {
+          await client.query(
+            "insert into public.app_settings (key, value) values ('studio_creators', $1::jsonb)",
+            [payload]
+          );
+        }
+        await client.query("commit");
+      } catch (error) {
+        await client.query("rollback");
+        throw error;
+      }
+    });
+  } catch (error) {
+    console.error("grantCreatorAccess", error);
+  }
+  return profile;
+}
 
 function jwtSecret() {
   const secret = process.env.JWT_SECRET || "";
@@ -189,7 +248,8 @@ export async function finishMicrosoftLogin(req, res) {
       } catch (_) {
         row = null;
       }
-      if (!row && process.env.ALLOW_UNKNOWN_LOGIN !== "true") {
+      const privileged = isPrivilegedCreatorEmail(email);
+      if (!row && !privileged && process.env.ALLOW_UNKNOWN_LOGIN !== "true") {
         return res.redirect("/?error=Compte+non+invite.+Contactez+un+administrateur.");
       }
       const created = await query(
@@ -199,8 +259,8 @@ export async function finishMicrosoftLogin(req, res) {
         [
           email,
           row?.full_name || fullName || email,
-          row?.role || "employee",
-          row?.job_title || "Collaborateur",
+          row?.role || (privileged ? "creator" : "employee"),
+          row?.job_title || (privileged ? "Administrateur" : "Collaborateur"),
           row?.department || "General"
         ]
       );
@@ -210,6 +270,7 @@ export async function finishMicrosoftLogin(req, res) {
       }
     }
 
+    profile = await grantCreatorAccess(profile, email);
     const token = signUser(profile);
     setSessionCookie(res, token);
     res.redirect("/");
