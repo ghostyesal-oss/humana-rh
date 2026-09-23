@@ -85,7 +85,10 @@ function tenantUrl() {
 }
 
 function callbackUrl(req) {
-  if (process.env.ENTRA_REDIRECT_URI) return process.env.ENTRA_REDIRECT_URI;
+  const configured = String(process.env.ENTRA_REDIRECT_URI || "").trim();
+  if (configured) return configured;
+  const origin = String(process.env.APP_ORIGIN || "").trim().replace(/\/$/, "");
+  if (origin) return `${origin}/api/auth/microsoft/callback`;
   const proto = req.headers["x-forwarded-proto"] || req.protocol;
   const host = req.headers["x-forwarded-host"] || req.headers.host;
   return `${proto}://${host}/api/auth/microsoft/callback`;
