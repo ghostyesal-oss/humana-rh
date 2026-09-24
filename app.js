@@ -15,7 +15,7 @@ function ensurePageModule(page) {
   if (pageModulePromises[page]) return pageModulePromises[page];
   pageModulePromises[page] = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = `pages/${page}.js?v=5`;
+    script.src = `/pages/${page}.js?v=5`;
     script.charset = "UTF-8";
     script.onload = () => resolve();
     script.onerror = () => reject(new Error(`Module ${page} introuvable`));
@@ -61,7 +61,7 @@ function navigateToPage(nextPage, options = {}) {
   }
   currentPage = target;
   syncPageUrl(target);
-  ensurePageModule(target)
+  return ensurePageModule(target)
     .then(() => {
       if (options.render !== false) renderApp();
     })
@@ -3897,8 +3897,7 @@ async function fireWindowsNotification({ title, body, tag, page = "pointeuse" })
     const notif = new Notification(title, options);
     notif.onclick = () => {
       window.focus();
-      if (page && Object.prototype.hasOwnProperty.call(pages, page)) currentPage = page;
-      renderApp();
+      if (page && Object.prototype.hasOwnProperty.call(pages, page)) navigateToPage(page);
       notif.close();
     };
     return true;
@@ -4074,11 +4073,11 @@ function showLateReminderPopup(info) {
   overlay.querySelector("#late-reminder-clock")?.addEventListener("click", () => {
     closeLateReminderPopup();
     sessionStorage.setItem(info.storeKey, "shown");
-    currentPage = "pointeuse";
-    renderApp();
-    setTimeout(() => {
-      document.querySelector("#clock-toggle")?.click();
-    }, 250);
+    navigateToPage("pointeuse").then(() => {
+      try {
+        if (getClockState().isOut) document.querySelector("#clock-toggle")?.click();
+      } catch (_) { /* ignore */ }
+    });
   });
 
   overlay.querySelector("#late-reminder-snooze")?.addEventListener("click", () => {
@@ -4197,8 +4196,7 @@ async function ensureServiceWorkerAndPush() {
       if (!Object.prototype.hasOwnProperty.call(pages, requestedPage)) {
         return;
       }
-      currentPage = requestedPage;
-      renderApp();
+      navigateToPage(requestedPage);
     };
     if (!serviceWorkerBound) {
       serviceWorkerBound = true;
@@ -6307,7 +6305,22 @@ function pageContent() {
   const registry = (window.Humana && window.Humana.pages) || {};
   const renderer = registry[currentPage];
   if (typeof renderer !== "function") {
-    return `<article class="card error-card"><p class="error-message">Module de page introuvable : ${escapeHtml(currentPage)}. Assurez-vous que pages/${currentPage}.js est charge.</p></article>`;
+    const wanted = currentPage;
+    if (!pageModulePromises[`${wanted}:render`]) {
+      pageModulePromises[`${wanted}:render`] = ensurePageModule(wanted)
+        .then(() => {
+          if (currentPage !== wanted) return;
+          if (typeof window.Humana?.pages?.[wanted] === "function") {
+            renderApp();
+            return;
+          }
+          window.location.href = pageHref(wanted);
+        })
+        .catch(() => {
+          window.location.href = pageHref(wanted);
+        });
+    }
+    return `<div class="boot-message"><span class="loader" aria-hidden="true"></span>Chargement de la page...</div>`;
   }
   return renderer();
 }
