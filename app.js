@@ -487,6 +487,14 @@ function setCurrentWorkStatus(value) {
   try { sessionStorage.setItem("humana_work_status", value); } catch (_) { /* ignore */ }
 }
 
+function pctN(value) {
+  return Math.max(0, Math.min(100, Math.round(Number.parseFloat(String(value)) || 0)));
+}
+
+function pctProps(map) {
+  return Object.entries(map).map(([key, value]) => `data-${key}="${pctN(value)}"`).join(" ");
+}
+
 function workStatusDef(value) {
   return WORK_STATUSES.find((s) => s.value === value) || WORK_STATUSES[0];
 }
@@ -501,7 +509,7 @@ function workStatusPickerMarkup() {
     `<option value="${s.value}" ${s.value === current.value ? "selected" : ""}>${s.label}</option>`
   ).join("");
   return `<div class="work-status-picker">
-    <span class="work-status-dot" style="background:${current.color}"></span>
+    <span class="work-status-dot work-status-dot--${current.value}"></span>
     <select id="work-status-select" aria-label="Statut de travail">${options}</select>
   </div>`;
 }
@@ -516,7 +524,9 @@ function bindWorkStatusPicker() {
     setCurrentWorkStatus(newStatus);
     const def = workStatusDef(newStatus);
     const dot = select.closest(".work-status-picker")?.querySelector(".work-status-dot");
-    if (dot) dot.style.background = def.color;
+    if (dot) {
+      dot.className = `work-status-dot work-status-dot--${def.value}`;
+    }
     switchStatusClock(newStatus);
 
     const { isWorking } = getClockState();
@@ -2062,7 +2072,7 @@ function renderHomeEventsCard() {
           const meta = eventTypeMeta(event.event_type);
           const posterUrl = sanitizeEventPosterUrl(event);
           const thumb = posterUrl
-            ? `<span class="home-event-thumb" style="background-image:url('${encodeURI(posterUrl).replace(/'/g, "%27")}')" aria-hidden="true"></span>`
+            ? `<span class="home-event-thumb" aria-hidden="true"><img src="${escapeHtml(posterUrl)}" alt=""></span>`
             : `<span class="home-event-icon event-type--${meta.id}" aria-hidden="true">${meta.icon}</span>`;
           return `
             <button type="button" class="home-event-item" data-goto-page="events">
@@ -2747,26 +2757,23 @@ function navBadge(page) {
 function parseClientEnvironment() {
   const uaData = navigator.userAgentData;
   const ua = navigator.userAgent || "";
-  let os = uaData?.platform || "Inconnu";
-  if (!uaData?.platform) {
-    if (/Windows NT 10/i.test(ua)) os = "Windows 10/11";
-    else if (/Windows/i.test(ua)) os = "Windows";
-    else if (/Mac OS X/i.test(ua)) os = "macOS";
-    else if (/Android/i.test(ua)) os = "Android";
-    else if (/iPhone|iPad|iPod/i.test(ua)) os = "iOS";
-    else if (/Linux/i.test(ua)) os = "Linux";
-  } else if (/Win/i.test(os)) os = "Windows";
-  else if (/Mac/i.test(os)) os = "macOS";
+  let os = "Inconnu";
+  if (/Windows/i.test(uaData?.platform || "") || /Windows/i.test(ua)) os = "Windows";
+  else if (/Mac/i.test(uaData?.platform || "") || /Mac OS X/i.test(ua)) os = "macOS";
+  else if (/Android/i.test(ua)) os = "Android";
+  else if (/iPhone|iPad|iPod/i.test(ua)) os = "iOS";
+  else if (/Linux/i.test(uaData?.platform || "") || /Linux/i.test(ua)) os = "Linux";
 
   let browser = "Navigateur";
   const brands = uaData?.brands || [];
   const brand = brands.find((item) => item.brand && !/not.?a.?brand/i.test(item.brand) && !/chromium/i.test(item.brand));
-  if (brand?.brand) browser = brand.brand;
-  else if (/Edg\//i.test(ua)) browser = "Microsoft Edge";
-  else if (/OPR\/|Opera/i.test(ua)) browser = "Opera";
-  else if (/Chrome\//i.test(ua) && !/Edg\//i.test(ua)) browser = "Google Chrome";
-  else if (/Firefox\//i.test(ua)) browser = "Mozilla Firefox";
-  else if (/Safari\//i.test(ua) && !/Chrome/i.test(ua)) browser = "Safari";
+  if (/Edg\//i.test(ua) || /Edge/i.test(brand?.brand || "")) browser = "Microsoft Edge";
+  else if (/OPR\/|Opera/i.test(ua) || /Opera/i.test(brand?.brand || "")) browser = "Opera";
+  else if (/Firefox/i.test(ua) || /Firefox/i.test(brand?.brand || "")) browser = "Mozilla Firefox";
+  else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) browser = "Safari";
+  else if (/Chrome/i.test(ua) || /Chrome/i.test(brand?.brand || "") || /Google Chrome/i.test(brand?.brand || "")) {
+    browser = "Google Chrome";
+  }
 
   const method = /Mobi|Android|iPhone|iPad/i.test(ua) || uaData?.mobile
     ? "Web mobile"
@@ -2788,47 +2795,8 @@ function parseClientEnvironment() {
   return { method, os, browser, network };
 }
 
-async function getPublicIpAddress() {
-  try {
-    const cached = sessionStorage.getItem("humana_public_ip");
-    if (cached) return cached;
-  } catch {
-    /* ignore */
-  }
-
-  try {
-    const config = window.HUMANA_CONFIG || {};
-    const base = String(config.API_URL || "").replace(/\/$/, "");
-    const response = await fetch(`${base}/api/client-ip`, {
-      credentials: "include",
-      headers: { Accept: "application/json" }
-    });
-    if (!response.ok) return "";
-    const data = await response.json();
-    const ip = String(data?.ip || "").replace(/[^0-9a-fA-F:.]/g, "");
-    if (!ip) return "";
-    try { sessionStorage.setItem("humana_public_ip", ip); } catch { /* ignore */ }
-    return ip;
-  } catch {
-    return "";
-  }
-}
-
 async function collectJournalMeta() {
-  const env = parseClientEnvironment();
-  try {
-    if (navigator.userAgentData?.getHighEntropyValues) {
-      const high = await navigator.userAgentData.getHighEntropyValues(["platformVersion"]);
-      if (/Windows/i.test(env.os) && high?.platformVersion) {
-        const major = parseInt(String(high.platformVersion).split(".")[0], 10);
-        if (!Number.isNaN(major)) env.os = major >= 13 ? "Windows 11" : "Windows 10";
-      }
-    }
-  } catch {
-    /* hints optionnels */
-  }
-  const ip = await getPublicIpAddress();
-  return { ...env, ip };
+  return { ...parseClientEnvironment(), ip: "" };
 }
 
 function applyJournalMetaToPayload(payload, meta, punchType) {
@@ -2837,7 +2805,6 @@ function applyJournalMetaToPayload(payload, meta, punchType) {
     payload.connection_method = meta.method;
     payload.operating_system = meta.os;
     payload.browser_application = meta.browser;
-    if (meta.ip) payload.ip_address = meta.ip;
     payload.network_type = meta.network;
   }
   if (punchType === "out") {
@@ -2852,12 +2819,12 @@ function applyJournalMetaToDemoPunch(punch, meta, punchType) {
     punch.connection_method = meta.method;
     punch.operating_system = meta.os;
     punch.browser_application = meta.browser;
-    punch.ip_address = meta.ip || "";
+    punch.ip_address = "";
     punch.network_type = meta.network;
     punch.method = meta.method;
     punch.os = meta.os;
     punch.browser = meta.browser;
-    punch.ip = meta.ip || "";
+    punch.ip = "";
     punch.network = meta.network;
   }
   if (punchType === "out") punch.disconnect_reason = "Sortie manuelle";
@@ -3435,7 +3402,7 @@ function renderDayTimeline(punches, profile, options = {}) {
   const segmentMarkup = merged.map((s) => {
     const left = toPercent(s.from);
     const width = `${((s.to - s.from) / dispRange * 100).toFixed(3)}%`;
-    return `<div class="dtl-seg dtl-seg--${s.type}" style="left:${left};width:${width}"></div>`;
+    return `<div class="dtl-seg dtl-seg--${s.type}" ${pctProps({ l: left, w: width })}></div>`;
   }).join("");
 
   const hitMarkup = merged.map((s) => {
@@ -3443,18 +3410,18 @@ function renderDayTimeline(punches, profile, options = {}) {
     const width = `${((s.to - s.from) / dispRange * 100).toFixed(3)}%`;
     const tip = segmentTip(s);
     const aria = escapeHtml(tip.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
-    return `<div class="dtl-seg dtl-hit" style="left:${left};width:${width}" aria-label="${aria}"><span class="dtl-tip">${tip}</span></div>`;
+    return `<div class="dtl-seg dtl-hit" ${pctProps({ l: left, w: width })} aria-label="${aria}"><span class="dtl-tip">${tip}</span></div>`;
   }).join("");
 
   const markerMarkup = markerMins.map((m) => {
     const h = Math.floor(m / 60);
     const label = `${h}h`;
-    return `<div class="dtl-marker" style="left:${toPercent(m)}"><span>${label}</span></div>`;
+    return `<div class="dtl-marker" ${pctProps({ l: toPercent(m) })}><span>${label}</span></div>`;
   }).join("");
 
   const limitMarkup = TIMELINE_LIMITS_MIN.map((min) => {
     const label = `${Math.floor(min / 60)}h`;
-    return `<div class="dtl-limit" style="left:${toPercent(min)}" data-label="${label}" title="Limite ${label}"></div>`;
+    return `<div class="dtl-limit" ${pctProps({ l: toPercent(min) })} data-label="${label}" title="Limite ${label}"></div>`;
   }).join("");
   const lateBlock  = lateMin > 0 ? `<div class="dtl-stat dtl-stat--late">Retard : <strong>${fmtMs(lateMs)}</strong></div>` : "";
   const lunchBlock = lunchMs > 0 ? `<div class="dtl-stat dtl-stat--lunch">Durée pause déjeuner : <strong>${fmtMs(lunchMs)}</strong></div>` : "";
@@ -3568,7 +3535,7 @@ function renderHistoryHourScale() {
   const toPercent = (min) => `${(((min - dispStart) / dispRange) * 100).toFixed(3)}%`;
   const markers = [];
   for (let m = Math.ceil(dispStart / 60) * 60; m <= dispEnd; m += 60) {
-    markers.push(`<div class="dtl-marker" style="left:${toPercent(m)}"><span>${Math.floor(m / 60)}h</span></div>`);
+    markers.push(`<div class="dtl-marker" ${pctProps({ l: toPercent(m) })}><span>${Math.floor(m / 60)}h</span></div>`);
   }
   return `
     <div class="dtl-history-scale" aria-hidden="true">
@@ -3740,7 +3707,7 @@ function balanceCard(balance) {
         <strong>${balance.label}</strong>
         <span>${balance.remaining} j restants</span>
       </div>
-      <div class="balance-track"><i style="width:${usedPercent}%"></i></div>
+      <div class="balance-track"><i ${pctProps({ w: usedPercent })}></i></div>
       <div class="balance-meta">
         <span>Alloué : <b>${balance.total} j</b></span>
         <span>Utilisé : <b>${balance.used} j</b></span>
@@ -4242,7 +4209,7 @@ async function ensureServiceWorkerAndPush() {
       endpoint: raw.endpoint,
       p256dh: raw.keys.p256dh,
       auth: raw.keys.auth,
-      user_agent: navigator.userAgent.slice(0, 240),
+      user_agent: "web",
       last_seen_at: new Date().toISOString()
     }, { onConflict: "endpoint" });
   } catch (error) {
@@ -4571,7 +4538,7 @@ function homeBalanceSummary(balance) {
         <span>${balance.label}</span>
         <strong>${balance.remaining} j</strong>
       </div>
-      <div class="balance-track"><i style="width:${usedPercent}%"></i></div>
+      <div class="balance-track"><i ${pctProps({ w: usedPercent })}></i></div>
       <small>${balance.used} j utilises · ${balance.pending} j en attente</small>
     </div>`;
 }
@@ -5945,7 +5912,7 @@ function renderPlanningGaps(model) {
         ${bars.map((item) => `
           <div class="planning-gap-row">
             <span>${escapeHtml(item.label)}</span>
-            <div class="planning-gap-track"><span style="width:${Math.max(item.count ? 8 : 0, Math.round((item.count / total) * 100))}%"></span></div>
+            <div class="planning-gap-track"><span ${pctProps({ w: Math.max(item.count ? 8 : 0, Math.round((item.count / total) * 100)) })}></span></div>
             <strong>${item.count}</strong>
           </div>`).join("")}
       </div>
@@ -6232,7 +6199,7 @@ function renderGlobalDonut(data) {
 
   const legend = parts.map((part) => `
     <li class="global-legend-row">
-      <span class="global-legend-dot" style="background:${part.color}"></span>
+      <span class="global-legend-dot global-legend-dot--${part.key}"></span>
       <span>${part.label}</span>
       <strong>${part.value}</strong>
       <small>${Math.round((part.value / total) * 100)} %</small>
@@ -6271,7 +6238,7 @@ function renderGlobalTopDelays(data) {
         ${renderDelayBadge(item.totalDelay, item.occurrences)}
       </div>
       <div class="global-top-track">
-        <span class="global-top-track-fill global-top-track-fill--${level}" style="width:${Math.max(6, Math.round((item.totalDelay / max) * 100))}%"></span>
+        <span class="global-top-track-fill global-top-track-fill--${level}" ${pctProps({ w: Math.max(6, Math.round((item.totalDelay / max) * 100)) })}></span>
       </div>
       <small>${item.occurrences} jour${item.occurrences > 1 ? "s" : ""} en retard · moyenne ${Math.round(item.totalDelay / item.occurrences)} min/jour</small>
     </li>`;
@@ -6304,7 +6271,7 @@ function renderGlobalDepartments(data) {
         <strong>${(entry.workedMs / 3600000).toFixed(1)} h</strong>
       </div>
       <div class="global-dept-track">
-        <span style="width:${Math.max(6, Math.round((entry.workedMs / max) * 100))}%"></span>
+        <span ${pctProps({ w: Math.max(6, Math.round((entry.workedMs / max) * 100)) })}></span>
       </div>
       <small>${entry.headcount} collaborateur${entry.headcount > 1 ? "s" : ""}</small>
     </li>`).join("");

@@ -329,10 +329,34 @@ async function loadScopedRows(fromSql, filters) {
   return rows;
 }
 
+const OS_LABELS = new Set(["Windows", "macOS", "Linux", "Android", "iOS", "Inconnu"]);
+const BROWSER_LABELS = new Set([
+  "Google Chrome", "Microsoft Edge", "Mozilla Firefox", "Safari", "Opera", "Navigateur"
+]);
+const METHOD_LABELS = new Set(["Web", "Web mobile"]);
+const NETWORK_LABELS = new Set(["Wi-Fi", "Ethernet", "Mobile", "Bluetooth", "WiMAX", "LAN", "Internet", "Autre"]);
+
+function redactPunchTelemetry(row) {
+  row.ip_address = null;
+  if (row.operating_system && !OS_LABELS.has(row.operating_system)) {
+    row.operating_system = "Inconnu";
+  }
+  if (row.browser_application && !BROWSER_LABELS.has(row.browser_application)) {
+    row.browser_application = "Navigateur";
+  }
+  if (row.connection_method && !METHOD_LABELS.has(row.connection_method)) {
+    row.connection_method = "Web";
+  }
+  if (row.network_type && !NETWORK_LABELS.has(row.network_type)) {
+    row.network_type = "Internet";
+  }
+}
+
 async function prepareWriteRows(table, user, rows) {
   for (const row of rows) {
     if (!row || typeof row !== "object") continue;
     if (table === "time_punches") {
+      redactPunchTelemetry(row);
       const owner = row.user_id || user.sub;
       if (!(await canApproveTarget(user, owner))) {
         if (row.user_id && row.user_id !== user.sub) {
@@ -405,6 +429,9 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters) {
   }
 
   if (table === "time_punches" && op === "update") {
+    for (const row of rows) {
+      if (row) redactPunchTelemetry(row);
+    }
     if (!isManager(user)) {
       throw denied("Un salarié ne peut pas modifier un pointage. Utilisez une demande de correction.");
     }

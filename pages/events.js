@@ -47,7 +47,7 @@
       const posterUrl = sanitizeEventPosterUrl(event);
       return `
         <article class="event-hero event-hero--${meta.id}${posterUrl ? " has-poster" : ""}" data-event-open="${event.id}" role="button" tabindex="0" aria-label="Voir le détail de ${escapeHtml(event.title)}">
-          ${posterUrl ? `<div class="event-hero__poster" style="background-image:url('${encodeURI(posterUrl).replace(/'/g, "%27")}')" aria-hidden="true"></div>` : ""}
+          ${posterUrl ? `<div class="event-hero__poster" aria-hidden="true"><img src="${escapeHtml(posterUrl)}" alt=""></div>` : ""}
           <button type="button" class="event-hero__expand" data-event-open="${event.id}" aria-label="Agrandir">⤢</button>
           <div class="event-hero__overlay">
             <div class="event-hero__meta">

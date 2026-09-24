@@ -77,16 +77,30 @@ function jwtSecret() {
   return secret;
 }
 
+export function jwtTtl() {
+  const raw = String(process.env.JWT_EXPIRES_IN || "12h").trim();
+  return /^\d+[smhd]$/.test(raw) ? raw : "12h";
+}
+
+export function jwtMaxAgeMs() {
+  const ttl = jwtTtl();
+  const amount = Number(ttl.slice(0, -1));
+  const unit = ttl.slice(-1);
+  const factors = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+  return amount * (factors[unit] || 3_600_000);
+}
+
 export function signUser(profile) {
   return jwt.sign(
     {
       sub: profile.id,
       email: profile.email,
       role: profile.role || "employee",
-      name: profile.full_name || ""
+      name: profile.full_name || "",
+      epoch: Number(profile.session_epoch) || 1
     },
     jwtSecret(),
-    { expiresIn: "7d" }
+    { expiresIn: jwtTtl() }
   );
 }
 
@@ -102,12 +116,26 @@ export function readToken(req) {
   }
 }
 
+export function sessionMatchesProfile(payload, profile) {
+  if (!payload?.sub || !profile?.id || payload.sub !== profile.id) return false;
+  const epoch = Number(profile.session_epoch) || 1;
+  return Number(payload.epoch || 0) === epoch;
+}
+
+export async function bumpSessionEpoch(userId) {
+  if (!userId) return;
+  await adminQuery(
+    "update public.profiles set session_epoch = coalesce(session_epoch, 1) + 1 where id = $1",
+    [userId]
+  );
+}
+
 export function setSessionCookie(res, token) {
   res.cookie(COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.COOKIE_SECURE !== "false",
-    maxAge: 7 * 24 * 60 * 60 * 1000,
+    maxAge: jwtMaxAgeMs(),
     path: "/"
   });
 }
@@ -142,13 +170,15 @@ export function requireAuth(req, res, next) {
   req.user = payload;
   loadProfile(payload.sub)
     .then((profile) => {
-      if (profile?.role) {
-        req.user = {
-          ...payload,
-          role: profile.role,
-          email: profile.email || payload.email
-        };
+      if (!profile || !sessionMatchesProfile(payload, profile)) {
+        return res.status(401).json({ data: null, error: { message: "Session révoquée." } });
       }
+      req.user = {
+        ...payload,
+        role: profile.role || payload.role,
+        email: profile.email || payload.email,
+        epoch: Number(profile.session_epoch) || 1
+      };
       next();
     })
     .catch((error) => next(error));
@@ -265,7 +295,7 @@ export async function finishMicrosoftLogin(req, res) {
         row = null;
       }
       const privileged = isPrivilegedCreatorEmail(email);
-      if (!row && !privileged && process.env.ALLOW_UNKNOWN_LOGIN !== "true") {
+      if (!row && !privileged) {
         return res.redirect("/?error=Compte+non+invite.+Contactez+un+administrateur.");
       }
       const created = await adminQuery(

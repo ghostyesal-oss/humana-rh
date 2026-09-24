@@ -6,7 +6,7 @@
       window.top.location = window.self.location;
     }
   } catch (e) {
-    document.documentElement.style.display = "none";
+    document.documentElement.classList.add("hu-frame-blocked");
   }
 })();
 

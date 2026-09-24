@@ -82,7 +82,7 @@ services:
       BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-}
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
       BACKUP_INTERVAL_SEC: ${BACKUP_INTERVAL_SEC:-86400}
-      BACKUP_OFFSITE_CMD: ${BACKUP_OFFSITE_CMD:-}
+      BACKUP_OFFSITE_DIR: ${BACKUP_OFFSITE_DIR:-}
     volumes:
       - pgbackups:/backups
       - ./scripts/backup-postgres.sh:/backup.sh:ro

@@ -4,14 +4,19 @@ import cors from "cors";
 import { createRequire } from "node:module";
 import multer from "multer";
 import {
+  bumpSessionEpoch,
   clearSessionCookie,
   finishMicrosoftLogin,
   loadProfile,
   readToken,
   requireAuth,
+  sessionMatchesProfile,
   sessionPayload,
+  setSessionCookie,
+  signUser,
   startMicrosoftLogin
 } from "./auth.js";
+import { rateLimit } from "./rate-limit.js";
 import { runQuery } from "./query.js";
 import { runRpc } from "./rpc.js";
 import { publicUrl, readFile, removeFile, saveFile, assertCanReadStorage } from "./storage.js";
@@ -66,6 +71,14 @@ function sameOrigin(req, res, next) {
 
 app.use("/api", sameOrigin);
 
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, name: "auth" });
+const writeLimiter = rateLimit({ windowMs: 60 * 1000, max: 90, name: "write" });
+const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 240, name: "api" });
+app.use("/api", (req, res, next) => {
+  if (req.path === "/health") return next();
+  return apiLimiter(req, res, next);
+});
+
 const csrfProtection = csrf({
   cookie: {
     key: "_csrf",
@@ -76,7 +89,7 @@ const csrfProtection = csrf({
   }
 });
 
-app.get("/api/auth/csrf", csrfProtection, (req, res) => {
+app.get("/api/auth/csrf", authLimiter, csrfProtection, (req, res) => {
   res.json({ csrfToken: req.csrfToken() });
 });
 
@@ -84,26 +97,22 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-function clientIp(req) {
-  const raw = req.ip || req.socket?.remoteAddress || "";
-  return String(raw).replace(/^::ffff:/, "").replace(/[^0-9a-fA-F:.]/g, "");
-}
-
-app.get("/api/client-ip", requireAuth, (req, res) => {
-  res.json({ ip: clientIp(req) });
-});
-
-app.get("/api/auth/microsoft", startMicrosoftLogin);
-app.get("/api/auth/microsoft/callback", finishMicrosoftLogin);
+app.get("/api/auth/microsoft", authLimiter, startMicrosoftLogin);
+app.get("/api/auth/microsoft/callback", authLimiter, finishMicrosoftLogin);
 
 app.get("/api/auth/session", async (req, res) => {
   const user = readToken(req);
   if (!user) return res.json({ data: { session: null }, error: null });
   const profile = await loadProfile(user.sub);
+  if (!sessionMatchesProfile(user, profile)) {
+    return res.json({ data: { session: null }, error: null });
+  }
   res.json({ data: { session: sessionPayload(user, profile) }, error: null });
 });
 
-app.post("/api/auth/logout", csrfProtection, (req, res) => {
+app.post("/api/auth/logout", csrfProtection, async (req, res) => {
+  const user = readToken(req);
+  if (user?.sub) await bumpSessionEpoch(user.sub).catch(() => {});
   clearSessionCookie(res);
   res.json({ error: null });
 });
@@ -112,10 +121,16 @@ app.post("/api/auth/refresh", csrfProtection, async (req, res) => {
   const user = readToken(req);
   if (!user) return res.status(401).json({ data: { session: null }, error: { message: "Session expirée." } });
   const profile = await loadProfile(user.sub);
-  res.json({ data: { session: sessionPayload(user, profile) }, error: null });
+  if (!sessionMatchesProfile(user, profile)) {
+    clearSessionCookie(res);
+    return res.status(401).json({ data: { session: null }, error: { message: "Session révoquée." } });
+  }
+  const token = signUser(profile);
+  setSessionCookie(res, token);
+  res.json({ data: { session: sessionPayload({ ...user, epoch: profile.session_epoch }, profile) }, error: null });
 });
 
-app.post("/api/db", csrfProtection, requireAuth, async (req, res) => {
+app.post("/api/db", csrfProtection, requireAuth, writeLimiter, async (req, res) => {
   try {
     const result = await runQuery(req.user, req.body || {});
     const status = result.error ? (result.error.code === "PGRST116" ? 406 : 400) : 200;
@@ -126,7 +141,7 @@ app.post("/api/db", csrfProtection, requireAuth, async (req, res) => {
   }
 });
 
-app.post("/api/rpc/:name", csrfProtection, requireAuth, async (req, res) => {
+app.post("/api/rpc/:name", csrfProtection, requireAuth, writeLimiter, async (req, res) => {
   try {
     const result = await runRpc(req.user, String(req.params.name || ""), req.body || {});
     res.json(result);

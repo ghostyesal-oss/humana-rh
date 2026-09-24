@@ -1,11 +1,7 @@
 /* Humana - couche d'animations restreinte à l'accueil et aux événements.
  *
- * Coût mesuré : 9,8 Ko (3,0 Ko gzip). Quatre boucles (tilt rAF, reveal IO,
- * ripple, compteurs rAF) + MutationObserver sur tout le DOM.
- * Sur poste modeste / mobile, le tilt + l'observer à chaque renderApp
- * (innerHTML complet) coûtent plus que le parse. Décision : charger le
- * script seulement sur home/events, couper le tilt au toucher, et scanner
- * après rendu au lieu d'observer le DOM.
+ * Tilt / ripple / reveal n'écrivent plus d'attributs style (CSP style-src-attr none).
+ * Tilt et ripple passent par l'API Web Animations.
  */
 (function () {
   "use strict";
@@ -38,14 +34,18 @@
 
     let raf = null;
     let tx = 0, ty = 0;
-    let sx = 50, sy = 50;
+    let anim = null;
 
     const apply = () => {
       raf = null;
-      el.style.setProperty("--hu-tiltX", ty.toFixed(2) + "deg");
-      el.style.setProperty("--hu-tiltY", tx.toFixed(2) + "deg");
-      el.style.setProperty("--hu-spotX", sx.toFixed(2) + "%");
-      el.style.setProperty("--hu-spotY", sy.toFixed(2) + "%");
+      const transform = `perspective(1000px) rotateX(${ty.toFixed(2)}deg) rotateY(${tx.toFixed(2)}deg) translateY(-3px) translateZ(6px)`;
+      if (typeof el.animate === "function") {
+        if (anim) anim.cancel();
+        anim = el.animate(
+          { transform },
+          { duration: 90, fill: "forwards", easing: "ease-out" }
+        );
+      }
     };
 
     const onMove = (ev) => {
@@ -57,16 +57,20 @@
       const ny = (ev.clientY - cy) / (rect.height / 2);
       tx = Math.max(-1, Math.min(1, nx)) * TILT_MAX_DEG;
       ty = -Math.max(-1, Math.min(1, ny)) * TILT_MAX_DEG;
-      sx = ((ev.clientX - rect.left) / rect.width) * 100;
-      sy = ((ev.clientY - rect.top) / rect.height) * 100;
       if (!raf) raf = requestAnimationFrame(apply);
     };
 
     const onEnter = () => el.classList.add("hu-tilt-active");
     const onLeave = () => {
       el.classList.remove("hu-tilt-active");
-      tx = 0; ty = 0; sx = 50; sy = 50;
-      if (!raf) raf = requestAnimationFrame(apply);
+      tx = 0; ty = 0;
+      if (typeof el.animate === "function") {
+        if (anim) anim.cancel();
+        anim = el.animate(
+          { transform: "none" },
+          { duration: 180, fill: "forwards", easing: "ease-out" }
+        );
+      }
     };
 
     el.addEventListener("pointerenter", onEnter, { passive: true });
@@ -95,9 +99,7 @@
     (root || document).querySelectorAll(REVEAL_SELECTOR).forEach((el) => {
       if (el.dataset.huReveal === "1") return;
       el.dataset.huReveal = "1";
-      const delay = (revealIndex++ % 12) * 45;
-      el.style.setProperty("--hu-reveal-delay", delay + "ms");
-      el.classList.add("hu-reveal");
+      el.classList.add("hu-reveal", "hu-reveal-d" + (revealIndex++ % 12));
       revealObs.observe(el);
     });
   }
@@ -107,16 +109,24 @@
       ev.target.closest("button:not(:disabled), .primary:not(:disabled), a.primary, [role='button']:not([aria-disabled='true'])");
     if (!btn) return;
     if (btn.classList.contains("hu-no-ripple")) return;
+    if (btn.classList.contains("icon-button") || btn.classList.contains("close-button")) return;
     const rect = btn.getBoundingClientRect();
-    btn.style.setProperty("--hu-ripple-x", (ev.clientX - rect.left) + "px");
-    btn.style.setProperty("--hu-ripple-y", (ev.clientY - rect.top) + "px");
-    btn.classList.remove("hu-ripple-active");
-    void btn.offsetWidth;
-    btn.classList.add("hu-ripple-active");
-  }
-  function onAnimEnd(ev) {
-    if (ev.animationName === "hu-ripple") {
-      ev.target.classList.remove("hu-ripple-active");
+    const ink = document.createElement("span");
+    ink.className = "hu-ripple-ink";
+    ink.setAttribute("aria-hidden", "true");
+    btn.appendChild(ink);
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    if (typeof ink.animate === "function") {
+      ink.animate(
+        [
+          { transform: `translate(${x}px, ${y}px) scale(0)`, opacity: 0.5 },
+          { transform: `translate(${x}px, ${y}px) scale(22)`, opacity: 0 }
+        ],
+        { duration: 560, easing: "cubic-bezier(0.2, 0.9, 0.2, 1)" }
+      ).onfinish = () => ink.remove();
+    } else {
+      window.setTimeout(() => ink.remove(), 560);
     }
   }
 
@@ -168,7 +178,6 @@
       if (!listenersBound) {
         listenersBound = true;
         document.addEventListener("pointerdown", onPointerDown, { passive: true });
-        document.addEventListener("animationend", onAnimEnd, { passive: true });
       }
     }
     armReveal(scope);

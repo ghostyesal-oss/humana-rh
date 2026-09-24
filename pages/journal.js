@@ -25,7 +25,7 @@
     } else if (appData.journalMetaMissing) {
       dbNote = `<p class="data-note">Colonnes techniques absentes de la base. Redémarrez l'API pour appliquer les migrations, puis refaites un pointage d'entrée.</p>`;
     } else if (sessions.length && sessions.every((session) => session.method === "—" && session.os === "—" && session.browser === "—" && session.ip === "—")) {
-      dbNote = `<p class="data-note">Les sessions déjà enregistrées n'ont pas d'IP, d'OS ni de navigateur. Ces détails apparaîtront au prochain pointage d'entrée.</p>`;
+      dbNote = `<p class="data-note">Les sessions déjà enregistrées n'ont pas d'OS ni de navigateur. Ces détails (sans adresse IP) apparaîtront au prochain pointage d'entrée.</p>`;
     }
 
     return `
