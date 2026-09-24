@@ -15,7 +15,7 @@ function ensurePageModule(page) {
   if (pageModulePromises[page]) return pageModulePromises[page];
   pageModulePromises[page] = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = `pages/${page}.js?v=4`;
+    script.src = `pages/${page}.js?v=5`;
     script.charset = "UTF-8";
     script.onload = () => resolve();
     script.onerror = () => reject(new Error(`Module ${page} introuvable`));

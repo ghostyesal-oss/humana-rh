@@ -10,15 +10,9 @@
     if (!canViewReports()) {
       return `<article class="card"><p class="empty-state">Accès aux rapports non autorisé pour votre profil.</p></article>`;
     }
-    const range = getEdsRange();
     const rows = buildEdsRows();
     const columns = visibleEdsColumns();
-    const teamScope = canViewTeamPunches() || isAdmin();
-    const payrollNote = canViewEdsPayrollColumns()
-      ? "Les colonnes jaunes (primes, salaires, heures sup paie) sont visibles pour votre compte."
-      : "Les colonnes paie (primes, salaires, heures sup) sont masquées.";
     return `
-      <p class="data-note">Cycle de paie EDS : du ${formatDate(range.start)} au ${formatDate(range.end)} (du 21 du mois précédent au 20 du mois en cours). ${teamScope ? "Vue équipe." : "Votre temps uniquement."} ${payrollNote}</p>
       ${renderGtaTeamInbox()}
       <article class="card form-card page-spacer">
         ${cardHeading("Exports")}
