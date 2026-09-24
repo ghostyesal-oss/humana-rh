@@ -16,7 +16,7 @@
     return `
       <article class="card form-card">
         ${cardHeading("Visibilité des onglets")}
-        <p class="creator-intro">Activez ou masquez les onglets <strong>Congés</strong>, <strong>Demande RH</strong>, <strong>Planning</strong>, <strong>Hiérarchie</strong>, <strong>Rapports</strong> et <strong>Journal</strong> pour chaque type de profil.</p>
+        <p class="creator-intro">Activez ou masquez chaque onglet pour les administrateurs, les managers et les collaborateurs. Les droits de sécurité propres à chaque onglet restent appliqués.</p>
         <form id="creator-nav-form" class="feature-form creator-nav-form">
           <div class="table-wrap">
             <table class="creator-nav-table">

@@ -141,12 +141,18 @@ const roleLabels = {
 };
 
 const NAV_VISIBILITY_PAGES = [
+  { id: "home", label: "Accueil" },
+  { id: "pointeuse", label: "Pointeuse" },
+  { id: "global", label: "Global" },
+  { id: "team-punches", label: "Pointages équipe" },
+  { id: "reports", label: "Rapports EDS" },
   { id: "leave", label: "Congés" },
   { id: "attestations", label: "Demande RH" },
   { id: "planning", label: "Planning" },
+  { id: "events", label: "Événements" },
   { id: "hierarchy", label: "Hiérarchie" },
-  { id: "reports", label: "Rapports" },
-  { id: "journal", label: "Journal" }
+  { id: "journal", label: "Journal" },
+  { id: "admin", label: "Administration" }
 ];
 
 const NAV_VISIBILITY_AUDIENCES = [
@@ -157,12 +163,18 @@ const NAV_VISIBILITY_AUDIENCES = [
 
 function getDefaultNavVisibility() {
   return {
+    home: { admin: true, manager: true, employee: true },
+    pointeuse: { admin: true, manager: true, employee: true },
+    global: { admin: true, manager: true, employee: false },
+    "team-punches": { admin: true, manager: true, employee: false },
+    reports: { admin: true, manager: true, employee: true },
     leave: { admin: true, manager: true, employee: true },
     attestations: { admin: true, manager: true, employee: true },
     planning: { admin: true, manager: true, employee: false },
+    events: { admin: true, manager: true, employee: true },
     hierarchy: { admin: true, manager: true, employee: true },
-    reports: { admin: true, manager: true, employee: true },
-    journal: { admin: true, manager: false, employee: false }
+    journal: { admin: true, manager: false, employee: false },
+    admin: { admin: true, manager: false, employee: false }
   };
 }
 
@@ -974,29 +986,14 @@ async function saveGtaSettings({ timezone, shiftHours }) {
 }
 
 function ensureAccessiblePage() {
-  if (currentPage === "creator" && !isCreator()) {
-    currentPage = "home";
-    return;
+  if (canAccessPage(currentPage)) return true;
+  const fallbackPage = getFirstAccessiblePage();
+  if (mpaMode) {
+    window.location.replace(`${fallbackPage}.html`);
+    return false;
   }
-  if (currentPage === "admin" && !isAdmin()) {
-    currentPage = "home";
-    return;
-  }
-  if (currentPage === "planning" && !canViewPlanning()) {
-    currentPage = "home";
-    return;
-  }
-  if (currentPage === "reports" && !canViewReports()) {
-    currentPage = "home";
-    return;
-  }
-  if (currentPage === "journal" && !canViewJournal()) {
-    currentPage = "home";
-    return;
-  }
-  if (!isNavPageVisible(currentPage)) {
-    currentPage = "home";
-  }
+  currentPage = fallbackPage;
+  return true;
 }
 
 function hasDirectReports() {
@@ -1008,11 +1005,13 @@ function canViewJournal() {
 }
 
 function canViewTeamPunches() {
-  return demoMode || (usesDatabase() && (isAdmin() || hasDirectReports()));
+  return isNavPageVisible("team-punches")
+    && (demoMode || (usesDatabase() && (isAdmin() || hasDirectReports())));
 }
 
 function canViewGlobal() {
-  return canViewTeamPunches();
+  return isNavPageVisible("global")
+    && (demoMode || (usesDatabase() && (isAdmin() || hasDirectReports())));
 }
 
 function canViewReports() {
@@ -1021,6 +1020,36 @@ function canViewReports() {
 
 function canViewPlanning() {
   return Boolean(session?.user) && isNavPageVisible("planning");
+}
+
+function canAccessPage(pageId) {
+  if (pageId === "creator") return isCreator();
+  if (pageId === "admin") return isAdmin() && isNavPageVisible("admin");
+  if (pageId === "global") return canViewGlobal();
+  if (pageId === "team-punches") return canViewTeamPunches();
+  if (pageId === "reports") return canViewReports();
+  if (pageId === "journal") return canViewJournal();
+  if (pageId === "planning") return canViewPlanning();
+  return Boolean(pages[pageId]) && isNavPageVisible(pageId);
+}
+
+function getFirstAccessiblePage() {
+  const preferredOrder = [
+    "home",
+    "pointeuse",
+    "events",
+    "leave",
+    "attestations",
+    "planning",
+    "hierarchy",
+    "global",
+    "team-punches",
+    "reports",
+    "journal",
+    "admin",
+    "creator"
+  ];
+  return preferredOrder.find((pageId) => canAccessPage(pageId)) || "home";
 }
 
 function canViewTeamLeaveCalendar() {
@@ -2087,7 +2116,7 @@ function getNavigationItems() {
   if (canViewJournal()) {
     items.push(["journal", "Journal"]);
   }
-  if (isAdmin()) {
+  if (isAdmin() && isNavPageVisible("admin")) {
     items.push(["admin", "Administration"]);
   }
   if (isCreator()) items.push(["creator", "Studio créateur"]);
@@ -6721,7 +6750,7 @@ function playViewAnimations() {
 }
 
 function renderApp() {
-  ensureAccessiblePage();
+  if (!ensureAccessiblePage()) return;
   clearJournalFsRoot();
   if (session?.user && !lateReminderWatcher && !portalMode) {
     startLateReminderWatcher();
