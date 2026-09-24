@@ -15,6 +15,7 @@ import {
 import { runQuery } from "./query.js";
 import { runRpc } from "./rpc.js";
 import { publicUrl, readFile, removeFile, saveFile } from "./storage.js";
+import { runMigrations } from "./migrate.js";
 
 const csrf = createRequire(import.meta.url)("csurf");
 const app = express();
@@ -180,6 +181,13 @@ app.use("/api", (req, res) => {
 });
 
 const port = Number(process.env.PORT || 3000);
-app.listen(port, () => {
-  console.log(`Humana API écoute sur ${port}`);
-});
+runMigrations()
+  .then(() => {
+    app.listen(port, () => {
+      console.log(`Humana API écoute sur ${port}`);
+    });
+  })
+  .catch((error) => {
+    console.error("Migrations:", error);
+    process.exit(1);
+  });

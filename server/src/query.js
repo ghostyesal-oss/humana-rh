@@ -88,6 +88,15 @@ const COLUMN_SQL = Object.freeze({
   network_type: '"network_type"',
   leave_balance_cp: '"leave_balance_cp"',
   leave_balance_rtt: '"leave_balance_rtt"',
+  leave_balance_recup: '"leave_balance_recup"',
+  document_type: '"document_type"',
+  punch_kind: '"punch_kind"',
+  reviewed_by: '"reviewed_by"',
+  reviewed_at: '"reviewed_at"',
+  disconnect_reason: '"disconnect_reason"',
+  period_year: '"period_year"',
+  period_month: '"period_month"',
+  period_label: '"period_label"',
   created_by: '"created_by"'
 });
 

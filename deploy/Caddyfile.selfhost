@@ -1,28 +1,34 @@
-(humana_proxy) {
-  encode gzip
+(humana_site) {
+	encode gzip
 
-  @https {
-    scheme https
-  }
-  header @https Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	@https {
+		scheme https
+	}
+	header @https Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	header X-Content-Type-Options nosniff
+	header X-Frame-Options DENY
+	header Referrer-Policy strict-origin-when-cross-origin
 
-  handle /api* {
-    reverse_proxy api:3000 {
-      header_up X-Forwarded-Proto {scheme}
-      header_up X-Forwarded-Host {host}
-      header_up X-Forwarded-For {remote_host}
-    }
-  }
+	handle /api* {
+		reverse_proxy api:3000
+	}
 
-  handle {
-    reverse_proxy web:80
-  }
+	handle {
+		root * /srv
+		redir /index.html / 301
+		@html path_regexp html ^/(.+)\.html$
+		redir @html /{re.html.1} 301
+		@assets path *.js *.css *.webmanifest *.ico *.mjs
+		header @assets Cache-Control "public, max-age=0, must-revalidate"
+		try_files {path} {path}.html
+		file_server
+	}
 }
 
 :80 {
-  import humana_proxy
+	import humana_site
 }
 
 {$CADDY_ADDRESS} {
-  import humana_proxy
+	import humana_site
 }

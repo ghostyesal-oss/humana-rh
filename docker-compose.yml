@@ -35,25 +35,18 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - humana
-
-  web:
-    build:
-      context: .
-      dockerfile: deploy/web.Dockerfile
-    restart: unless-stopped
-    environment:
-      API_URL: ""
-      REDIRECT_URL: ${APP_ORIGIN}
-      PAYROLL_EMAILS: ${PAYROLL_EMAILS:-}
-    depends_on:
-      - api
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
     networks:
       - humana
 
   caddy:
-    image: caddy:2.8-alpine
+    build:
+      context: .
+      dockerfile: deploy/caddy.Dockerfile
     restart: unless-stopped
     ports:
       - "80:80"
@@ -61,13 +54,61 @@ services:
     environment:
       HUMANA_DOMAIN: ${HUMANA_DOMAIN}
       CADDY_ADDRESS: ${CADDY_ADDRESS:-${HUMANA_DOMAIN}}
+      API_URL: ""
+      REDIRECT_URL: ${APP_ORIGIN}
+      PAYROLL_EMAILS: ${PAYROLL_EMAILS:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
     volumes:
-      - ./deploy/Caddyfile.selfhost:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - web
-      - api
+      api:
+        condition: service_healthy
+    networks:
+      - humana
+
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PGHOST: postgres
+      PGUSER: humana
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: humana
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      BACKUP_INTERVAL_SEC: ${BACKUP_INTERVAL_SEC:-86400}
+      BACKUP_OFFSITE_CMD: ${BACKUP_OFFSITE_CMD:-}
+    volumes:
+      - pgbackups:/backups
+      - ./scripts/backup-postgres.sh:/backup.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/backup.sh", "--loop"]
+    networks:
+      - humana
+
+  watchdog:
+    build:
+      context: .
+      dockerfile: deploy/watchdog.Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_ORIGIN: ${APP_ORIGIN}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      DISK_WARN_PCT: ${DISK_WARN_PCT:-90}
+      CERT_WARN_DAYS: ${CERT_WARN_DAYS:-14}
+      CHECK_INTERVAL_SEC: ${WATCHDOG_INTERVAL_SEC:-300}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /:/host:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      caddy:
+        condition: service_started
     networks:
       - humana
 
@@ -76,6 +117,7 @@ volumes:
   storage:
   caddy_data:
   caddy_config:
+  pgbackups:
 
 networks:
   humana:
