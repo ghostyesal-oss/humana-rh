@@ -12,12 +12,8 @@
     }
 
     const requests = getHrRequests();
-    const tableMissing = usesDatabase() && appData.salaryAdvanceTableMissing
-      ? `<p class="data-note">Les avances sur salaire seront enregistrées après exécution de <code>supabase/salary-advance-requests.sql</code> dans SQL Editor.</p>`
-      : "";
 
     return `
-      ${tableMissing}
       <div class="feature-grid">
         <article class="card form-card">
           ${cardHeading("Avance sur salaire")}
