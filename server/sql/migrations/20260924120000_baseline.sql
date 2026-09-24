@@ -59,7 +59,13 @@ alter table public.pending_invites add column if not exists hired_at date;
 alter table public.pending_invites add column if not exists shift_code text;
 alter table public.pending_invites add column if not exists leave_grade text;
 alter table public.pending_invites add column if not exists created_by uuid;
-create unique index if not exists pending_invites_email_key on public.pending_invites (email);
+do $$
+begin
+  create unique index if not exists pending_invites_email_key on public.pending_invites (email);
+exception
+  when unique_violation then
+    raise notice 'pending_invites_email_key ignore: emails en double';
+end $$;
 
 create table if not exists public.app_settings (
   key text primary key,
@@ -287,7 +293,8 @@ create table if not exists public.push_subscriptions (
 create index if not exists push_subscriptions_user_idx
   on public.push_subscriptions (user_id);
 
-create or replace view public.profiles_directory as
+drop view if exists public.profiles_directory;
+create view public.profiles_directory as
 select id, email, full_name, job_title, department, role, manager_id,
        matricule, shift_code, hired_at, leave_grade
 from public.profiles;

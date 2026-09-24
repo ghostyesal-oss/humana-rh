@@ -76,10 +76,15 @@ export async function runMigrations() {
       if (done.rows.length) continue;
       const sql = fs.readFileSync(path.join(dir, file), "utf8");
       console.log(`migration ${id}`);
-      await withAdmin(async (client) => {
-        await client.query(sql);
-        await client.query("insert into public.schema_migrations (id) values ($1)", [id]);
-      });
+      try {
+        await withAdmin(async (client) => {
+          await client.query(sql);
+          await client.query("insert into public.schema_migrations (id) values ($1)", [id]);
+        });
+      } catch (error) {
+        console.error(`migration ${id} failed:`, error.message);
+        throw error;
+      }
     }
   }
   await grantAppRole();

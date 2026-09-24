@@ -179,7 +179,13 @@ begin
     'push_subscriptions', 'audit_log'
   ]
   loop
-    execute format('alter table public.%I enable row level security', t);
+    if exists (
+      select 1 from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relname = t and c.relkind = 'r'
+    ) then
+      execute format('alter table public.%I enable row level security', t);
+    end if;
   end loop;
 end $$;
 
