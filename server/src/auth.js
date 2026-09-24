@@ -119,7 +119,8 @@ export function readToken(req) {
 export function sessionMatchesProfile(payload, profile) {
   if (!payload?.sub || !profile?.id || payload.sub !== profile.id) return false;
   const epoch = Number(profile.session_epoch) || 1;
-  return Number(payload.epoch || 0) === epoch;
+  const tokenEpoch = payload.epoch == null ? 1 : Number(payload.epoch);
+  return tokenEpoch === epoch;
 }
 
 export async function bumpSessionEpoch(userId) {

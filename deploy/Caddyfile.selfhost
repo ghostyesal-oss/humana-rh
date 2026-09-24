@@ -23,11 +23,11 @@
 			query h=*
 		}
 		header @hashed Cache-Control "public, max-age=31536000, immutable"
-		@images path *.webp *.png *.jpg *.jpeg *.svg
+		@images path *.webp *.png *.jpg *.jpeg *.svg *.woff2
 		header @images Cache-Control "public, max-age=31536000, immutable"
 		@revalidate {
 			not query h=*
-			not path *.webp *.png *.jpg *.jpeg *.svg
+			not path *.webp *.png *.jpg *.jpeg *.svg *.woff2
 		}
 		header @revalidate Cache-Control "no-cache"
 		try_files {path} {path}.html

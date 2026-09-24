@@ -355,6 +355,9 @@ function redactPunchTelemetry(row) {
 async function prepareWriteRows(table, user, rows) {
   for (const row of rows) {
     if (!row || typeof row !== "object") continue;
+    if (table === "push_subscriptions") {
+      row.user_agent = "web";
+    }
     if (table === "time_punches") {
       redactPunchTelemetry(row);
       const owner = row.user_id || user.sub;

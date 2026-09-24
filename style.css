@@ -1,4 +1,40 @@
-/* Humana — thème de l'espace RH */
+html.hu-frame-blocked { display: none !important; }
+
+[data-l] { left: calc(attr(data-l type(<number>)) * 1%); }
+[data-w] { width: calc(attr(data-w type(<number>)) * 1%); }
+
+.work-status-dot--production { background: #1e3a8a; }
+.work-status-dot--reunion { background: #7c3aed; }
+.work-status-dot--formation { background: #0891b2; }
+.work-status-dot--coaching { background: #059669; }
+
+.global-legend-dot--onsite { background: var(--forest-mid); }
+.global-legend-dot--remote { background: #f59e0b; }
+.global-legend-dot--unknown { background: #94a3b8; }
+
+.event-hero__poster img,
+.home-event-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.hu-ripple-ink {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  pointer-events: none;
+  transform-origin: center;
+}
+[data-theme="dark"] .hu-ripple-ink {
+  background: rgba(159, 190, 255, 0.35);
+}
 
 :root,
 [data-theme="light"] {
@@ -60,7 +96,7 @@
   --s6: 18px;
   --s7: 24px;
   --transition: 150ms ease;
-  --font: "Poppins", "Segoe UI", system-ui, sans-serif;
+  --font: "Segoe UI", system-ui, sans-serif;
   --bg-image-login: url("/assets/bg-login.webp");
   --bg-image-main: url("/assets/bg-main.webp");
   --bg-image-card: url("/assets/bg-card.webp");
@@ -6585,10 +6621,22 @@ body {
   opacity: 0;
   transform: perspective(900px) translateY(22px) rotateX(4deg);
   transition:
-    opacity 520ms cubic-bezier(0.2, 0.9, 0.2, 1) var(--hu-reveal-delay, 0ms),
-    transform 560ms cubic-bezier(0.2, 0.9, 0.2, 1) var(--hu-reveal-delay, 0ms);
+    opacity 520ms cubic-bezier(0.2, 0.9, 0.2, 1),
+    transform 560ms cubic-bezier(0.2, 0.9, 0.2, 1);
   will-change: opacity, transform;
 }
+.hu-reveal-d0 { transition-delay: 0ms; }
+.hu-reveal-d1 { transition-delay: 45ms; }
+.hu-reveal-d2 { transition-delay: 90ms; }
+.hu-reveal-d3 { transition-delay: 135ms; }
+.hu-reveal-d4 { transition-delay: 180ms; }
+.hu-reveal-d5 { transition-delay: 225ms; }
+.hu-reveal-d6 { transition-delay: 270ms; }
+.hu-reveal-d7 { transition-delay: 315ms; }
+.hu-reveal-d8 { transition-delay: 360ms; }
+.hu-reveal-d9 { transition-delay: 405ms; }
+.hu-reveal-d10 { transition-delay: 450ms; }
+.hu-reveal-d11 { transition-delay: 495ms; }
 .hu-reveal.hu-revealed {
   opacity: 1;
   transform: none;
@@ -6605,10 +6653,6 @@ body {
 .document-card {
   position: relative;
   transform-style: preserve-3d;
-  --hu-tiltX: 0deg;
-  --hu-tiltY: 0deg;
-  --hu-spotX: 50%;
-  --hu-spotY: 50%;
 }
 .card.hu-tilt-active,
 .home-widget.hu-tilt-active,
@@ -6616,16 +6660,7 @@ body {
 .balance-card.hu-tilt-active,
 .hours-card.hu-tilt-active,
 .document-card.hu-tilt-active {
-  transform:
-    perspective(1000px)
-    rotateX(var(--hu-tiltX))
-    rotateY(var(--hu-tiltY))
-    translateY(-3px)
-    translateZ(6px);
   box-shadow: 0 18px 42px rgba(2, 35, 65, 0.16);
-  transition:
-    transform 220ms cubic-bezier(0.2, 0.9, 0.2, 1),
-    box-shadow 220ms ease;
 }
 [data-theme="dark"] .card.hu-tilt-active,
 [data-theme="dark"] .home-widget.hu-tilt-active,
@@ -6690,34 +6725,6 @@ button:not(:disabled):active,
 a.primary:active {
   transform: translateZ(-4px) scale(0.97);
 }
-button.hu-ripple-active::after,
-.primary.hu-ripple-active::after,
-[role="button"].hu-ripple-active::after,
-a.primary.hu-ripple-active::after {
-  content: "";
-  position: absolute;
-  left: var(--hu-ripple-x, 50%);
-  top: var(--hu-ripple-y, 50%);
-  width: 14px;
-  height: 14px;
-  margin: -7px 0 0 -7px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.5);
-  transform: scale(0);
-  animation: hu-ripple 620ms cubic-bezier(0.2, 0.9, 0.2, 1) forwards;
-  pointer-events: none;
-}
-[data-theme="dark"] button.hu-ripple-active::after,
-[data-theme="dark"] .primary.hu-ripple-active::after {
-  background: rgba(159, 190, 255, 0.35);
-}
-@keyframes hu-ripple {
-  0%   { transform: scale(0);  opacity: 0.55; }
-  100% { transform: scale(28); opacity: 0; }
-}
-/* Icones flat-buttons : pas de ripple lourd, juste une pulse. */
-.icon-button.hu-ripple-active::after,
-.close-button.hu-ripple-active::after { display: none; }
 .icon-button:not(:disabled):active,
 .close-button:not(:disabled):active {
   transform: scale(0.9);
