@@ -5414,11 +5414,19 @@ function earlyLeaveMinutes(row, profile) {
   return Math.max(0, expected - endMin);
 }
 
-const EDS_PAYROLL_EMAILS = [
-  "yzniber@cegid.com",
-  "tslaoui@cegid.com",
-  "mkhalki@cegid.com"
-];
+function currentUserEmail() {
+  return String(session?.user?.email || appData.profile?.email || "").trim().toLowerCase();
+}
+
+function payrollEmails() {
+  const cfg = window.HUMANA_CONFIG || {};
+  const list = Array.isArray(cfg.PAYROLL_EMAILS) ? cfg.PAYROLL_EMAILS : [];
+  return list.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean);
+}
+
+function canViewEdsPayrollColumns() {
+  return payrollEmails().includes(currentUserEmail());
+}
 
 const EDS_COLUMNS = [
   { key: "statut", label: "Statut" },
@@ -5483,14 +5491,6 @@ const EDS_COLUMNS = [
   { key: "primeProjet2", label: "Prime Projet", payroll: true },
   { key: "primeOutbound2", label: "Prime Outbound", payroll: true }
 ];
-
-function currentUserEmail() {
-  return String(session?.user?.email || appData.profile?.email || "").trim().toLowerCase();
-}
-
-function canViewEdsPayrollColumns() {
-  return EDS_PAYROLL_EMAILS.includes(currentUserEmail());
-}
 
 function visibleEdsColumns() {
   const showPayroll = canViewEdsPayrollColumns();

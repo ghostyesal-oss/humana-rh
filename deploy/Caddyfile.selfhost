@@ -1,6 +1,11 @@
 (humana_proxy) {
   encode gzip
 
+  @https {
+    scheme https
+  }
+  header @https Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
   handle /api* {
     reverse_proxy api:3000 {
       header_up X-Forwarded-Proto {scheme}

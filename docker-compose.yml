@@ -29,6 +29,7 @@ services:
       STORAGE_ROOT: /data/storage
       HUMANA_DOMAIN: ${HUMANA_DOMAIN}
       APP_ORIGIN: ${APP_ORIGIN}
+      BOOTSTRAP_CREATOR_EMAILS: ${BOOTSTRAP_CREATOR_EMAILS:-}
     volumes:
       - storage:/data/storage
     depends_on:
@@ -45,6 +46,7 @@ services:
     environment:
       API_URL: ""
       REDIRECT_URL: ${APP_ORIGIN}
+      PAYROLL_EMAILS: ${PAYROLL_EMAILS:-}
     depends_on:
       - api
     networks:

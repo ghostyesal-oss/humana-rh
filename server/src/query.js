@@ -116,7 +116,42 @@ const PERSONAL_TABLES = new Set([
   "hr_alerts"
 ]);
 
+const REQUEST_TABLES = new Set([
+  "leave_requests",
+  "attestation_requests",
+  "salary_advance_requests",
+  "punch_corrections",
+  "overtime_requests",
+  "activity_entries"
+]);
+
+const STATUS_FIELDS = new Set(["status", "workflow_step"]);
+
 const EMPLOYEE_PROFILE_FIELDS = new Set(["id", "email", "full_name", "avatar_url", "phone"]);
+
+/*
+ * Matrice d'accès (API = rempart unique, RLS et triggers désactivés)
+ *
+ * Table                    | select                         | insert/upsert                 | update                              | delete
+ * -------------------------|--------------------------------|-------------------------------|-------------------------------------|--------------------------------
+ * leave_requests           | soi / équipe / admin           | soi, statut forcé "A valider" | salarié : hors statut, si "A valider"| salarié : si "A valider"
+ * attestation_requests     |                                | manager : équipe (pas soi)    | manager : équipe, pas auto-validation| manager : équipe
+ * salary_advance_requests  |                                | admin : tout                  | admin : tout                        | admin : tout
+ * punch_corrections        |                                |                               |                                     |
+ * overtime_requests        |                                |                               |                                     |
+ * activity_entries         |                                |                               |                                     |
+ * time_punches             | soi / équipe / admin           | salarié : punched_at = now()  | manager d'équipe (pas soi)          | admin
+ * profiles                 | salarié : soi ; manager :      | upsert soi / admin            | salarié : champs limités            | admin
+ *                          |   équipe ; admin : tout        |                               | manager : équipe                    |
+ * profiles_directory       | colonnes publiques, tous       | —                             | —                                   | —
+ * payslips                 | soi / admin                    | admin                         | admin                               | admin
+ * hr_documents             | lecture publiée                | admin                         | admin                               | admin
+ * pending_invites          | admin                          | admin                         | admin                               | admin
+ * app_settings             | authentifié                    | admin                         | admin                               | admin
+ * company_events           | authentifié                    | admin                         | admin                               | admin
+ * hr_alerts                | destinataire / admin           | soi / admin / RPC             | destinataire (lu) / admin           | admin
+ * push_subscriptions       | soi / admin                    | soi                           | soi                                 | soi
+ */
 
 function denied(message, status = 403) {
   const error = new Error(message);
@@ -204,7 +239,27 @@ async function reportIds(userId) {
   return rows.map((row) => row.id);
 }
 
-async function applyReadScope(table, user, filters, op = "select") {
+function ownerColumn(table) {
+  return table === "hr_alerts" ? "recipient_id" : "user_id";
+}
+
+function isPendingStatus(status) {
+  return String(status || "").toLowerCase().startsWith("a valider");
+}
+
+async function canApproveTarget(user, targetUserId) {
+  if (isAdmin(user)) return true;
+  if (!targetUserId || targetUserId === user.sub) return false;
+  if (!isManager(user)) return false;
+  const reports = await reportIds(user.sub);
+  return reports.includes(targetUserId);
+}
+
+async function teamScopeIds(user) {
+  return [user.sub, ...(await reportIds(user.sub))];
+}
+
+async function applyReadScope(table, user, filters) {
   const admin = isAdmin(user);
   if (table === "app_settings" || table === "company_events" || table === "hr_documents") {
     return filters;
@@ -213,50 +268,88 @@ async function applyReadScope(table, user, filters, op = "select") {
     if (!admin) throw denied("Accès refusé.");
     return filters;
   }
-  if (table === "profiles" || table === "profiles_directory") {
-    if (!admin && !isManager(user) && op !== "select") {
-      return [{ op: "eq", column: "id", value: user.sub }];
-    }
+  if (table === "profiles_directory") {
     return filters;
+  }
+  if (table === "profiles") {
+    if (admin) return filters;
+    if (isManager(user)) {
+      return [...filters, { op: "in", column: "id", value: await teamScopeIds(user) }];
+    }
+    return [...filters, { op: "eq", column: "id", value: user.sub }];
   }
   if (table === "payslips" && !admin) {
-    return [
-      ...filters.filter((item) => item.column !== "user_id"),
-      { op: "eq", column: "user_id", value: user.sub }
-    ];
+    return [...filters, { op: "eq", column: "user_id", value: user.sub }];
   }
-  const userCol = table === "hr_alerts" ? "recipient_id" : "user_id";
+  const userCol = ownerColumn(table);
   if (admin) return filters;
-  if (!isManager(user) && PERSONAL_TABLES.has(table)) {
-    return [
-      ...filters.filter((item) => item.column !== userCol),
-      { op: "eq", column: userCol, value: user.sub }
-    ];
+  if (PERSONAL_TABLES.has(table) && isManager(user)) {
+    return [...filters, { op: "in", column: userCol, value: await teamScopeIds(user) }];
   }
-  if (isManager(user)) {
-    const hasUserFilter = filters.some((item) => item.column === userCol || item.column === "id");
-    const ids = [user.sub, ...(await reportIds(user.sub))];
-    if (!hasUserFilter) {
-      return [...filters, { op: "in", column: userCol, value: ids }];
-    }
-    return filters;
+  if (PERSONAL_TABLES.has(table)) {
+    return [...filters, { op: "eq", column: userCol, value: user.sub }];
   }
   return filters;
 }
 
-function assertWriteAllowed(table, user, op, payload) {
+function payloadRows(payload) {
+  if (payload == null) return [];
+  return Array.isArray(payload) ? payload : [payload];
+}
+
+function payloadHasStatus(payload) {
+  return payloadRows(payload).some((row) =>
+    row && [...STATUS_FIELDS].some((field) => Object.prototype.hasOwnProperty.call(row, field))
+  );
+}
+
+async function loadScopedRows(fromSql, filters) {
+  const { sql, params } = whereClause(filters);
+  if (!sql) return [];
+  const { rows } = await query(`select * from public.${fromSql}${sql}`, params);
+  return rows;
+}
+
+async function prepareWriteRows(table, user, rows) {
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    if (table === "time_punches") {
+      const owner = row.user_id || user.sub;
+      if (!(await canApproveTarget(user, owner))) {
+        if (row.user_id && row.user_id !== user.sub) {
+          throw denied("Impossible de pointer pour un autre collaborateur.");
+        }
+        row.user_id = user.sub;
+        row.punched_at = new Date().toISOString();
+      }
+    }
+    if (REQUEST_TABLES.has(table)) {
+      const owner = row.user_id || user.sub;
+      if (await canApproveTarget(user, owner)) continue;
+      if (row.user_id && row.user_id !== user.sub) {
+        throw denied("Impossible de créer une demande pour un autre collaborateur.");
+      }
+      row.user_id = user.sub;
+      if (!isPendingStatus(row.status)) row.status = "A valider";
+      if (Object.prototype.hasOwnProperty.call(row, "workflow_step")) row.workflow_step = 1;
+    }
+  }
+}
+
+async function assertWriteAllowed(table, fromSql, user, op, payload, filters) {
   if (ADMIN_WRITE_TABLES.has(table) && !isAdmin(user)) {
     throw denied("Accès refusé.");
   }
-  const rows = Array.isArray(payload) ? payload : [payload];
+
+  const rows = payloadRows(payload);
   if (table === "profiles" && !isAdmin(user)) {
-    for (const row of rows || []) {
+    for (const row of rows) {
       if (row && Object.prototype.hasOwnProperty.call(row, "role")) {
         throw denied("Modification du rôle refusée.");
       }
     }
     if (!isManager(user)) {
-      for (const row of rows || []) {
+      for (const row of rows) {
         if (row?.id && row.id !== user.sub) throw denied("Accès refusé.");
         const keys = Object.keys(row || {});
         if (keys.some((key) => !EMPLOYEE_PROFILE_FIELDS.has(key))) {
@@ -265,11 +358,111 @@ function assertWriteAllowed(table, user, op, payload) {
       }
     }
   }
-  if (PERSONAL_TABLES.has(table) && !isAdmin(user) && !isManager(user) && (op === "insert" || op === "upsert")) {
-    const ownerCol = table === "hr_alerts" ? "recipient_id" : "user_id";
-    for (const row of rows || []) {
-      if (row?.[ownerCol] && row[ownerCol] !== user.sub) throw denied("Accès refusé.");
-      if (row && !row[ownerCol]) row[ownerCol] = user.sub;
+
+  if (table === "profiles" && op === "delete" && !isAdmin(user)) {
+    throw denied("Accès refusé.");
+  }
+
+  if (table === "hr_alerts" && op === "delete" && !isAdmin(user)) {
+    throw denied("Accès refusé.");
+  }
+
+  if (table === "time_punches" && (op === "insert" || op === "upsert") && !isAdmin(user)) {
+    for (const row of rows) {
+      if (!row) continue;
+      const owner = row.user_id || user.sub;
+      if (owner !== user.sub && !(await canApproveTarget(user, owner))) {
+        throw denied("Impossible de pointer pour un autre collaborateur.");
+      }
+    }
+  }
+
+  if (table === "time_punches" && op === "delete" && !isAdmin(user)) {
+    throw denied("Seul un administrateur peut supprimer un pointage.");
+  }
+
+  if (table === "time_punches" && op === "update") {
+    if (!isManager(user)) {
+      throw denied("Un salarié ne peut pas modifier un pointage. Utilisez une demande de correction.");
+    }
+    const existingPunches = await loadScopedRows(fromSql, filters);
+    for (const row of existingPunches) {
+      if (!(await canApproveTarget(user, row.user_id))) {
+        throw denied("Seul un manager ou un administrateur peut modifier ce pointage.");
+      }
+    }
+  }
+
+  const ownerCol = ownerColumn(table);
+  if (PERSONAL_TABLES.has(table) && !isAdmin(user) && (op === "insert" || op === "upsert")) {
+    for (const row of rows) {
+      if (!row) continue;
+      if (!isManager(user)) {
+        if (row[ownerCol] && row[ownerCol] !== user.sub) throw denied("Accès refusé.");
+        row[ownerCol] = user.sub;
+      } else if (row[ownerCol] && row[ownerCol] !== user.sub) {
+        if (!(await canApproveTarget(user, row[ownerCol]))) throw denied("Accès refusé.");
+      } else if (!row[ownerCol]) {
+        row[ownerCol] = user.sub;
+      }
+    }
+  }
+
+  if (!REQUEST_TABLES.has(table)) return;
+
+  if (op === "insert" || op === "upsert") {
+    for (const row of rows) {
+      if (!row) continue;
+      if (!(await canApproveTarget(user, row.user_id || user.sub)) && !isPendingStatus(row.status)) {
+        throw denied("Impossible de créer une demande déjà validée.");
+      }
+    }
+    return;
+  }
+
+  const existing = await loadScopedRows(fromSql, filters);
+  if (op === "delete") {
+    if (isAdmin(user)) return;
+    for (const row of existing) {
+      if (isManager(user) && row.user_id !== user.sub) {
+        if (!(await canApproveTarget(user, row.user_id))) throw denied("Accès refusé.");
+        continue;
+      }
+      if (row.user_id !== user.sub || !isPendingStatus(row.status)) {
+        throw denied("Impossible de supprimer une demande déjà traitée.");
+      }
+    }
+    return;
+  }
+
+  if (op !== "update") return;
+
+  const payloadObj = Array.isArray(payload) ? payload[0] || {} : payload || {};
+  if (Object.prototype.hasOwnProperty.call(payloadObj, "user_id")) {
+    for (const row of existing) {
+      if (payloadObj.user_id !== row.user_id) {
+        throw denied("Impossible de transférer une demande.");
+      }
+    }
+  }
+
+  const touchesStatus = payloadHasStatus(payload);
+  if (touchesStatus) {
+    for (const row of existing) {
+      if (!(await canApproveTarget(user, row.user_id))) {
+        throw denied("Seul un manager ou un administrateur peut valider ou refuser cette demande.");
+      }
+    }
+    return;
+  }
+
+  if (!isAdmin(user)) {
+    for (const row of existing) {
+      const ownPending = row.user_id === user.sub && isPendingStatus(row.status);
+      const managing = await canApproveTarget(user, row.user_id);
+      if (!ownPending && !managing) {
+        throw denied("Cette demande ne peut plus être modifiée.");
+      }
     }
   }
 }
@@ -354,11 +547,17 @@ export async function runQuery(user, body) {
   const op = body.op || "select";
   const parsed = parseSelect(body.select);
 
-  if (op !== "select") {
-    assertWriteAllowed(table, user, op, body.payload);
+  const filters = await applyReadScope(table, user, Array.isArray(body.filters) ? body.filters : []);
+
+  if (op === "insert" || op === "upsert") {
+    const rows = Array.isArray(body.payload) ? body.payload : [body.payload];
+    await prepareWriteRows(table, user, rows);
+    body.payload = Array.isArray(body.payload) ? rows : rows[0];
   }
 
-  const filters = await applyReadScope(table, user, Array.isArray(body.filters) ? body.filters : [], op);
+  if (op !== "select") {
+    await assertWriteAllowed(table, fromSql, user, op, body.payload, filters);
+  }
 
   if (op === "select") {
     const cols = selectColumns(table, parsed);

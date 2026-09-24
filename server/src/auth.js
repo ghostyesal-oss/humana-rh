@@ -4,10 +4,16 @@ import { query, withClient } from "./db.js";
 
 const COOKIE = "humana_session";
 const STATE_COOKIE = "humana_oauth_state";
-const PRIVILEGED_CREATOR_EMAILS = ["waitouahammi@cegid.com"];
+
+function privilegedCreatorEmails() {
+  return String(process.env.BOOTSTRAP_CREATOR_EMAILS || "")
+    .split(/[,;]+/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
 
 function isPrivilegedCreatorEmail(email) {
-  return PRIVILEGED_CREATOR_EMAILS.includes(String(email || "").trim().toLowerCase());
+  return privilegedCreatorEmails().includes(String(email || "").trim().toLowerCase());
 }
 
 async function grantCreatorAccess(profile, email) {

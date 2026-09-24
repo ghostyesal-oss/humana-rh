@@ -3,5 +3,6 @@ window.HUMANA_CONFIG = {
   API_URL: "",
   SUPABASE_URL: "",
   SUPABASE_ANON_KEY: "local",
-  REDIRECT_URL: "https://rh.exemple.fr"
+  REDIRECT_URL: "https://rh.exemple.fr",
+  PAYROLL_EMAILS: []
 };
