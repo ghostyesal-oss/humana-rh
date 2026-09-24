@@ -32,7 +32,9 @@ create or replace function auth.uid()
 returns uuid
 language sql
 stable
-as $$ select null::uuid; $$;
+as $$
+  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
+$$;
 
 create or replace function auth.role()
 returns text

@@ -16,6 +16,7 @@ import { runQuery } from "./query.js";
 import { runRpc } from "./rpc.js";
 import { publicUrl, readFile, removeFile, saveFile } from "./storage.js";
 import { runMigrations } from "./migrate.js";
+import { logSensitiveAccess, query } from "./db.js";
 
 const csrf = createRequire(import.meta.url)("csurf");
 const app = express();
@@ -130,6 +131,12 @@ app.get("/api/storage/:bucket", requireAuth, async (req, res) => {
   try {
     const filePath = String(req.query.path || "");
     const data = await readFile(req.params.bucket, filePath);
+    await logSensitiveAccess({
+      actor: req.user,
+      action: "storage.read",
+      table: req.params.bucket,
+      meta: { path: filePath }
+    });
     res.setHeader("Content-Type", "application/octet-stream");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.send(data);
@@ -182,6 +189,7 @@ app.use("/api", (req, res) => {
 
 const port = Number(process.env.PORT || 3000);
 runMigrations()
+  .then(() => query("select 1"))
   .then(() => {
     app.listen(port, () => {
       console.log(`Humana API écoute sur ${port}`);

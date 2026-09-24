@@ -1,0 +1,40 @@
+name: Autorisation RLS
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  authz:
+    name: Tests d'autorisation
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: humana
+          POSTGRES_PASSWORD: test-authz-secret-32chars-long
+          POSTGRES_DB: humana
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U humana -d humana"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Installer l'API
+        working-directory: server
+        run: npm install
+      - name: Lancer les tests d'autorisation
+        working-directory: server
+        env:
+          DATABASE_URL: postgres://humana:test-authz-secret-32chars-long@localhost:5432/humana
+          APP_DATABASE_URL: postgres://humana_app:test-authz-secret-32chars-long@localhost:5432/humana
+          POSTGRES_PASSWORD: test-authz-secret-32chars-long
+          JWT_SECRET: test-jwt-secret-must-be-32-chars-min
+        run: npm test

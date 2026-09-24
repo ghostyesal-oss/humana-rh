@@ -1,4 +1,6 @@
--- Après restauration : l'API Node filtre, plus de RLS / triggers Supabase.
+-- Après restauration d'un dump : on retire les triggers / policies Supabase
+-- pour importer proprement. La migration phase 2 réactive la RLS Humana
+-- (ne pas relancer ce fichier sur une base déjà en production).
 create extension if not exists pgcrypto;
 create extension if not exists "uuid-ossp";
 

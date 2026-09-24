@@ -1,4 +1,13 @@
-import { query, withClient } from "./db.js";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { logSensitiveAccess, rlsDenied, withUser } from "./db.js";
+
+const tx = new AsyncLocalStorage();
+
+function dbQuery(text, values) {
+  const client = tx.getStore();
+  if (!client) throw new Error("Requête hors transaction utilisateur.");
+  return client.query(text, values);
+}
 
 const COLUMN_SQL = Object.freeze({
   id: '"id"',
@@ -139,7 +148,8 @@ const STATUS_FIELDS = new Set(["status", "workflow_step"]);
 const EMPLOYEE_PROFILE_FIELDS = new Set(["id", "email", "full_name", "avatar_url", "phone"]);
 
 /*
- * Matrice d'accès (API = rempart unique, RLS et triggers désactivés)
+ * Phase 2 option A : API (ce fichier) + RLS Postgres (auth.uid() via withUser).
+ * L'API pose request.jwt.claim.* dans la transaction ; humana_app n'est pas superuser.
  *
  * Table                    | select                         | insert/upsert                 | update                              | delete
  * -------------------------|--------------------------------|-------------------------------|-------------------------------------|--------------------------------
@@ -158,7 +168,7 @@ const EMPLOYEE_PROFILE_FIELDS = new Set(["id", "email", "full_name", "avatar_url
  * pending_invites          | admin                          | admin                         | admin                               | admin
  * app_settings             | authentifié                    | admin                         | admin                               | admin
  * company_events           | authentifié                    | admin                         | admin                               | admin
- * hr_alerts                | destinataire / admin           | soi / admin / RPC             | destinataire (lu) / admin           | admin
+ * hr_alerts                | destinataire / admin           | soi / admin / RPC             | destinataire (lu) / admin           | destinataire / admin
  * push_subscriptions       | soi / admin                    | soi                           | soi                                 | soi
  */
 
@@ -169,18 +179,7 @@ function denied(message, status = 403) {
 }
 
 async function execWrite(text, values) {
-  return withClient(async (client) => {
-    await client.query("begin");
-    try {
-      await client.query("set local session_replication_role = replica");
-      const result = await client.query(text, values);
-      await client.query("commit");
-      return result;
-    } catch (error) {
-      await client.query("rollback");
-      throw error;
-    }
-  });
+  return dbQuery(text, values);
 }
 
 function resolveLogicalTable(requested) {
@@ -190,7 +189,7 @@ function resolveLogicalTable(requested) {
   else if (requested === "leave_requests") { table = "leave_requests"; fromSql = '"leave_requests"'; }
   else if (requested === "punch_corrections") { table = "punch_corrections"; fromSql = '"punch_corrections"'; }
   else if (requested === "profiles") { table = "profiles"; fromSql = '"profiles"'; }
-  else if (requested === "profiles_directory") { table = "profiles_directory"; fromSql = '"profiles"'; }
+  else if (requested === "profiles_directory") { table = "profiles_directory"; fromSql = '"profiles_directory"'; }
   else if (requested === "pending_invites") { table = "pending_invites"; fromSql = '"pending_invites"'; }
   else if (requested === "push_subscriptions") { table = "push_subscriptions"; fromSql = '"push_subscriptions"'; }
   else if (requested === "company_events") { table = "company_events"; fromSql = '"company_events"'; }
@@ -244,7 +243,7 @@ function isManager(user) {
 }
 
 async function reportIds(userId) {
-  const { rows } = await query("select id from public.profiles where manager_id = $1", [userId]);
+  const { rows } = await dbQuery("select id from public.profiles where manager_id = $1", [userId]);
   return rows.map((row) => row.id);
 }
 
@@ -315,7 +314,7 @@ function payloadHasStatus(payload) {
 async function loadScopedRows(fromSql, filters) {
   const { sql, params } = whereClause(filters);
   if (!sql) return [];
-  const { rows } = await query(`select * from public.${fromSql}${sql}`, params);
+  const { rows } = await dbQuery(`select * from public.${fromSql}${sql}`, params);
   return rows;
 }
 
@@ -372,7 +371,7 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters) {
     throw denied("Accès refusé.");
   }
 
-  if (table === "hr_alerts" && op === "delete" && !isAdmin(user)) {
+  if (table === "profiles_directory" && op !== "select") {
     throw denied("Accès refusé.");
   }
 
@@ -539,7 +538,7 @@ async function embedProfiles(rows, embed) {
   const cols = embed.columns.length
     ? [...new Set(["id", ...embed.columns])].map(colSql).join(", ")
     : '"id", "full_name", "email"';
-  const { rows: profiles } = await query(
+  const { rows: profiles } = await dbQuery(
     `select ${cols} from public.profiles where id = any($1)`,
     [ids]
   );
@@ -551,7 +550,31 @@ function payloadKeys(row) {
   return Object.keys(COLUMN_SQL).filter((key) => Object.prototype.hasOwnProperty.call(row || {}, key));
 }
 
+function auditRead(user, table, rows) {
+  if (table !== "payslips" && table !== "hr_documents") return Promise.resolve();
+  const list = (rows || []).filter(Boolean);
+  return logSensitiveAccess({
+    actor: user,
+    action: table === "payslips" ? "payslip.read" : "hr_document.read",
+    table,
+    targetUserId: list.length === 1 ? list[0].user_id || null : null,
+    meta: {
+      count: list.length,
+      ids: list.map((row) => row.id).filter(Boolean).slice(0, 50)
+    }
+  });
+}
+
 export async function runQuery(user, body) {
+  try {
+    return await withUser(user, (client) => tx.run(client, () => executeQuery(user, body)));
+  } catch (error) {
+    if (rlsDenied(error)) throw denied("Accès refusé.");
+    throw error;
+  }
+}
+
+async function executeQuery(user, body) {
   const { table, fromSql } = resolveLogicalTable(String(body.table || ""));
   const op = body.op || "select";
   const parsed = parseSelect(body.select);
@@ -582,8 +605,9 @@ export async function runQuery(user, body) {
       params.push(Number(body.limit));
       text += ` limit $${params.length}`;
     }
-    const result = await query(text, params);
+    const result = await dbQuery(text, params);
     const data = await embedProfiles(result.rows, parsed.embed);
+    await auditRead(user, table, data);
     if (body.maybeSingle || body.single) {
       if (body.single && !data[0]) {
         return { data: null, error: { message: "Aucune ligne", code: "PGRST116" } };
