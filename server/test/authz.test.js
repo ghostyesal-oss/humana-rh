@@ -29,6 +29,7 @@ async function reset() {
   await adminQuery("delete from public.time_punches where id = $1", [PUNCH_A]);
   await adminQuery("delete from public.hr_documents where id = any($1::uuid[])", [[DOC, DOC_ADMIN]]);
   await adminQuery("delete from public.company_events where id = any($1::uuid[])", [[EVT_ADMIN, EVT_MGR]]);
+  await adminQuery("delete from public.app_settings where key in ('studio_creators', 'nav_visibility', 'company_timezone', 'gta_shifts')");
   await adminQuery("delete from public.profiles where id = any($1::uuid[])", [[A, B, M, AD]]);
 }
 
@@ -74,6 +75,14 @@ async function seed() {
   await adminQuery(
     `update public.payslips set storage_path = 'payslips/' || user_id::text || '/slip.pdf' where id = $1`,
     [PAY_B]
+  );
+  await adminQuery(
+    `insert into public.app_settings (key, value) values
+       ('studio_creators', $1::jsonb),
+       ('nav_visibility', '{}'::jsonb),
+       ('company_timezone', '"GMT+1"'::jsonb)
+     on conflict (key) do update set value = excluded.value`,
+    [JSON.stringify([admin.email])]
   );
 }
 
@@ -233,6 +242,56 @@ test("authz: salarié, manager, admin", async (t) => {
         () => client.query("update public.profiles set role = 'admin' where id = $1", [A])
       );
     });
+  });
+
+  await t.test("API+RLS: un manager ne modifie pas le profil RH de son N-1", async () => {
+    await assert.rejects(
+      () => runQuery(mgr, {
+        table: "profiles",
+        op: "update",
+        filters: [{ op: "eq", column: "id", value: A }],
+        payload: { job_title: "Hacked", leave_balance_cp: 99 }
+      }),
+      (error) => error.status === 403
+    );
+    await withUser(mgr, async (client) => {
+      await assert.rejects(
+        () => client.query("update public.profiles set job_title = 'Hacked' where id = $1", [A])
+      );
+    });
+    const { rows } = await adminQuery("select job_title, leave_balance_cp from public.profiles where id = $1", [A]);
+    assert.notEqual(rows[0].job_title, "Hacked");
+  });
+
+  await t.test("API: un manager peut modifier son propre nom", async () => {
+    const result = await runQuery(mgr, {
+      table: "profiles",
+      op: "update",
+      filters: [{ op: "eq", column: "id", value: M }],
+      payload: { full_name: "Manager Maj" }
+    });
+    assert.equal(result.data[0].full_name, "Manager Maj");
+    await adminQuery("update public.profiles set full_name = 'Manager Test' where id = $1", [M]);
+  });
+
+  await t.test("API+RLS: un salarié ne lit pas studio_creators", async () => {
+    const result = await runQuery(empA, { table: "app_settings", op: "select" });
+    const keys = (result.data || []).map((row) => row.key);
+    assert.equal(keys.includes("studio_creators"), false);
+    assert.ok(keys.includes("nav_visibility") || keys.includes("company_timezone"));
+    await withUser(empA, async (client) => {
+      const hidden = await client.query("select key from public.app_settings where key = 'studio_creators'");
+      assert.equal(hidden.rows.length, 0);
+    });
+  });
+
+  await t.test("API: l'admin lit studio_creators", async () => {
+    const result = await runQuery(admin, {
+      table: "app_settings",
+      op: "select",
+      filters: [{ op: "eq", column: "key", value: "studio_creators" }]
+    });
+    assert.equal((result.data || []).length, 1);
   });
 
   await t.test("API+RLS: un salarié ne voit pas un document admin", async () => {

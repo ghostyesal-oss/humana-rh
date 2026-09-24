@@ -146,6 +146,7 @@ const REQUEST_TABLES = new Set([
 const STATUS_FIELDS = new Set(["status", "workflow_step"]);
 
 const EMPLOYEE_PROFILE_FIELDS = new Set(["id", "email", "full_name", "avatar_url", "phone"]);
+const PUBLIC_APP_SETTING_KEYS = ["nav_visibility", "company_timezone", "gta_shifts"];
 
 /*
  * Phase 2 option A : API (ce fichier) + RLS Postgres (auth.uid() via withUser).
@@ -160,13 +161,14 @@ const EMPLOYEE_PROFILE_FIELDS = new Set(["id", "email", "full_name", "avatar_url
  * overtime_requests        |                                |                               |                                     |
  * activity_entries         |                                |                               |                                     |
  * time_punches             | soi / équipe / admin           | salarié : punched_at = now()  | manager d'équipe (pas soi)          | admin
- * profiles                 | salarié : soi ; manager :      | upsert soi / admin            | salarié : champs limités            | admin
- *                          |   équipe ; admin : tout        |                               | manager : équipe                    |
+ * profiles                 | salarié : soi ; manager :      | upsert soi / admin            | soi : champs personnels             | admin
+ *                          |   équipe ; admin : tout        |                               | admin : tout                       |
  * profiles_directory       | colonnes publiques, tous       | —                             | —                                   | —
  * payslips                 | soi / admin                    | admin                         | admin                               | admin
  * hr_documents             | visibilité all/managers/admins | admin                         | admin                               | admin
  * pending_invites          | admin                          | admin                         | admin                               | admin
- * app_settings             | authentifié                    | admin                         | admin                               | admin
+ * app_settings             | nav/GTA : authentifié          | admin / créateur              | admin / créateur                    | admin / créateur
+ *                          | studio_creators : admin        |                               |                                     |
  * company_events           | visibilité all/managers/admins | admin                         | admin                               | admin
  * hr_alerts                | destinataire / admin           | soi / admin / RPC             | destinataire (lu) / admin           | destinataire / admin
  * push_subscriptions       | soi / admin                    | soi                           | soi                                 | soi
@@ -270,7 +272,8 @@ async function teamScopeIds(user) {
 async function applyReadScope(table, user, filters) {
   const admin = isAdmin(user);
   if (table === "app_settings") {
-    return filters;
+    if (admin) return filters;
+    return [...filters, { op: "in", column: "key", value: PUBLIC_APP_SETTING_KEYS }];
   }
   if (table === "company_events" || table === "hr_documents") {
     if (admin) return filters;
@@ -363,13 +366,17 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters) {
       if (row && Object.prototype.hasOwnProperty.call(row, "role")) {
         throw denied("Modification du rôle refusée.");
       }
+      if (row?.id && row.id !== user.sub) throw denied("Accès refusé.");
+      const keys = Object.keys(row || {});
+      if (keys.some((key) => !EMPLOYEE_PROFILE_FIELDS.has(key))) {
+        throw denied("Modification de profil refusée.");
+      }
     }
-    if (!isManager(user)) {
-      for (const row of rows) {
-        if (row?.id && row.id !== user.sub) throw denied("Accès refusé.");
-        const keys = Object.keys(row || {});
-        if (keys.some((key) => !EMPLOYEE_PROFILE_FIELDS.has(key))) {
-          throw denied("Modification de profil refusée.");
+    if (op === "update" || op === "upsert") {
+      const existing = await loadScopedRows(fromSql, filters);
+      for (const row of existing) {
+        if (row.id !== user.sub) {
+          throw denied("Un manager ne peut pas modifier le profil d'un collaborateur.");
         }
       }
     }

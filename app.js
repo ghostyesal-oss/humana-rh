@@ -6575,7 +6575,9 @@ async function loadAppSettingsBundle() {
   const { data, error } = await supabaseClient
     .from("app_settings")
     .select("key, value")
-    .in("key", ["nav_visibility", "studio_creators", "company_timezone", "gta_shifts"]);
+    .in("key", isAdmin() || isCreator()
+      ? ["nav_visibility", "studio_creators", "company_timezone", "gta_shifts"]
+      : ["nav_visibility", "company_timezone", "gta_shifts"]);
   if (error) {
     if (error.message.includes("does not exist") || error.message.includes("app_settings")) {
       appData.navVisibility = getDefaultNavVisibility();
