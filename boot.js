@@ -1,9 +1,8 @@
-/* Humana boot: initialise Supabase et le flow OAuth Microsoft.
-   Chargé après supabase-js et avant app.js. Partagé par tous les HTML (SPA + MPA). */
-(function bootSupabase() {
+/* Humana boot: client /api + connexion Microsoft.
+   Chargé après humana-client.js et avant app.js. Partagé par tous les HTML (SPA + MPA). */
+(function bootHumana() {
   var config = window.HUMANA_CONFIG || {};
-  var url = (config.API_URL || config.SUPABASE_URL || "").replace(/\/rest\/v1\/?$/, "").replace(/\/$/, "");
-  var key = config.SUPABASE_ANON_KEY || "local";
+  var url = String(config.API_URL || "").replace(/\/$/, "");
   var loginButton = document.getElementById("microsoft-login");
   var configNote = document.getElementById("config-note");
 
@@ -12,7 +11,7 @@
     return;
   }
 
-  window.__humanaSupabase = window.supabase.createClient(url, key, {
+  window.__humanaSupabase = window.supabase.createClient(url, "local", {
     auth: {
       detectSessionInUrl: false,
       persistSession: true,
@@ -31,7 +30,7 @@
         return origin;
       }
     } catch (e) {}
-    return config.REDIRECT_URL || "https://humana-rh.vercel.app";
+    return config.REDIRECT_URL || "";
   }
   window.humanaAuthRedirectTo = getAuthRedirectTo;
 

@@ -18,10 +18,8 @@ deploy/.env
 *.p12
 *.pfx
 
-# Configurations locales sensibles (le fichier "config.js" contient uniquement
-# la cle anon Supabase - designee comme publique - mais on le laisse hors git
-# pour eviter tout drift avec l'environnement de prod). Utilisez config.example.js
-# comme reference.
+# config.js est généré en prod (generate-config.mjs) et recopié en local
+# depuis config.example.js. Ne pas le versionner.
 config.js
 config.local.js
 
@@ -50,10 +48,7 @@ pnpm-debug.log*
 # Sauvegardes locales (produites par scripts/extract-pages.mjs, etc.)
 *.bak
 
-# Dumps Supabase et archives (scripts/backup-supabase.ps1). Ces fichiers
-# contiennent des donnees personnelles : ne JAMAIS les commiter. Le script
-# ecrit par defaut dans %USERPROFILE%\backups\humana-supabase\, mais on
-# protege aussi le dossier du projet au cas ou -OutputRoot pointe ici.
+# Sauvegardes et archives (données personnelles : ne jamais commiter).
 backups/
 humana_[0-9]*/
 humana_[0-9]*.7z
@@ -70,6 +65,6 @@ build/
 .cache/
 .parcel-cache/
 
-# Supabase CLI
+# Ancien CLI (dossiers temporaires)
 supabase/.temp/
 supabase/.branches/

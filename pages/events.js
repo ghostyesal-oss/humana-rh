@@ -36,7 +36,7 @@
 
     const tableMissingWarning = appData.companyEventsTableMissing && admin
       ? `<article class="card error-card">
-          <p class="error-message">Table <code>company_events</code> introuvable. Exécutez <code>supabase/company-events.sql</code> dans SQL Editor pour activer les événements.</p>
+          <p class="error-message">Table <code>company_events</code> introuvable. Redémarrez l'API pour appliquer les migrations.</p>
         </article>`
       : "";
 

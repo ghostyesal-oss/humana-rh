@@ -23,7 +23,7 @@
     if (!usesDatabase()) {
       dbNote = `<p class="data-note demo">Mode démo : journal local. Connectez-vous avec Microsoft pour voir les sessions réelles.</p>`;
     } else if (appData.journalMetaMissing) {
-      dbNote = `<p class="data-note">Colonnes techniques absentes de la base. Exécutez <code>supabase/time-punches-journal.sql</code> dans Supabase SQL Editor, puis refaites un pointage d'entrée.</p>`;
+      dbNote = `<p class="data-note">Colonnes techniques absentes de la base. Redémarrez l'API pour appliquer les migrations, puis refaites un pointage d'entrée.</p>`;
     } else if (sessions.length && sessions.every((session) => session.method === "—" && session.os === "—" && session.browser === "—" && session.ip === "—")) {
       dbNote = `<p class="data-note">Les sessions déjà enregistrées n'ont pas d'IP, d'OS ni de navigateur. Ces détails apparaîtront au prochain pointage d'entrée.</p>`;
     }

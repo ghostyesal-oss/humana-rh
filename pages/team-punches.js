@@ -86,7 +86,7 @@
           <h3>Détail des pointages</h3>
           <span class="hierarchy-result-count">${dailyRows.length} jour${dailyRows.length > 1 ? "s" : ""}</span>
         </div>
-        ${showLocationHint ? `<p class="data-note">Le lieu n'est renseigné que sur les pointages d'entrée. Si la colonne est vide, exécutez <code>supabase/time-punches-location.sql</code>, puis refaites un pointage d'entrée.</p>` : ""}
+        ${showLocationHint ? `<p class="data-note">Le lieu n'est renseigné que sur les pointages d'entrée. S'il reste vide après un nouveau pointage, redémarrez l'API pour appliquer les migrations.</p>` : ""}
         <div class="table-wrap">
           <table>
             <thead>

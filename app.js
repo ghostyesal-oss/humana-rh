@@ -6368,39 +6368,39 @@ function formatAppError(error) {
     return "Le pointage n'a pas pu enregistrer un champ optionnel. Rechargez la page (Ctrl+F5) puis réessayez : l'arrivée s'enregistre sans ces colonnes.";
   }
   if (JOURNAL_META_FIELDS.some((field) => message.includes(field))) {
-    return "Colonnes du Journal non configurées. Exécutez supabase/time-punches-journal.sql dans SQL Editor, puis refaites un pointage d'entrée.";
+    return "Colonnes du Journal absentes. Redémarrez l'API pour appliquer les migrations, puis refaites un pointage d'entrée.";
   }
   if (message.includes("does not exist") || (message.includes("relation") && message.includes("profiles"))) {
-    return "Base Supabase non configurée. Exécutez supabase/schema.sql puis supabase/admin.sql dans SQL Editor.";
+    return "Schéma de base incomplet. Redémarrez l'API pour appliquer les migrations.";
   }
   if (message.includes("bucket") || message.includes("storage")) {
-    return "Stockage Supabase non configuré. Exécutez supabase/storage-hr-documents.sql dans SQL Editor.";
+    return "Stockage documents indisponible. Vérifiez le volume Docker storage et redémarrez l'API.";
   }
   if (message.includes("salary_advance_requests")) {
-    return "Avances sur salaire non configurées. Exécutez supabase/salary-advance-requests.sql dans SQL Editor.";
+    return "Avances sur salaire indisponibles. Redémarrez l'API pour appliquer les migrations.";
   }
   if (message.includes("punch_corrections") || message.includes("overtime_requests") || message.includes("activity_entries") || message.includes("shift_code") || message.includes("workflow_step")) {
-    return "Module de gestion des temps non configuré. Exécutez supabase/gta-schema.sql dans SQL Editor.";
+    return "Module de gestion des temps incomplet. Redémarrez l'API pour appliquer les migrations.";
   }
   if (message.includes("permission") || message.includes("policy") || message.includes("row-level")) {
     if (message.includes("leave_requests")) {
-      return "Accès au calendrier des congés de l'équipe refusé. Exécutez supabase/leave-requests-access.sql dans SQL Editor.";
+      return "Accès au calendrier des congés de l'équipe refusé.";
     }
     if (message.includes("time_punches")) {
-      return "Accès refusé aux pointages de l'équipe. Exécutez supabase/time-punches-access.sql dans SQL Editor.";
+      return "Accès refusé aux pointages de l'équipe.";
     }
-    return "Accès refusé aux pointages de l'équipe. Exécutez supabase/time-punches-access.sql dans SQL Editor.";
+    return "Accès refusé aux pointages de l'équipe.";
   }
   if (message.includes("hr_alerts") || message.includes("process_auto_clock_outs") || message.includes("notify_auto_clock_out")) {
-    return "Alertes RH non configurées. Exécutez supabase/auto-clock-out.sql puis supabase/hr-alerts-delete.sql dans SQL Editor.";
+    return "Alertes RH indisponibles. Redémarrez l'API pour appliquer les migrations.";
   }
   if (message.includes("app_settings")) {
-    return "Studio créateur non configuré. Exécutez supabase/creator-nav-settings.sql dans SQL Editor.";
+    return "Réglages studio indisponibles. Redémarrez l'API pour appliquer les migrations.";
   }
   if (message.includes("pending_invites") && message.includes("check")) {
-    return "Rôle créateur non autorisé dans les invitations. Exécutez supabase/creator-accounts.sql dans SQL Editor.";
+    return "Rôle créateur non autorisé dans les invitations.";
   }
-  return error?.message || "Impossible de charger les données Supabase.";
+  return error?.message || "Impossible de charger les données.";
 }
 
 function wait(ms) {
@@ -8575,12 +8575,11 @@ function readPortalUser() {
 
 function getSupabaseSettings() {
   const cfg = window.HUMANA_CONFIG || {};
-  const url = (cfg.API_URL || cfg.SUPABASE_URL || window.location.origin || "")
-    .replace(/\/rest\/v1\/?$/, "")
+  const url = (cfg.API_URL || window.location.origin || "")
     .replace(/\/$/, "");
   return {
     url,
-    key: cfg.SUPABASE_ANON_KEY || "local"
+    key: "local"
   };
 }
 
