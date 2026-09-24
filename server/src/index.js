@@ -1,7 +1,6 @@
 import express from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import { createRequire } from "node:module";
 import multer from "multer";
 import {
   bumpSessionEpoch,
@@ -17,13 +16,13 @@ import {
   startMicrosoftLogin
 } from "./auth.js";
 import { rateLimit } from "./rate-limit.js";
+import { csrfProtection } from "./csrf.js";
 import { runQuery } from "./query.js";
 import { runRpc } from "./rpc.js";
 import { publicUrl, readFile, removeFile, saveFile, assertCanReadStorage } from "./storage.js";
 import { runMigrations } from "./migrate.js";
 import { logSensitiveAccess, query } from "./db.js";
 
-const csrf = createRequire(import.meta.url)("csurf");
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
 function allowedOrigins() {
@@ -77,16 +76,6 @@ const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 240, name: "api" });
 app.use("/api", (req, res, next) => {
   if (req.path === "/health") return next();
   return apiLimiter(req, res, next);
-});
-
-const csrfProtection = csrf({
-  cookie: {
-    key: "_csrf",
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.COOKIE_SECURE !== "false",
-    path: "/"
-  }
 });
 
 app.get("/api/auth/csrf", authLimiter, csrfProtection, (req, res) => {

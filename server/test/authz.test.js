@@ -328,6 +328,11 @@ test("authz: salarié, manager, admin", async (t) => {
       () => assertCanReadStorage(empA, "hr-documents", "notes/admin.pdf"),
       (error) => error.status === 404
     );
+    await assert.rejects(
+      () => assertCanReadStorage(admin, "hr-documents", "notes/orphan-not-in-db.pdf"),
+      (error) => error.status === 404
+    );
+    assert.equal(await assertCanReadStorage(admin, "hr-documents", "notes/admin.pdf"), "notes/admin.pdf");
   });
 
   await t.test("index phase 2.3 présents", async () => {

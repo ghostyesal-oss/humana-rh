@@ -48,10 +48,6 @@ export function publicUrl(req, bucket, filePath) {
   return `${proto}://${host}/api/storage/${bucket}?path=${encodeURIComponent(filePath)}`;
 }
 
-function isPrivileged(user) {
-  return user?.role === "admin" || user?.role === "creator";
-}
-
 export async function assertCanReadStorage(user, bucket, filePath) {
   const { cleaned } = safePath(bucket, filePath);
   if (bucket === "hr-documents" && user?.sub && cleaned.startsWith(`payslips/${user.sub}/`)) {
@@ -76,6 +72,6 @@ export async function assertCanReadStorage(user, bucket, filePath) {
     );
     return docs.rows.length > 0;
   });
-  if (allowed || isPrivileged(user)) return cleaned;
+  if (allowed) return cleaned;
   throw notFound();
 }
