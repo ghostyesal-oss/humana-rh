@@ -2796,46 +2796,22 @@ async function getPublicIpAddress() {
     /* ignore */
   }
 
-  const withTimeout = async (factory, ms = 1500) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), ms);
-    try {
-      return await factory(controller.signal);
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-
-  const sources = [
-    async (signal) => {
-      const response = await fetch("https://api.ipify.org?format=json", { signal });
-      const data = await response.json();
-      return data?.ip || "";
-    },
-    async (signal) => {
-      const response = await fetch("https://ipv4.icanhazip.com", { signal });
-      return (await response.text()).trim();
-    },
-    async (signal) => {
-      const response = await fetch("https://www.cloudflare.com/cdn-cgi/trace", { signal });
-      const text = await response.text();
-      const match = text.match(/^ip=([^\s]+)$/m);
-      return match ? match[1] : "";
-    }
-  ];
-
-  for (const source of sources) {
-    try {
-      const ip = (await withTimeout(source)).replace(/[^0-9a-fA-F:.]/g, "");
-      if (ip) {
-        try { sessionStorage.setItem("humana_public_ip", ip); } catch { /* ignore */ }
-        return ip;
-      }
-    } catch {
-      /* essayer la source suivante */
-    }
+  try {
+    const config = window.HUMANA_CONFIG || {};
+    const base = String(config.API_URL || "").replace(/\/$/, "");
+    const response = await fetch(`${base}/api/client-ip`, {
+      credentials: "include",
+      headers: { Accept: "application/json" }
+    });
+    if (!response.ok) return "";
+    const data = await response.json();
+    const ip = String(data?.ip || "").replace(/[^0-9a-fA-F:.]/g, "");
+    if (!ip) return "";
+    try { sessionStorage.setItem("humana_public_ip", ip); } catch { /* ignore */ }
+    return ip;
+  } catch {
+    return "";
   }
-  return "";
 }
 
 async function collectJournalMeta() {

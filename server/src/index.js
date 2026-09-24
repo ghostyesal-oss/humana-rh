@@ -84,6 +84,15 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+function clientIp(req) {
+  const raw = req.ip || req.socket?.remoteAddress || "";
+  return String(raw).replace(/^::ffff:/, "").replace(/[^0-9a-fA-F:.]/g, "");
+}
+
+app.get("/api/client-ip", requireAuth, (req, res) => {
+  res.json({ ip: clientIp(req) });
+});
+
 app.get("/api/auth/microsoft", startMicrosoftLogin);
 app.get("/api/auth/microsoft/callback", finishMicrosoftLogin);
 
