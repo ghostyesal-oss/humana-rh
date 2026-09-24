@@ -6293,6 +6293,9 @@ function formatAppError(error) {
   if (isJwtClockError(error)) {
     return "Synchronisation de la session en cours. Cliquez sur Réessayer ou attendez quelques secondes. Vérifiez également que l'heure de votre ordinateur est correcte.";
   }
+  if (message.includes("unexpected token") || message.includes("<!doctype") || message.includes("page html")) {
+    return "L'enregistrement n'a pas atteint l'API. Sur le VPS : docker compose up -d --build api && docker compose up -d caddy";
+  }
   if (message.includes("work_location") || message.includes("work_status") || (message.includes("column") && message.includes("time_punches")) || message.includes("pgrst204")) {
     return "Le pointage n'a pas pu enregistrer un champ optionnel. Rechargez la page (Ctrl+F5) puis réessayez : l'arrivée s'enregistre sans ces colonnes.";
   }

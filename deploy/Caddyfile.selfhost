@@ -1,7 +1,7 @@
 (humana_proxy) {
   encode gzip
 
-  handle /api/* {
+  handle /api* {
     reverse_proxy api:3000 {
       header_up X-Forwarded-Proto {scheme}
       header_up X-Forwarded-Host {host}
@@ -9,7 +9,9 @@
     }
   }
 
-  reverse_proxy web:80
+  handle {
+    reverse_proxy web:80
+  }
 }
 
 :80 {

@@ -161,10 +161,22 @@ app.post("/api/storage/:bucket/remove", csrfProtection, requireAuth, async (req,
 });
 
 app.use((error, _req, res, next) => {
+  if (res.headersSent) return next(error);
   if (error.code === "EBADCSRFTOKEN") {
     return res.status(403).json({ data: null, error: { message: "csrf token invalid" } });
   }
-  return next(error);
+  const status = Number(error.status || error.statusCode || 500);
+  return res.status(status).json({
+    data: null,
+    error: { message: error.message || "Erreur serveur" }
+  });
+});
+
+app.use("/api", (req, res) => {
+  res.status(404).json({
+    data: null,
+    error: { message: `Route API introuvable: ${req.method} ${req.originalUrl}` }
+  });
 });
 
 const port = Number(process.env.PORT || 3000);

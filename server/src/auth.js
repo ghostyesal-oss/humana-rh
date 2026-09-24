@@ -132,10 +132,21 @@ export async function findProfileByEmail(email) {
 export function requireAuth(req, res, next) {
   const payload = readToken(req);
   if (!payload?.sub) {
-    return res.status(401).json({ error: "Non authentifié." });
+    return res.status(401).json({ data: null, error: { message: "Non authentifié." } });
   }
   req.user = payload;
-  next();
+  loadProfile(payload.sub)
+    .then((profile) => {
+      if (profile?.role) {
+        req.user = {
+          ...payload,
+          role: profile.role,
+          email: profile.email || payload.email
+        };
+      }
+      next();
+    })
+    .catch((error) => next(error));
 }
 
 function entraEnv(name) {

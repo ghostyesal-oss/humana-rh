@@ -1,4 +1,4 @@
-import { query } from "./db.js";
+import { query, withClient } from "./db.js";
 
 const COLUMN_SQL = Object.freeze({
   id: '"id"',
@@ -122,6 +122,21 @@ function denied(message, status = 403) {
   const error = new Error(message);
   error.status = status;
   return error;
+}
+
+async function execWrite(text, values) {
+  return withClient(async (client) => {
+    await client.query("begin");
+    try {
+      await client.query("set local session_replication_role = replica");
+      const result = await client.query(text, values);
+      await client.query("commit");
+      return result;
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    }
+  });
 }
 
 function resolveLogicalTable(requested) {
@@ -394,7 +409,18 @@ export async function runQuery(user, body) {
       text += ` on conflict (${conflict.join(",")}) do update set ${updates.join(",") || `${COLUMN_SQL[keys[0]]} = excluded.${COLUMN_SQL[keys[0]]}`}`;
     }
     text += ` returning ${returningColumns(body.select || "*")}`;
-    const result = await query(text, values);
+    let result;
+    try {
+      result = await execWrite(text, values);
+    } catch (error) {
+      const msg = String(error.message || "");
+      if (op === "upsert" && /no unique or exclusion constraint/i.test(msg)) {
+        const insertOnly = text.replace(/\s+on conflict[\s\S]*?(?= returning)/i, "");
+        result = await execWrite(insertOnly, values);
+      } else {
+        throw error;
+      }
+    }
     if (body.single || body.maybeSingle) return { data: result.rows[0] || null, error: null };
     return { data: result.rows, error: null };
   }
@@ -411,14 +437,14 @@ export async function runQuery(user, body) {
     const sets = keys.map((key, index) => `${COLUMN_SQL[key]} = $${index + 1}`);
     const whereSql = sql.replace(/\$(\d+)/g, (_, n) => `$${Number(n) + keys.length}`);
     const text = `update public.${fromSql} set ${sets.join(", ")}${whereSql} returning *`;
-    const result = await query(text, [...setParams, ...params]);
+    const result = await execWrite(text, [...setParams, ...params]);
     return { data: result.rows, error: null };
   }
 
   if (op === "delete") {
     const { sql, params } = whereClause(filters);
     if (!sql) return { data: null, error: { message: "Delete sans filtre refusé" } };
-    const result = await query(`delete from public.${fromSql}${sql} returning *`, params);
+    const result = await execWrite(`delete from public.${fromSql}${sql} returning *`, params);
     return { data: result.rows, error: null };
   }
 

@@ -8,11 +8,26 @@
 
   var csrfToken = "";
 
+  function parseJsonResponse(res) {
+    return res.text().then(function (text) {
+      var trimmed = String(text || "").trim();
+      if (!trimmed) return {};
+      try {
+        return JSON.parse(trimmed);
+      } catch (err) {
+        if (trimmed.charAt(0) === "<") {
+          throw new Error("L'API n'a pas répondu (page HTML reçue). Redémarrez api et Caddy : docker compose up -d --build api");
+        }
+        throw new Error("Réponse API invalide.");
+      }
+    });
+  }
+
   function loadCsrf() {
     return fetch(apiBase() + "/api/auth/csrf", {
       credentials: "include",
       headers: { "Accept": "application/json" }
-    }).then(function (res) { return res.json(); }).then(function (json) {
+    }).then(parseJsonResponse).then(function (json) {
       csrfToken = json.csrfToken || "";
       return csrfToken;
     });
@@ -31,7 +46,7 @@
         headers: headers,
         body: opts.body
       }).then(function (res) {
-        return res.json().catch(function () { return {}; }).then(function (json) {
+        return parseJsonResponse(res).then(function (json) {
           if (!res.ok && !json.error) json.error = { message: "Erreur " + res.status };
           json.__status = res.status;
           return json;

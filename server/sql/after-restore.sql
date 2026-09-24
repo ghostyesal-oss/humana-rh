@@ -39,3 +39,6 @@ grant all on all tables in schema public to humana;
 grant all on all sequences in schema public to humana;
 grant all on all functions in schema public to humana;
 alter default privileges in schema public grant all on tables to humana;
+
+create unique index if not exists pending_invites_email_key
+  on public.pending_invites (email);
