@@ -38,3 +38,22 @@
   }
   if (booting) document.documentElement.classList.add("auth-booting");
 })();
+
+(function () {
+  var host = String(location.hostname || "");
+  if (host === "localhost" || host === "127.0.0.1") return;
+  function block(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    return false;
+  }
+  document.addEventListener("contextmenu", block, true);
+  document.addEventListener("keydown", function (event) {
+    var key = event.key || "";
+    var code = event.code || "";
+    var ctrl = event.ctrlKey || event.metaKey;
+    if (key === "F12" || code === "F12") return block(event);
+    if (ctrl && event.shiftKey && /^(I|J|C)$/.test(key.toUpperCase())) return block(event);
+    if (ctrl && key.toUpperCase() === "U") return block(event);
+  }, true);
+})();

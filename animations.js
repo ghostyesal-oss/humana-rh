@@ -1,30 +1,19 @@
-/* Humana - couche d'animations "fluide + 3D".
+/* Humana - couche d'animations restreinte à l'accueil et aux événements.
  *
- * Toutes les animations sont passives (aucune mutation du DOM applicatif,
- * aucun effet metier). Elles :
- *   - respectent `prefers-reduced-motion`,
- *   - se debranchent quand l'element sort du DOM,
- *   - s'attachent automatiquement aux elements rendus plus tard (SPA/MPA).
- *
- * Effets :
- *   1) Tilt 3D souris sur les cartes (perspective + rotateX/Y + spot light).
- *   2) Reveal on scroll : sections apparaissent en fade + slide + rotateX.
- *   3) Press effect + ripple sur les boutons.
- *   4) Compteurs animes pour [data-animate-count].
- *   5) Transitions inter-pages (navigation MPA) : gestion du :root pendant le
- *      chargement pour eviter le flash et laisser la place a l'API native
- *      View Transitions (dans Chromium recent).
+ * Coût mesuré : 9,8 Ko (3,0 Ko gzip). Quatre boucles (tilt rAF, reveal IO,
+ * ripple, compteurs rAF) + MutationObserver sur tout le DOM.
+ * Sur poste modeste / mobile, le tilt + l'observer à chaque renderApp
+ * (innerHTML complet) coûtent plus que le parse. Décision : charger le
+ * script seulement sur home/events, couper le tilt au toucher, et scanner
+ * après rendu au lieu d'observer le DOM.
  */
 (function () {
   "use strict";
 
   const REDUCE_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  // ------------------------------------------------------------------------
-  // 1) Tilt 3D souris
-  // ------------------------------------------------------------------------
-  // .card:has(.day-timeline) et .punch-history-card ont overflow: visible
-  // et un contenu qui deborde volontairement : on les exclut du tilt.
+  const COARSE_POINTER = window.matchMedia("(pointer: coarse)").matches
+    || window.matchMedia("(max-width: 900px)").matches;
+  const TILT_PAGES = { home: true, events: true };
   const TILT_SELECTOR = [
     ".card:not(.punch-history-card):not(.error-card)",
     ".home-widget",
@@ -34,6 +23,13 @@
     ".document-card"
   ].join(",");
   const TILT_MAX_DEG = 5.5;
+  const REVEAL_SELECTOR = "section, article.card, .home-widget, .stat-card";
+
+  function currentPageId() {
+    return document.querySelector(".app-shell")?.dataset?.currentPage
+      || document.body?.dataset?.page
+      || "";
+  }
 
   function bindTilt(el) {
     if (el.dataset.huTilt === "1") return;
@@ -43,7 +39,6 @@
     let raf = null;
     let tx = 0, ty = 0;
     let sx = 50, sy = 50;
-    let active = false;
 
     const apply = () => {
       raf = null;
@@ -67,12 +62,8 @@
       if (!raf) raf = requestAnimationFrame(apply);
     };
 
-    const onEnter = () => {
-      active = true;
-      el.classList.add("hu-tilt-active");
-    };
+    const onEnter = () => el.classList.add("hu-tilt-active");
     const onLeave = () => {
-      active = false;
       el.classList.remove("hu-tilt-active");
       tx = 0; ty = 0; sx = 50; sy = 50;
       if (!raf) raf = requestAnimationFrame(apply);
@@ -84,16 +75,10 @@
   }
 
   function scanTilts(root) {
+    if (REDUCE_MOTION || COARSE_POINTER || !TILT_PAGES[currentPageId()]) return;
     (root || document).querySelectorAll(TILT_SELECTOR).forEach(bindTilt);
   }
 
-  // ------------------------------------------------------------------------
-  // 2) Reveal on scroll
-  // ------------------------------------------------------------------------
-  // On evite de mettre "opacity: 0" sur des elements qui contiennent des
-  // formulaires ou du contenu vital tant que JS n'a pas eu le temps de tourner :
-  // le CSS applique .hu-reveal seulement quand l'element a la classe.
-  const REVEAL_SELECTOR = "section, article.card, .home-widget, .stat-card";
   const revealObs = new IntersectionObserver(
     (entries) => {
       for (const e of entries) {
@@ -110,7 +95,6 @@
     (root || document).querySelectorAll(REVEAL_SELECTOR).forEach((el) => {
       if (el.dataset.huReveal === "1") return;
       el.dataset.huReveal = "1";
-      // Stagger progressif limite (evite les tres longs delais).
       const delay = (revealIndex++ % 12) * 45;
       el.style.setProperty("--hu-reveal-delay", delay + "ms");
       el.classList.add("hu-reveal");
@@ -118,9 +102,6 @@
     });
   }
 
-  // ------------------------------------------------------------------------
-  // 3) Press ripple sur boutons
-  // ------------------------------------------------------------------------
   function onPointerDown(ev) {
     const btn = ev.target && ev.target.closest &&
       ev.target.closest("button:not(:disabled), .primary:not(:disabled), a.primary, [role='button']:not([aria-disabled='true'])");
@@ -130,7 +111,7 @@
     btn.style.setProperty("--hu-ripple-x", (ev.clientX - rect.left) + "px");
     btn.style.setProperty("--hu-ripple-y", (ev.clientY - rect.top) + "px");
     btn.classList.remove("hu-ripple-active");
-    void btn.offsetWidth; // reflow force le redemarrage de l'anim
+    void btn.offsetWidth;
     btn.classList.add("hu-ripple-active");
   }
   function onAnimEnd(ev) {
@@ -139,9 +120,6 @@
     }
   }
 
-  // ------------------------------------------------------------------------
-  // 4) Compteurs [data-animate-count]
-  // ------------------------------------------------------------------------
   const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
   function animateCounter(el) {
     if (el.dataset.huCounted === "1") return;
@@ -182,59 +160,23 @@
     });
   }
 
-  // ------------------------------------------------------------------------
-  // 5) MPA : eviter le flash blanc entre pages
-  // ------------------------------------------------------------------------
-  // Chromium supporte les cross-document view transitions via @view-transition
-  // dans le CSS. Pour les autres navigateurs on fait un fondu manuel : on
-  // fade legerement le body quand on quitte la page.
-  function bindMpaFade() {
-    if (!("startViewTransition" in document)) {
-      // Fallback : on ecoute les clicks internes et on ajoute une classe
-      // qui fait un mini fondu pendant la navigation.
-      document.addEventListener("click", (ev) => {
-        const a = ev.target && ev.target.closest && ev.target.closest("a[href]");
-        if (!a) return;
-        const href = a.getAttribute("href");
-        if (!href || href.startsWith("#") || href.startsWith("http") || a.target === "_blank") return;
-        document.documentElement.classList.add("hu-nav-leaving");
-      }, { capture: true, passive: true });
-      window.addEventListener("pageshow", () => {
-        document.documentElement.classList.remove("hu-nav-leaving");
-      });
+  let listenersBound = false;
+  function scan(root) {
+    const scope = root || document;
+    if (!REDUCE_MOTION) {
+      scanTilts(scope);
+      if (!listenersBound) {
+        listenersBound = true;
+        document.addEventListener("pointerdown", onPointerDown, { passive: true });
+        document.addEventListener("animationend", onAnimEnd, { passive: true });
+      }
     }
+    armReveal(scope);
+    armCounters(scope);
   }
 
-  // ------------------------------------------------------------------------
-  // Bootstrap
-  // ------------------------------------------------------------------------
   function boot() {
-    if (!REDUCE_MOTION) {
-      scanTilts(document);
-      document.addEventListener("pointerdown", onPointerDown, { passive: true });
-      document.addEventListener("animationend", onAnimEnd, { passive: true });
-    }
-    // Reveal + counters restent utiles meme en reduced-motion : le CSS
-    // desactive alors les transforms.
-    armReveal(document);
-    armCounters(document);
-    bindMpaFade();
-
-    // Observe le DOM pour attraper les elements rendus plus tard.
-    const mo = new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        for (const n of m.addedNodes) {
-          if (!(n instanceof Element)) continue;
-          if (!REDUCE_MOTION) {
-            if (n.matches && n.matches(TILT_SELECTOR)) bindTilt(n);
-            scanTilts(n);
-          }
-          armReveal(n);
-          armCounters(n);
-        }
-      }
-    });
-    mo.observe(document.body, { childList: true, subtree: true });
+    scan(document);
   }
 
   if (document.readyState === "loading") {
@@ -243,5 +185,5 @@
     boot();
   }
 
-  window.HumanaAnimations = { armReveal, scanTilts, armCounters };
+  window.HumanaAnimations = { scan, armReveal, scanTilts, armCounters };
 })();

@@ -9,19 +9,46 @@ const mpaMode = typeof document !== "undefined" && !!document.body?.dataset?.pag
 let currentPage = (mpaMode && document.body.dataset.page) || "home";
 
 const pageModulePromises = {};
+let dataStamp = Object.create(null);
+const DATA_TTL_MS = 5 * 60 * 1000;
+const ANIM_PAGES = { home: true, events: true };
+
+/* HUMANA_ASSET_HASHES_START */
+const HUMANA_ASSET_HASHES = {};
+/* HUMANA_ASSET_HASHES_END */
+
+function assetUrl(path) {
+  const clean = String(path || "").replace(/^\//, "");
+  const hash = HUMANA_ASSET_HASHES[clean];
+  return hash ? `/${clean}?h=${hash}` : `/${clean}`;
+}
 
 function ensurePageModule(page) {
   if (window.Humana?.pages?.[page]) return Promise.resolve();
   if (pageModulePromises[page]) return pageModulePromises[page];
   pageModulePromises[page] = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = `/pages/${page}.js?v=5`;
+    script.src = assetUrl(`pages/${page}.js`);
     script.charset = "UTF-8";
     script.onload = () => resolve();
     script.onerror = () => reject(new Error(`Module ${page} introuvable`));
     document.body.appendChild(script);
   });
   return pageModulePromises[page];
+}
+
+function ensureAnimations() {
+  if (!ANIM_PAGES[currentPage]) return Promise.resolve();
+  if (window.HumanaAnimations) return Promise.resolve();
+  if (pageModulePromises.__animations) return pageModulePromises.__animations;
+  pageModulePromises.__animations = new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.src = assetUrl("animations.js");
+    script.onload = () => resolve();
+    script.onerror = () => resolve();
+    document.body.appendChild(script);
+  });
+  return pageModulePromises.__animations;
 }
 
 function pageHref(page) {
@@ -62,11 +89,18 @@ function navigateToPage(nextPage, options = {}) {
   currentPage = target;
   syncPageUrl(target);
   return ensurePageModule(target)
+    .then(() => loadPageData(target))
+    .then(() => ensureAnimations())
     .then(() => {
       if (options.render !== false) renderApp();
     })
-    .catch(() => {
-      window.location.href = pageHref(target);
+    .catch((error) => {
+      if (!window.Humana?.pages?.[target]) {
+        window.location.href = pageHref(target);
+        return;
+      }
+      appData.error = formatAppError(error);
+      if (options.render !== false) renderApp();
     });
 }
 
@@ -76,9 +110,13 @@ if (typeof window !== "undefined" && !window.__humanaPopstateBound) {
     if (!session?.user && !demoMode) return;
     const target = pageFromPath();
     currentPage = target;
-    ensurePageModule(target).then(() => renderApp()).catch(() => {
-      window.location.href = pageHref(target);
-    });
+    ensurePageModule(target)
+      .then(() => loadPageData(target))
+      .then(() => ensureAnimations())
+      .then(() => renderApp())
+      .catch(() => {
+        window.location.href = pageHref(target);
+      });
   });
 }
 let bootstrapInFlight = null;
@@ -4183,7 +4221,7 @@ function urlBase64ToUint8Array(base64String) {
 async function ensureServiceWorkerAndPush() {
   if (!("serviceWorker" in navigator)) return;
   try {
-    const swUrl = new URL("sw.js?v=6", window.location.href).href;
+    const swUrl = new URL(assetUrl("sw.js"), window.location.href).href;
     const registration = await navigator.serviceWorker.register(swUrl);
     const onWorkerMessage = function (event) {
       if (event.origin !== location.origin) {
@@ -6392,7 +6430,7 @@ function withTimeout(promise, ms, label = "Requête") {
 
 async function syncSessionAfterLogin() {
   if (!supabaseClient) return;
-  await wait(400);
+  if (!window.__pendingAuthSession) return;
   try {
     await withTimeout(supabaseClient.auth.refreshSession(), 6000, "Connexion");
   } catch {
@@ -6427,13 +6465,29 @@ async function ensureProfile() {
   };
 
   await withSupabaseRetry(async () => {
-    const { data, error } = await supabaseClient
+    const existingRes = await supabaseClient
       .from("profiles")
-      .upsert(payload, { onConflict: "id" })
-      .select()
-      .single();
-    if (error) throw error;
-    appData.profile = data;
+      .select("*")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (existingRes.error) throw existingRes.error;
+    const existing = existingRes.data;
+    if (
+      existing
+      && existing.email === payload.email
+      && existing.full_name === payload.full_name
+    ) {
+      appData.profile = existing;
+    } else {
+      const { data, error } = await supabaseClient
+        .from("profiles")
+        .upsert(payload, { onConflict: "id" })
+        .select()
+        .single();
+      if (error) throw error;
+      appData.profile = data;
+    }
+    if (window.__humanaInviteApplied) return;
     const { error: inviteError } = await supabaseClient.rpc("apply_pending_invite", {
       user_id: user.id,
       user_email: user.email || ""
@@ -6441,6 +6495,7 @@ async function ensureProfile() {
     if (inviteError && !inviteError.message.includes("does not exist")) {
       console.warn("apply_pending_invite:", inviteError.message);
     }
+    window.__humanaInviteApplied = true;
   });
 }
 
@@ -6471,100 +6526,258 @@ async function fetchOrgDirectoryRows() {
   return [];
 }
 
-async function refreshAppData() {
-  if (!usesDatabase()) return;
+const PAGE_COLLECTIONS = {
+  home: ["punches", "events", "hrAlerts"],
+  pointeuse: ["punches", "gta"],
+  leave: ["leave", "teamLeave"],
+  attestations: ["attestations", "documents"],
+  events: ["events"],
+  hierarchy: ["org"],
+  admin: ["orgFull", "invites"],
+  creator: ["settings"],
+  journal: ["org", "journal"],
+  "team-punches": ["org", "teamPunches"],
+  reports: ["org", "leave", "teamPunches"],
+  global: ["org", "teamPunches"],
+  planning: ["org", "teamPunches"]
+};
 
-  const userId = session.user.id;
-  await withSupabaseRetry(async () => {
-    const [punchesRes, leaveRes, attestationRes, directoryRows, profilesRes, profileRes] = await withTimeout(
-      Promise.all([
-        supabaseClient.from("time_punches").select("*").eq("user_id", userId).order("punched_at", { ascending: true }),
-        supabaseClient.from("leave_requests").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
-        supabaseClient.from("attestation_requests").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
-        fetchOrgDirectoryRows(),
-        supabaseClient.from("profiles").select("*").order("full_name"),
-        supabaseClient.from("profiles").select("*").eq("id", userId).maybeSingle()
-      ]),
-      12000,
-      "Chargement des données"
-    );
+function cacheFresh(key, ttl = DATA_TTL_MS) {
+  const stamp = dataStamp[key];
+  return Boolean(stamp) && (Date.now() - stamp) < ttl;
+}
 
-    if (punchesRes.error) throw punchesRes.error;
-    if (leaveRes.error) throw leaveRes.error;
-    if (attestationRes.error) throw attestationRes.error;
-    if (profilesRes.error) throw profilesRes.error;
-    if (profileRes.error) throw profileRes.error;
+function markLoaded(key) {
+  dataStamp[key] = Date.now();
+}
 
-    appData.punches = punchesRes.data || [];
-    appData.leaveRequests = leaveRes.data || [];
-    appData.attestationRequests = attestationRes.data || [];
-    appData.orgProfiles = mergeOrgProfiles(directoryRows, profilesRes.data || []);
-    appData.profile = profileRes.data || appData.profile;
-    appData.pendingInvites = [];
-
-    const advanceRes = await supabaseClient
-      .from("salary_advance_requests")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false });
-    if (advanceRes.error) {
-      const message = `${advanceRes.error.message || ""} ${advanceRes.error.details || ""}`.toLowerCase();
-      if (message.includes("salary_advance") || message.includes("does not exist") || message.includes("schema cache") || message.includes("relation")) {
-        appData.salaryAdvanceRequests = [];
-        appData.salaryAdvanceTableMissing = true;
-      } else {
-        throw advanceRes.error;
-      }
-    } else {
-      appData.salaryAdvanceRequests = advanceRes.data || [];
-      appData.salaryAdvanceTableMissing = false;
-    }
-
-    if (isAdmin()) {
-      const invitesRes = await withTimeout(
-        supabaseClient.from("pending_invites").select("*").order("created_at", { ascending: false }),
-        8000,
-        "Chargement des invitations"
-      );
-      if (!invitesRes.error) {
-        appData.pendingInvites = invitesRes.data || [];
-      }
-    }
-
-    const [docsRes, payslipsRes] = await Promise.all([
-      supabaseClient.from("hr_documents").select("*").order("published_at", { ascending: false }),
-      supabaseClient.from("payslips").select("*").eq("user_id", userId)
-        .order("period_year", { ascending: false })
-        .order("period_month", { ascending: false })
-    ]);
-    if (!docsRes.error) appData.hrDocuments = docsRes.data || [];
-    if (!payslipsRes.error) appData.payslips = payslipsRes.data || [];
-
-    await runAutoClockOutChecks();
-
-    if (canViewHrAlerts()) {
-      await loadHrAlerts(userId);
-    } else {
-      appData.hrAlerts = [];
-    }
-
-    if (canViewTeamLeaveCalendar()) {
-      await loadTeamLeaveRequests(getLeaveCalendarMonth());
-    } else {
-      appData.teamLeaveRequests = [];
-    }
-
+async function loadAppSettingsBundle() {
+  if (!usesDatabase()) {
     await loadNavVisibility();
     await loadStudioCreators();
     await loadGtaSettings();
-    await loadCompanyEvents();
-
-    try {
-      await loadGtaCollections(userId);
-    } catch (error) {
-      console.warn("GTA collections:", error?.message || error);
+    return;
+  }
+  const fallbackTimezone = "GMT+1";
+  const fallbackHours = defaultShiftHours();
+  const { data, error } = await supabaseClient
+    .from("app_settings")
+    .select("key, value")
+    .in("key", ["nav_visibility", "studio_creators", "company_timezone", "gta_shifts"]);
+  if (error) {
+    if (error.message.includes("does not exist") || error.message.includes("app_settings")) {
+      appData.navVisibility = getDefaultNavVisibility();
+      appData.studioCreators = [];
+      appData.companyTimezone = fallbackTimezone;
+      appData.shiftHours = fallbackHours;
+      return;
     }
-  });
+    throw error;
+  }
+  const rows = data || [];
+  const byKey = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  appData.navVisibility = normalizeNavVisibility(byKey.nav_visibility || null);
+  appData.studioCreators = normalizeStudioCreators(byKey.studio_creators || []);
+  const timezoneValue = typeof byKey.company_timezone === "string"
+    ? byKey.company_timezone
+    : byKey.company_timezone?.id || byKey.company_timezone?.timezone;
+  appData.companyTimezone = timezoneValue === "GMT" ? "GMT" : "GMT+1";
+  appData.shiftHours = normalizeShiftHours(byKey.gta_shifts);
+}
+
+async function loadOwnPunches() {
+  const userId = session.user.id;
+  const punchesRes = await supabaseClient
+    .from("time_punches")
+    .select("*")
+    .eq("user_id", userId)
+    .order("punched_at", { ascending: true });
+  if (punchesRes.error) throw punchesRes.error;
+  appData.punches = punchesRes.data || [];
+}
+
+async function loadOwnLeave() {
+  const userId = session.user.id;
+  const leaveRes = await supabaseClient
+    .from("leave_requests")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (leaveRes.error) throw leaveRes.error;
+  appData.leaveRequests = leaveRes.data || [];
+}
+
+async function loadOwnAttestations() {
+  const userId = session.user.id;
+  const attestationRes = await supabaseClient
+    .from("attestation_requests")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (attestationRes.error) throw attestationRes.error;
+  appData.attestationRequests = attestationRes.data || [];
+  const advanceRes = await supabaseClient
+    .from("salary_advance_requests")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (advanceRes.error) {
+    const message = `${advanceRes.error.message || ""} ${advanceRes.error.details || ""}`.toLowerCase();
+    if (message.includes("salary_advance") || message.includes("does not exist") || message.includes("schema cache") || message.includes("relation")) {
+      appData.salaryAdvanceRequests = [];
+      appData.salaryAdvanceTableMissing = true;
+    } else {
+      throw advanceRes.error;
+    }
+  } else {
+    appData.salaryAdvanceRequests = advanceRes.data || [];
+    appData.salaryAdvanceTableMissing = false;
+  }
+}
+
+async function loadOrgDirectory() {
+  const directoryRows = await fetchOrgDirectoryRows();
+  appData.orgProfiles = mergeOrgProfiles(directoryRows, []);
+}
+
+async function loadOrgProfilesFull() {
+  const directoryRows = appData.orgProfiles.length ? appData.orgProfiles : await fetchOrgDirectoryRows();
+  const profilesRes = await supabaseClient.from("profiles").select("*").order("full_name");
+  if (profilesRes.error) throw profilesRes.error;
+  appData.orgProfiles = mergeOrgProfiles(directoryRows, profilesRes.data || []);
+}
+
+async function loadPendingInvites() {
+  if (!isAdmin()) {
+    appData.pendingInvites = [];
+    return;
+  }
+  const invitesRes = await withTimeout(
+    supabaseClient.from("pending_invites").select("*").order("created_at", { ascending: false }),
+    8000,
+    "Chargement des invitations"
+  );
+  if (!invitesRes.error) appData.pendingInvites = invitesRes.data || [];
+}
+
+async function loadDocumentsAndPayslips() {
+  const userId = session.user.id;
+  const [docsRes, payslipsRes] = await Promise.all([
+    supabaseClient.from("hr_documents").select("*").order("published_at", { ascending: false }),
+    supabaseClient.from("payslips").select("*").eq("user_id", userId)
+      .order("period_year", { ascending: false })
+      .order("period_month", { ascending: false })
+  ]);
+  if (!docsRes.error) appData.hrDocuments = docsRes.data || [];
+  if (!payslipsRes.error) appData.payslips = payslipsRes.data || [];
+}
+
+async function loadCollection(key, { force = false } = {}) {
+  if (!force && cacheFresh(key)) return;
+  switch (key) {
+    case "settings":
+      await loadAppSettingsBundle();
+      break;
+    case "punches":
+      await loadOwnPunches();
+      break;
+    case "leave":
+      await loadOwnLeave();
+      break;
+    case "attestations":
+      await loadOwnAttestations();
+      break;
+    case "org":
+      await loadOrgDirectory();
+      break;
+    case "orgFull":
+      await loadOrgProfilesFull();
+      break;
+    case "invites":
+      await loadPendingInvites();
+      break;
+    case "documents":
+    case "payslips":
+      await loadDocumentsAndPayslips();
+      markLoaded("documents");
+      markLoaded("payslips");
+      return;
+    case "events":
+      await loadCompanyEvents();
+      break;
+    case "hrAlerts":
+      if (canViewHrAlerts()) await loadHrAlerts(session.user.id);
+      else appData.hrAlerts = [];
+      break;
+    case "gta":
+      try {
+        await loadGtaCollections(session.user.id);
+      } catch (error) {
+        console.warn("GTA collections:", error?.message || error);
+      }
+      break;
+    case "teamLeave":
+      if (canViewTeamLeaveCalendar()) await loadTeamLeaveRequests(getLeaveCalendarMonth());
+      else appData.teamLeaveRequests = [];
+      break;
+    case "teamPunches":
+      if (currentPage === "planning") {
+        const range = planningMonthRange();
+        teamPunchFilters = {
+          ...teamPunchFilters,
+          start: range.start,
+          end: range.end,
+          scope: isAdmin() ? (teamPunchFilters.scope || "all") : "team"
+        };
+      }
+      if (canViewTeamPunches()) {
+        await loadTeamPunches();
+        teamPunchesInitialLoadDone = true;
+      } else {
+        appData.teamPunches = [];
+      }
+      break;
+    case "journal":
+      if (canViewJournal()) {
+        await loadJournalPunches();
+        journalPunchesInitialLoadDone = true;
+      } else {
+        appData.journalPunches = [];
+      }
+      break;
+    default:
+      return;
+  }
+  markLoaded(key);
+}
+
+async function loadCoreData({ force = false } = {}) {
+  await withTimeout(
+    Promise.all([
+      loadCollection("settings", { force }),
+      loadCollection("punches", { force }),
+      loadCollection("org", { force })
+    ]),
+    12000,
+    "Chargement des données"
+  );
+  if (canViewHrAlerts()) await loadCollection("hrAlerts", { force });
+}
+
+async function loadPageData(page, { force = false } = {}) {
+  if (!usesDatabase() || !session?.user) return;
+  const keys = PAGE_COLLECTIONS[page] || [];
+  if (!keys.length) return;
+  const prelude = keys.filter((key) => key === "org" || key === "orgFull" || key === "settings");
+  const rest = keys.filter((key) => !prelude.includes(key));
+  if (prelude.length) await Promise.all(prelude.map((key) => loadCollection(key, { force })));
+  if (rest.length) await Promise.all(rest.map((key) => loadCollection(key, { force })));
+}
+
+async function refreshAppData() {
+  if (!usesDatabase()) return;
+  await loadCoreData({ force: true });
+  await loadPageData(currentPage, { force: true });
 }
 
 async function loadGtaCollections(userId) {
@@ -6615,8 +6828,13 @@ async function bootstrapUser(options = {}) {
     try {
       await syncSessionAfterLogin();
       await ensureProfile();
-      await refreshAppData();
+      await loadCoreData();
+      await loadPageData(currentPage);
       collectJournalMeta().catch(() => {});
+      if (currentPage === "home" || currentPage === "pointeuse") {
+        runAutoClockOutChecks().catch(() => {});
+      }
+      await ensureAnimations();
     } catch (error) {
       appData.error = formatAppError(error);
     } finally {
@@ -6808,6 +7026,7 @@ function renderApp() {
 
   bindAppEvents();
   playViewAnimations();
+  window.HumanaAnimations?.scan?.(document);
 }
 
 function minutesFromHhmm(value) {
@@ -7262,7 +7481,7 @@ async function withAction(handler) {
     appData.loading = true;
     renderApp();
     await withTimeout(handler(), 15000, "Action");
-    if (usesDatabase()) await refreshAppData();
+    if (usesDatabase()) await loadPageData(currentPage, { force: true });
   } catch (error) {
     appData.error = formatAppError(error);
   } finally {
@@ -8280,6 +8499,8 @@ function bindAppEvents() {
     initialAuthHandled = false;
     teamPunchesInitialLoadDone = false;
     journalPunchesInitialLoadDone = false;
+    dataStamp = Object.create(null);
+    window.__humanaInviteApplied = false;
     journalFullscreen = false;
     journalFilters = { start: "", end: "", userId: "", query: "" };
     journalColumnFilters = {};
@@ -8323,6 +8544,7 @@ function bindAppEvents() {
   });
 
   document.querySelector("#retry-load")?.addEventListener("click", () => {
+    dataStamp = Object.create(null);
     bootstrapUser();
   });
 

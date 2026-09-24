@@ -2,6 +2,7 @@
   "name": "humana-rh",
   "private": true,
   "scripts": {
-    "build": "node scripts/generate-config.mjs"
+    "build": "node scripts/generate-config.mjs",
+    "stamp": "node scripts/stamp-assets.mjs"
   }
 }
