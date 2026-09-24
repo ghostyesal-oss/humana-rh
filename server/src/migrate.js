@@ -18,7 +18,10 @@ export async function ensureAppRole() {
     end $$
   `);
   if (password) {
-    const { rows } = await adminQuery("select format('alter role humana_app password %L', $1) as sql", [password]);
+    const { rows } = await adminQuery(
+      "select format('alter role humana_app password %L', $1::text) as sql",
+      [password]
+    );
     await adminQuery(rows[0].sql);
   }
 }
