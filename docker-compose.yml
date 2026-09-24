@@ -105,8 +105,7 @@ services:
       CERT_WARN_DAYS: ${CERT_WARN_DAYS:-14}
       CHECK_INTERVAL_SEC: ${WATCHDOG_INTERVAL_SEC:-300}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /:/host:ro
+      - pgbackups:/backups:ro
     depends_on:
       api:
         condition: service_healthy

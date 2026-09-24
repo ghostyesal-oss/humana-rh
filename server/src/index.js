@@ -14,32 +14,51 @@ import {
 } from "./auth.js";
 import { runQuery } from "./query.js";
 import { runRpc } from "./rpc.js";
-import { publicUrl, readFile, removeFile, saveFile } from "./storage.js";
+import { publicUrl, readFile, removeFile, saveFile, assertCanReadStorage } from "./storage.js";
 import { runMigrations } from "./migrate.js";
 import { logSensitiveAccess, query } from "./db.js";
 
 const csrf = createRequire(import.meta.url)("csurf");
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
-const allowedOrigin = (process.env.APP_ORIGIN || "").replace(/\/$/, "")
-  || (process.env.HUMANA_DOMAIN
-    ? `${process.env.COOKIE_SECURE === "false" ? "http" : "https"}://${process.env.HUMANA_DOMAIN.replace(/^https?:\/\//, "")}`
-    : "");
+function allowedOrigins() {
+  const items = new Set();
+  const add = (raw) => {
+    const value = String(raw || "").trim().replace(/\/$/, "");
+    if (!value) return;
+    if (/^https?:\/\//i.test(value)) {
+      items.add(value);
+      return;
+    }
+    const host = value.replace(/^https?:\/\//i, "");
+    items.add(`https://${host}`);
+    if (process.env.COOKIE_SECURE === "false") items.add(`http://${host}`);
+  };
+  add(process.env.APP_ORIGIN);
+  add(process.env.HUMANA_DOMAIN);
+  String(process.env.CORS_ORIGINS || "").split(/[,;]+/).forEach(add);
+  return items;
+}
+
+const origins = allowedOrigins();
 
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
 app.use(cookieParser());
 app.use(express.json({ limit: "2mb" }));
 app.use(cors({
-  origin: allowedOrigin || true,
+  origin(origin, callback) {
+    if (!origin) return callback(null, false);
+    callback(null, origins.has(String(origin).replace(/\/$/, "")));
+  },
   credentials: true
 }));
 
 function sameOrigin(req, res, next) {
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return next();
-  if (!allowedOrigin) return next();
-  const origin = String(req.headers.origin || "");
-  if (origin && origin !== allowedOrigin) {
+  const origin = String(req.headers.origin || "").replace(/\/$/, "");
+  if (!origin) return next();
+  if (!origins.size || !origins.has(origin)) {
     return res.status(403).json({ error: "Origine refusée." });
   }
   next();
@@ -129,7 +148,7 @@ app.post("/api/storage/:bucket", csrfProtection, requireAuth, upload.single("fil
 
 app.get("/api/storage/:bucket", requireAuth, async (req, res) => {
   try {
-    const filePath = String(req.query.path || "");
+    const filePath = await assertCanReadStorage(req.user, req.params.bucket, req.query.path);
     const data = await readFile(req.params.bucket, filePath);
     await logSensitiveAccess({
       actor: req.user,
@@ -139,18 +158,27 @@ app.get("/api/storage/:bucket", requireAuth, async (req, res) => {
     });
     res.setHeader("Content-Type", "application/octet-stream");
     res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Disposition", "attachment");
     res.send(data);
   } catch (error) {
-    res.status(404).json({ error: { message: error.message } });
+    res.status(error.status || 404).json({ error: { message: error.message || "Fichier introuvable." } });
   }
 });
 
-app.post("/api/storage/:bucket/signed-url", csrfProtection, requireAuth, (req, res) => {
-  const filePath = String(req.body.path || req.query.path || "");
-  res.json({
-    data: { signedUrl: publicUrl(req, req.params.bucket, filePath) },
-    error: null
-  });
+app.post("/api/storage/:bucket/signed-url", csrfProtection, requireAuth, async (req, res) => {
+  try {
+    const filePath = await assertCanReadStorage(
+      req.user,
+      req.params.bucket,
+      req.body.path || req.query.path
+    );
+    res.json({
+      data: { signedUrl: publicUrl(req, req.params.bucket, filePath) },
+      error: null
+    });
+  } catch (error) {
+    res.status(error.status || 404).json({ data: null, error: { message: error.message || "Fichier introuvable." } });
+  }
 });
 
 app.post("/api/storage/:bucket/remove", csrfProtection, requireAuth, async (req, res) => {

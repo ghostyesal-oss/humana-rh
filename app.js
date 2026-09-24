@@ -1959,7 +1959,8 @@ async function loadCompanyEvents() {
 }
 
 function getCompanyEvents() {
-  return Array.isArray(appData.companyEvents) ? appData.companyEvents : [];
+  const events = Array.isArray(appData.companyEvents) ? appData.companyEvents : [];
+  return events.filter((event) => canSeeVisibility(event.visibility));
 }
 
 function getUpcomingCompanyEvents(limit = 3) {
@@ -4409,13 +4410,17 @@ const demoHrDocuments = [
   { id: "d4", title: "Note de service Q1", description: "Actualités RH", category: "Communication", file_url: "#", published_at: "2026-03-01" }
 ];
 
-function canSeeHrDocument(doc) {
-  const visibility = String(doc?.visibility || "all");
-  if (visibility === "admins") return isAdmin();
-  if (visibility === "managers") {
+function canSeeVisibility(visibility) {
+  const vis = String(visibility || "all");
+  if (vis === "admins") return isAdmin();
+  if (vis === "managers") {
     return isAdmin() || appData.profile?.role === "manager" || hasDirectReports();
   }
   return true;
+}
+
+function canSeeHrDocument(doc) {
+  return canSeeVisibility(doc?.visibility);
 }
 
 function getHrDocuments() {
@@ -5128,14 +5133,21 @@ function leaveRows(requests) {
   if (!requests.length) {
     return `<tr><td colspan="5" class="empty-cell">Aucune demande de congé pour le moment.</td></tr>`;
   }
-  return requests.map((request) => `
+  return requests.map((request) => {
+    const typeLabel = escapeHtml(request.type || "Congé");
+    const motif = request.motif ? `<br><small>${escapeHtml(request.motif)}</small>` : "";
+    const quantity = leaveIsHoursUnit(request.type)
+      ? `${escapeHtml(String(request.hours || 0))} h`
+      : `${escapeHtml(String(request.days ?? 0))} jour${Number(request.days) > 1 ? "s" : ""} ouvré${Number(request.days) > 1 ? "s" : ""}`;
+    return `
     <tr>
-      <td>${request.type}${request.motif ? `<br><small>${escapeHtml(request.motif)}</small>` : ""}</td>
-      <td>${formatDate(request.start)} - ${formatDate(request.end)}</td>
-      <td>${leaveIsHoursUnit(request.type) ? `${request.hours || 0} h` : `${request.days} jour${Number(request.days) > 1 ? "s" : ""} ouvré${Number(request.days) > 1 ? "s" : ""}`}</td>
+      <td>${typeLabel}${motif}</td>
+      <td>${escapeHtml(formatDate(request.start))} - ${escapeHtml(formatDate(request.end))}</td>
+      <td>${quantity}</td>
       <td>${escapeHtml(request.attachment_name || request.attachmentName || "—")}</td>
       <td>${badge(request.status)}</td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
 }
 
 function formatCountdown(startsAt) {

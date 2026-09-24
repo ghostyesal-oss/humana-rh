@@ -164,10 +164,10 @@ const EMPLOYEE_PROFILE_FIELDS = new Set(["id", "email", "full_name", "avatar_url
  *                          |   équipe ; admin : tout        |                               | manager : équipe                    |
  * profiles_directory       | colonnes publiques, tous       | —                             | —                                   | —
  * payslips                 | soi / admin                    | admin                         | admin                               | admin
- * hr_documents             | lecture publiée                | admin                         | admin                               | admin
+ * hr_documents             | visibilité all/managers/admins | admin                         | admin                               | admin
  * pending_invites          | admin                          | admin                         | admin                               | admin
  * app_settings             | authentifié                    | admin                         | admin                               | admin
- * company_events           | authentifié                    | admin                         | admin                               | admin
+ * company_events           | visibilité all/managers/admins | admin                         | admin                               | admin
  * hr_alerts                | destinataire / admin           | soi / admin / RPC             | destinataire (lu) / admin           | destinataire / admin
  * push_subscriptions       | soi / admin                    | soi                           | soi                                 | soi
  */
@@ -269,8 +269,16 @@ async function teamScopeIds(user) {
 
 async function applyReadScope(table, user, filters) {
   const admin = isAdmin(user);
-  if (table === "app_settings" || table === "company_events" || table === "hr_documents") {
+  if (table === "app_settings") {
     return filters;
+  }
+  if (table === "company_events" || table === "hr_documents") {
+    if (admin) return filters;
+    const managerish = isManager(user) || (await reportIds(user.sub)).length > 0;
+    if (managerish) {
+      return [...filters, { op: "in", column: "visibility", value: ["all", "managers"] }];
+    }
+    return [...filters, { op: "eq", column: "visibility", value: "all" }];
   }
   if (table === "pending_invites") {
     if (!admin) throw denied("Accès refusé.");

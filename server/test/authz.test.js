@@ -3,6 +3,7 @@ import test from "node:test";
 import { adminQuery, withUser } from "../src/db.js";
 import { runMigrations } from "../src/migrate.js";
 import { runQuery } from "../src/query.js";
+import { assertCanReadStorage } from "../src/storage.js";
 
 const A = "a0000000-0000-4000-8000-000000000001";
 const B = "a0000000-0000-4000-8000-000000000002";
@@ -12,6 +13,9 @@ const LEAVE_A = "b0000000-0000-4000-8000-000000000001";
 const PAY_B = "c0000000-0000-4000-8000-000000000002";
 const PUNCH_A = "d0000000-0000-4000-8000-000000000001";
 const DOC = "e0000000-0000-4000-8000-000000000001";
+const DOC_ADMIN = "e0000000-0000-4000-8000-000000000002";
+const EVT_ADMIN = "f0000000-0000-4000-8000-000000000001";
+const EVT_MGR = "f0000000-0000-4000-8000-000000000002";
 
 const empA = { sub: A, role: "employee", email: "emp-a@authz.test" };
 const empB = { sub: B, role: "employee", email: "emp-b@authz.test" };
@@ -23,7 +27,8 @@ async function reset() {
   await adminQuery("delete from public.payslips where id = $1", [PAY_B]);
   await adminQuery("delete from public.leave_requests where id = $1", [LEAVE_A]);
   await adminQuery("delete from public.time_punches where id = $1", [PUNCH_A]);
-  await adminQuery("delete from public.hr_documents where id = $1", [DOC]);
+  await adminQuery("delete from public.hr_documents where id = any($1::uuid[])", [[DOC, DOC_ADMIN]]);
+  await adminQuery("delete from public.company_events where id = any($1::uuid[])", [[EVT_ADMIN, EVT_MGR]]);
   await adminQuery("delete from public.profiles where id = any($1::uuid[])", [[A, B, M, AD]]);
 }
 
@@ -53,9 +58,22 @@ async function seed() {
     [PUNCH_A, A]
   );
   await adminQuery(
-    `insert into public.hr_documents (id, title, visibility)
-     values ($1, 'Note interne', 'all')`,
-    [DOC]
+    `insert into public.hr_documents (id, title, visibility, storage_path)
+     values
+       ($1, 'Note interne', 'all', 'notes/all.pdf'),
+       ($2, 'Note admin', 'admins', 'notes/admin.pdf')`,
+    [DOC, DOC_ADMIN]
+  );
+  await adminQuery(
+    `insert into public.company_events (id, title, starts_at, visibility, poster_path)
+     values
+       ($1, 'Comité', now() + interval '1 day', 'admins', 'posters/admin.png'),
+       ($2, 'Briefing managers', now() + interval '2 day', 'managers', 'posters/mgr.png')`,
+    [EVT_ADMIN, EVT_MGR]
+  );
+  await adminQuery(
+    `update public.payslips set storage_path = 'payslips/' || user_id::text || '/slip.pdf' where id = $1`,
+    [PAY_B]
   );
 }
 
@@ -215,6 +233,42 @@ test("authz: salarié, manager, admin", async (t) => {
         () => client.query("update public.profiles set role = 'admin' where id = $1", [A])
       );
     });
+  });
+
+  await t.test("API+RLS: un salarié ne voit pas un document admin", async () => {
+    const result = await runQuery(empA, { table: "hr_documents", op: "select" });
+    const ids = (result.data || []).map((row) => row.id);
+    assert.ok(ids.includes(DOC));
+    assert.equal(ids.includes(DOC_ADMIN), false);
+  });
+
+  await t.test("API+RLS: un salarié ne voit pas un événement managers/admins", async () => {
+    const result = await runQuery(empA, { table: "company_events", op: "select" });
+    const ids = (result.data || []).map((row) => row.id);
+    assert.equal(ids.includes(EVT_ADMIN), false);
+    assert.equal(ids.includes(EVT_MGR), false);
+  });
+
+  await t.test("API: un manager voit les événements managers, pas admins", async () => {
+    const result = await runQuery(mgr, { table: "company_events", op: "select" });
+    const ids = (result.data || []).map((row) => row.id);
+    assert.equal(ids.includes(EVT_MGR), true);
+    assert.equal(ids.includes(EVT_ADMIN), false);
+  });
+
+  await t.test("stockage: un salarié ne lit pas le bulletin ou l'affiche d'un autre", async () => {
+    await assert.rejects(
+      () => assertCanReadStorage(empA, "hr-documents", `payslips/${B}/slip.pdf`),
+      (error) => error.status === 404
+    );
+    await assert.rejects(
+      () => assertCanReadStorage(empA, "event-posters", "posters/admin.png"),
+      (error) => error.status === 404
+    );
+    await assert.rejects(
+      () => assertCanReadStorage(empA, "hr-documents", "notes/admin.pdf"),
+      (error) => error.status === 404
+    );
   });
 
   await t.test("index phase 2.3 présents", async () => {

@@ -1,5 +1,6 @@
 #!/bin/sh
-# Supervision minimale: disque, santé API, expiration TLS, redémarrage conteneur.
+# Supervision minimale: disque des sauvegardes, santé API, expiration TLS.
+# Pas de docker.sock ni de montage de la racine hôte.
 # Alerte: POST texte brut vers ALERT_WEBHOOK_URL (ntfy, Slack incoming, etc.).
 # Test: docker compose exec watchdog /watchdog.sh --test
 set -eu
@@ -35,9 +36,9 @@ check_api() {
 }
 
 check_disk() {
-  target=/
-  if [ -d /host ]; then
-    target=/host
+  target=/backups
+  if [ ! -d "$target" ]; then
+    target=/
   fi
   pct=$(df -P "$target" | awk 'NR==2 { gsub(/%/, "", $5); print $5 }')
   if [ -n "$pct" ] && [ "$pct" -ge "$DISK_LIMIT" ]; then
@@ -57,18 +58,6 @@ check_cert() {
     alert "Humana: certificat TLS expire dans moins de ${CERT_DAYS} jours ($host)"
   fi
 }
-
-watch_docker() {
-  if [ ! -S /var/run/docker.sock ]; then
-    return 0
-  fi
-  docker events --filter event=die --filter event=oom --filter event=restart --format '{{.Time}} {{.Actor.Attributes.name}} {{.Status}}' 2>/dev/null | while read -r line; do
-    echo "$line" | grep -qi 'humana' || continue
-    alert "Humana conteneur: $line"
-  done
-}
-
-watch_docker &
 
 sleep 15
 while true; do
