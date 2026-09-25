@@ -97,6 +97,7 @@ create table if not exists public.time_punches (
   created_at timestamptz not null default now()
 );
 
+alter table public.time_punches add column if not exists punch_date date;
 alter table public.time_punches add column if not exists work_location text;
 alter table public.time_punches add column if not exists work_status text;
 alter table public.time_punches add column if not exists connection_method text;

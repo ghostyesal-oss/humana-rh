@@ -50,6 +50,11 @@ from public.profiles;
 grant select on public.profiles_directory to humana_app;
 revoke insert, update, delete on public.profiles_directory from humana_app;
 
+alter table public.time_punches add column if not exists punch_date date;
+update public.time_punches
+  set punch_date = (timezone('Europe/Paris', punched_at))::date
+  where punch_date is null and punched_at is not null;
+
 create or replace function public.humana_sync_punch_date()
 returns trigger
 language plpgsql

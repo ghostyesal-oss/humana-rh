@@ -2,7 +2,7 @@
 	encode gzip
 
 	@https {
-		scheme https
+		protocol https
 	}
 	header @https Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	header X-Content-Type-Options nosniff
