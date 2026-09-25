@@ -25,9 +25,10 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgres://humana:${POSTGRES_PASSWORD}@postgres:5432/humana
-      APP_DATABASE_URL: postgres://humana_app:${APP_DATABASE_PASSWORD}@postgres:5432/humana
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD}
+      APP_DATABASE_HOST: postgres
+      APP_DATABASE_USER: humana_app
+      APP_DATABASE_NAME: humana
       PORT: "3000"
       STORAGE_ROOT: /data/storage
       HUMANA_DOMAIN: ${HUMANA_DOMAIN}

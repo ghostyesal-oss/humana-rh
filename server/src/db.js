@@ -5,9 +5,41 @@ if (!adminUrl) {
   throw new Error("DATABASE_URL manquant.");
 }
 
-const appUrl = process.env.APP_DATABASE_URL || "";
-if (process.env.NODE_ENV === "production" && !appUrl) {
-  throw new Error("APP_DATABASE_URL manquant: l'API ne doit pas parler en superuser.");
+function parseDatabaseUrl(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return null;
+  try {
+    return new URL(value.replace(/^postgres(ql)?:/i, "http:"));
+  } catch {
+    return null;
+  }
+}
+
+function appPoolConfig() {
+  const password = process.env.APP_DATABASE_PASSWORD || "";
+  const parsed = parseDatabaseUrl(process.env.APP_DATABASE_URL || "");
+  if (password) {
+    const database = (parsed?.pathname || "").replace(/^\//, "")
+      || process.env.APP_DATABASE_NAME
+      || "humana";
+    return {
+      host: parsed?.hostname || process.env.APP_DATABASE_HOST || "postgres",
+      port: Number(parsed?.port || process.env.APP_DATABASE_PORT || 5432),
+      user: parsed?.username
+        ? decodeURIComponent(parsed.username)
+        : (process.env.APP_DATABASE_USER || "humana_app"),
+      password,
+      database,
+      max: 20
+    };
+  }
+  if (parsed) {
+    return { connectionString: process.env.APP_DATABASE_URL, max: 20 };
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("APP_DATABASE_PASSWORD manquant: l'API ne doit pas parler en superuser.");
+  }
+  return { connectionString: adminUrl, max: 20 };
 }
 
 export const adminPool = new pg.Pool({
@@ -15,10 +47,7 @@ export const adminPool = new pg.Pool({
   max: 4
 });
 
-export const pool = new pg.Pool({
-  connectionString: appUrl || adminUrl,
-  max: 20
-});
+export const pool = new pg.Pool(appPoolConfig());
 
 export async function adminQuery(text, params) {
   if (params && params.length) return adminPool.query(text, params);
