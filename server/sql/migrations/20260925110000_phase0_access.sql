@@ -70,7 +70,7 @@ $$;
 
 drop trigger if exists humana_sync_punch_date on public.time_punches;
 create trigger humana_sync_punch_date
-  before insert or update of punched_at, punch_date on public.time_punches
+  before insert or update on public.time_punches
   for each row
   execute function public.humana_sync_punch_date();
 
