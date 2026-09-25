@@ -347,4 +347,58 @@ test("authz: salarié, manager, admin", async (t) => {
     `);
     assert.equal(rows.length, 3);
   });
+
+  await t.test("API+RLS: un salarié ne voit que son périmètre dans l'annuaire", async () => {
+    const result = await runQuery(empA, { table: "profiles_directory", op: "select" });
+    const ids = (result.data || []).map((row) => row.id);
+    assert.ok(ids.includes(A));
+    assert.equal(ids.includes(B), false);
+    assert.equal(ids.includes(AD), false);
+    await withUser(empA, async (client) => {
+      const { rows } = await client.query("select id from public.profiles_directory");
+      const viewIds = rows.map((row) => row.id);
+      assert.ok(viewIds.includes(A));
+      assert.equal(viewIds.includes(B), false);
+    });
+  });
+
+  await t.test("API: punch_date est dérivée de punched_at", async () => {
+    const result = await runQuery(empA, {
+      table: "time_punches",
+      op: "insert",
+      payload: {
+        punch_type: "in",
+        punch_date: "2020-01-01",
+        punched_at: "2020-01-01T08:00:00.000Z"
+      }
+    });
+    const row = Array.isArray(result.data) ? result.data[0] : result.data;
+    const stored = String(row.punch_date).slice(0, 10);
+    assert.notEqual(stored, "2020-01-01");
+    const todayParis = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
+    assert.equal(stored, todayParis);
+    await adminQuery("delete from public.time_punches where id = $1", [row.id]);
+  });
+
+  await t.test("API: upsert d'une demande d'autrui refusé", async () => {
+    await assert.rejects(
+      () => runQuery(empB, {
+        table: "leave_requests",
+        op: "upsert",
+        onConflict: "id",
+        payload: {
+          id: LEAVE_A,
+          user_id: B,
+          leave_type: "CP",
+          status: "A valider",
+          start_date: "2026-09-25",
+          end_date: "2026-09-25",
+          days: 1
+        }
+      }),
+      (error) => error.status === 403
+    );
+    const { rows } = await adminQuery("select user_id from public.leave_requests where id = $1", [LEAVE_A]);
+    assert.equal(rows[0].user_id, A);
+  });
 });

@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { logSensitiveAccess, rlsDenied, withUser } from "./db.js";
+import { adminQuery, logSensitiveAccess, rlsDenied, withUser } from "./db.js";
 
 const tx = new AsyncLocalStorage();
 
@@ -163,7 +163,7 @@ const PUBLIC_APP_SETTING_KEYS = ["nav_visibility", "company_timezone", "gta_shif
  * time_punches             | soi / équipe / admin           | salarié : punched_at = now()  | manager d'équipe (pas soi)          | admin
  * profiles                 | salarié : soi ; manager :      | upsert soi / admin            | soi : champs personnels             | admin
  *                          |   équipe ; admin : tout        |                               | admin : tout                       |
- * profiles_directory       | colonnes publiques, tous       | —                             | —                                   | —
+ * profiles_directory       | même périmètre que profiles    | —                             | —                                   | —
  * payslips                 | soi / admin                    | admin                         | admin                               | admin
  * hr_documents             | visibilité all/managers/admins | admin                         | admin                               | admin
  * pending_invites          | admin                          | admin                         | admin                               | admin
@@ -287,10 +287,7 @@ async function applyReadScope(table, user, filters) {
     if (!admin) throw denied("Accès refusé.");
     return filters;
   }
-  if (table === "profiles_directory") {
-    return filters;
-  }
-  if (table === "profiles") {
+  if (table === "profiles" || table === "profiles_directory") {
     if (admin) return filters;
     if (isManager(user)) {
       return [...filters, { op: "in", column: "id", value: await teamScopeIds(user) }];
@@ -352,6 +349,42 @@ function redactPunchTelemetry(row) {
   }
 }
 
+function punchDateFromAt(punchedAt) {
+  const instant = punchedAt ? new Date(punchedAt) : new Date();
+  const valid = Number.isNaN(instant.getTime()) ? new Date() : instant;
+  return valid.toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
+}
+
+function conflictColumns(onConflict) {
+  return String(onConflict || "id")
+    .split(",")
+    .map((item) => item.trim())
+    .filter((key) => COLUMN_SQL[key]);
+}
+
+function conflictFilters(row, conflictCols) {
+  const filters = [];
+  for (const col of conflictCols) {
+    if (row?.[col] == null || row[col] === "") return [];
+    filters.push({ op: "eq", column: col, value: row[col] });
+  }
+  return filters;
+}
+
+async function loadConflictRows(fromSql, row, conflictCols) {
+  const filters = conflictFilters(row, conflictCols);
+  if (!filters.length) return [];
+  return loadScopedRows(fromSql, filters);
+}
+
+async function conflictRowExists(fromSql, row, conflictCols) {
+  const filters = conflictFilters(row, conflictCols);
+  if (!filters.length) return false;
+  const { sql, params } = whereClause(filters);
+  const { rows } = await adminQuery(`select 1 from public.${fromSql}${sql} limit 1`, params);
+  return rows.length > 0;
+}
+
 async function prepareWriteRows(table, user, rows) {
   for (const row of rows) {
     if (!row || typeof row !== "object") continue;
@@ -368,6 +401,7 @@ async function prepareWriteRows(table, user, rows) {
         row.user_id = user.sub;
         row.punched_at = new Date().toISOString();
       }
+      row.punch_date = punchDateFromAt(row.punched_at);
     }
     if (REQUEST_TABLES.has(table)) {
       const owner = row.user_id || user.sub;
@@ -382,12 +416,24 @@ async function prepareWriteRows(table, user, rows) {
   }
 }
 
-async function assertWriteAllowed(table, fromSql, user, op, payload, filters) {
+async function assertWriteAllowed(table, fromSql, user, op, payload, filters, onConflict) {
   if (ADMIN_WRITE_TABLES.has(table) && !isAdmin(user)) {
     throw denied("Accès refusé.");
   }
 
   const rows = payloadRows(payload);
+  const conflictCols = conflictColumns(onConflict);
+  let upsertExisting = [];
+  if (op === "upsert") {
+    for (const row of rows) {
+      const visible = await loadConflictRows(fromSql, row, conflictCols);
+      if (!visible.length && await conflictRowExists(fromSql, row, conflictCols)) {
+        throw denied("Accès refusé.");
+      }
+      upsertExisting = upsertExisting.concat(visible);
+    }
+  }
+
   if (table === "profiles" && !isAdmin(user)) {
     for (const row of rows) {
       if (row && Object.prototype.hasOwnProperty.call(row, "role")) {
@@ -400,7 +446,7 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters) {
       }
     }
     if (op === "update" || op === "upsert") {
-      const existing = await loadScopedRows(fromSql, filters);
+      const existing = op === "upsert" ? upsertExisting : await loadScopedRows(fromSql, filters);
       for (const row of existing) {
         if (row.id !== user.sub) {
           throw denied("Un manager ne peut pas modifier le profil d'un collaborateur.");
@@ -433,7 +479,9 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters) {
 
   if (table === "time_punches" && op === "update") {
     for (const row of rows) {
-      if (row) redactPunchTelemetry(row);
+      if (!row) continue;
+      redactPunchTelemetry(row);
+      if (row.punched_at) row.punch_date = punchDateFromAt(row.punched_at);
     }
     if (!isManager(user)) {
       throw denied("Un salarié ne peut pas modifier un pointage. Utilisez une demande de correction.");
@@ -463,7 +511,7 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters) {
 
   if (!REQUEST_TABLES.has(table)) return;
 
-  if (op === "insert" || op === "upsert") {
+  if (op === "insert" || (op === "upsert" && !upsertExisting.length)) {
     for (const row of rows) {
       if (!row) continue;
       if (!(await canApproveTarget(user, row.user_id || user.sub)) && !isPendingStatus(row.status)) {
@@ -473,7 +521,7 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters) {
     return;
   }
 
-  const existing = await loadScopedRows(fromSql, filters);
+  const existing = op === "upsert" ? upsertExisting : await loadScopedRows(fromSql, filters);
   if (op === "delete") {
     if (isAdmin(user)) return;
     for (const row of existing) {
@@ -488,7 +536,7 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters) {
     return;
   }
 
-  if (op !== "update") return;
+  if (op !== "update" && op !== "upsert") return;
 
   const payloadObj = Array.isArray(payload) ? payload[0] || {} : payload || {};
   if (Object.prototype.hasOwnProperty.call(payloadObj, "user_id")) {
@@ -633,7 +681,7 @@ async function executeQuery(user, body) {
   }
 
   if (op !== "select") {
-    await assertWriteAllowed(table, fromSql, user, op, body.payload, filters);
+    await assertWriteAllowed(table, fromSql, user, op, body.payload, filters, body.onConflict);
   }
 
   if (op === "select") {

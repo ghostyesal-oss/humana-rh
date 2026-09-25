@@ -4,9 +4,13 @@ import { fileURLToPath } from "node:url";
 import { adminQuery, withAdmin } from "./db.js";
 
 export async function ensureAppRole() {
-  const password = process.env.POSTGRES_PASSWORD || "";
-  if (!password) {
-    console.warn("POSTGRES_PASSWORD vide: mot de passe humana_app non mis à jour.");
+  const ownerPassword = process.env.POSTGRES_PASSWORD || "";
+  const appPassword = process.env.APP_DATABASE_PASSWORD || "";
+  if (!appPassword) {
+    throw new Error("APP_DATABASE_PASSWORD manquant: le rôle humana_app doit avoir un secret distinct.");
+  }
+  if (ownerPassword && appPassword === ownerPassword) {
+    throw new Error("APP_DATABASE_PASSWORD doit être différent de POSTGRES_PASSWORD.");
   }
   await adminQuery(`
     do $$
@@ -17,13 +21,11 @@ export async function ensureAppRole() {
       alter role humana_app with login nosuperuser nocreatedb nocreaterole nobypassrls;
     end $$
   `);
-  if (password) {
-    const { rows } = await adminQuery(
-      "select format('alter role humana_app password %L', $1::text) as sql",
-      [password]
-    );
-    await adminQuery(rows[0].sql);
-  }
+  const { rows } = await adminQuery(
+    "select format('alter role humana_app password %L', $1::text) as sql",
+    [appPassword]
+  );
+  await adminQuery(rows[0].sql);
 }
 
 export async function grantAppRole() {

@@ -294,7 +294,8 @@ create index if not exists push_subscriptions_user_idx
   on public.push_subscriptions (user_id);
 
 drop view if exists public.profiles_directory;
-create view public.profiles_directory as
+create view public.profiles_directory
+with (security_invoker = true) as
 select id, email, full_name, job_title, department, role, manager_id,
        matricule, shift_code, hired_at, leave_grade
 from public.profiles;

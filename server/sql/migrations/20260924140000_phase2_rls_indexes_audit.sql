@@ -99,7 +99,7 @@ begin
   if new.role is not distinct from old.role then
     return new;
   end if;
-  if current_user in ('humana', 'postgres') then
+  if session_user in ('humana', 'postgres') then
     insert into public.audit_log (actor_id, actor_email, action, target_table, target_id, target_user_id, meta)
     values (
       coalesce(auth.uid(), old.id),
