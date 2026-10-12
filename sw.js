@@ -1,6 +1,6 @@
 /* Humana Service Worker - gère les notifications push (rappel de pointage). */
 
-const SW_VERSION = "humana-sw-6";
+const SW_VERSION = "daylyx-sw-1";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -13,7 +13,7 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("push", (event) => {
   let payload = {
     title: "⏰ Pointage oublié",
-    body: "Pense à pointer ton arrivée sur Humana.",
+    body: "Pense à pointer ton arrivée sur Daylyx.",
     url: "/"
   };
   try {

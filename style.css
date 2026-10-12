@@ -235,6 +235,311 @@ html.auth-booting #app {
   color: var(--text-tertiary);
 }
 
+/* Daylyx lockup (présentation + chargement) */
+
+.daylyx-lockup {
+  --daylyx-ink: var(--text);
+  --daylyx-arc-len: 1;
+  --daylyx-letters-w: 4em;
+  --daylyx-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --daylyx-draw: cubic-bezier(0.65, 0, 0.25, 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.03em;
+  font-size: clamp(52px, 8.4vw, 112px);
+  line-height: 1;
+  color: var(--daylyx-ink);
+  user-select: none;
+}
+
+[data-theme="dark"] .daylyx-lockup,
+.login-brand .daylyx-lockup,
+.sidebar .daylyx-lockup {
+  --daylyx-ink: #ffffff;
+}
+
+.daylyx-lockup.is-compact {
+  font-size: 28px;
+}
+
+.daylyx-mark {
+  height: 1.02em;
+  width: auto;
+  display: block;
+  overflow: visible;
+  flex: none;
+}
+
+.daylyx-stem {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.daylyx-arc {
+  fill: none;
+  stroke: var(--daylyx-ink);
+  stroke-width: 28;
+  stroke-linecap: round;
+  stroke-dasharray: var(--daylyx-arc-len);
+  stroke-dashoffset: 0;
+}
+
+.daylyx-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.daylyx-hole {
+  fill: #ffffff;
+}
+
+.daylyx-letters {
+  display: flex;
+  overflow: hidden;
+  max-width: var(--daylyx-letters-w);
+  white-space: nowrap;
+  transform: translateY(-0.03em);
+}
+
+.daylyx-letters span {
+  display: inline-block;
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  color: var(--daylyx-ink);
+}
+
+.daylyx-intro-screen .daylyx-stem,
+.auth-boot-screen .daylyx-stem {
+  opacity: 0;
+}
+
+.daylyx-intro-screen .daylyx-dot,
+.auth-boot-screen .daylyx-dot {
+  opacity: 0;
+  transform: scale(0);
+}
+
+.daylyx-intro-screen .daylyx-arc,
+.auth-boot-screen .daylyx-arc {
+  stroke-dashoffset: var(--daylyx-arc-len);
+}
+
+.daylyx-intro-screen .daylyx-letters,
+.auth-boot-screen .daylyx-letters {
+  max-width: 0em;
+}
+
+.daylyx-intro-screen .daylyx-letters span,
+.auth-boot-screen .daylyx-letters span {
+  opacity: 0;
+  transform: translateX(-0.28em);
+}
+
+.daylyx-lockup.play .daylyx-stem {
+  animation: daylyx-stem-in 0.55s var(--daylyx-ease) forwards;
+}
+
+.daylyx-lockup.play .daylyx-arc {
+  animation: daylyx-draw 0.9s var(--daylyx-draw) 0.22s forwards;
+}
+
+.daylyx-lockup.play .daylyx-dot {
+  animation: daylyx-pop 0.48s cubic-bezier(0.34, 1.45, 0.64, 1) 0.98s forwards;
+}
+
+.daylyx-lockup.play .daylyx-letters {
+  animation: daylyx-open 0.72s var(--daylyx-ease) 1.12s forwards;
+}
+
+.daylyx-lockup.play .daylyx-letters span {
+  animation: daylyx-letter 0.5s var(--daylyx-ease) forwards;
+}
+
+.daylyx-lockup.play .daylyx-letters span:nth-child(1) { animation-delay: 1.16s; }
+.daylyx-lockup.play .daylyx-letters span:nth-child(2) { animation-delay: 1.24s; }
+.daylyx-lockup.play .daylyx-letters span:nth-child(3) { animation-delay: 1.32s; }
+.daylyx-lockup.play .daylyx-letters span:nth-child(4) { animation-delay: 1.4s; }
+.daylyx-lockup.play .daylyx-letters span:nth-child(5) { animation-delay: 1.48s; }
+
+.daylyx-lockup.loop .daylyx-stem {
+  opacity: 1;
+  animation: none;
+}
+
+.daylyx-lockup.loop .daylyx-dot {
+  opacity: 1;
+  transform: none;
+  animation: daylyx-pulse 1.8s ease-in-out infinite;
+}
+
+.daylyx-lockup.loop .daylyx-arc {
+  animation: daylyx-draw-loop 1.8s ease-in-out infinite;
+}
+
+.daylyx-lockup.loop .daylyx-letters,
+.daylyx-lockup.loop .daylyx-letters span {
+  animation: none;
+  max-width: 0em;
+  opacity: 0;
+}
+
+.daylyx-lockup.resolved .daylyx-stem,
+.daylyx-lockup.is-static .daylyx-stem {
+  opacity: 1;
+  animation: none;
+}
+
+.daylyx-lockup.resolved .daylyx-dot,
+.daylyx-lockup.is-static .daylyx-dot {
+  opacity: 1;
+  transform: none;
+  animation: none;
+}
+
+.daylyx-lockup.resolved .daylyx-arc,
+.daylyx-lockup.is-static .daylyx-arc {
+  stroke-dashoffset: 0;
+  animation: none;
+}
+
+.daylyx-lockup.is-static .daylyx-letters {
+  max-width: var(--daylyx-letters-w);
+}
+
+.daylyx-lockup.is-static .daylyx-letters span {
+  opacity: 1;
+  transform: none;
+}
+
+.daylyx-lockup.resolved .daylyx-letters {
+  animation: daylyx-open 0.72s var(--daylyx-ease) forwards;
+}
+
+.daylyx-lockup.resolved .daylyx-letters span {
+  animation: daylyx-letter 0.5s var(--daylyx-ease) forwards;
+}
+
+.daylyx-lockup.resolved .daylyx-letters span:nth-child(1) { animation-delay: 0.04s; }
+.daylyx-lockup.resolved .daylyx-letters span:nth-child(2) { animation-delay: 0.12s; }
+.daylyx-lockup.resolved .daylyx-letters span:nth-child(3) { animation-delay: 0.2s; }
+.daylyx-lockup.resolved .daylyx-letters span:nth-child(4) { animation-delay: 0.28s; }
+.daylyx-lockup.resolved .daylyx-letters span:nth-child(5) { animation-delay: 0.36s; }
+
+.auth-boot-screen .daylyx-lockup.resolved .daylyx-letters,
+.daylyx-intro-screen .daylyx-lockup.resolved .daylyx-letters {
+  max-width: var(--daylyx-letters-w);
+}
+
+.auth-boot-screen .daylyx-lockup.resolved .daylyx-letters span,
+.daylyx-intro-screen .daylyx-lockup.resolved .daylyx-letters span {
+  opacity: 1;
+  transform: none;
+}
+
+@keyframes daylyx-stem-in {
+  from { opacity: 0; transform: translateY(0.06em); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes daylyx-draw {
+  from { stroke-dashoffset: var(--daylyx-arc-len); }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes daylyx-draw-loop {
+  0% { stroke-dashoffset: var(--daylyx-arc-len); }
+  46%, 72% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: var(--daylyx-arc-len); }
+}
+
+@keyframes daylyx-pop {
+  0% { opacity: 0; transform: scale(0); }
+  70% { opacity: 1; transform: scale(1.16); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes daylyx-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(0.72); }
+}
+
+@keyframes daylyx-open {
+  from { max-width: 0em; }
+  to { max-width: var(--daylyx-letters-w); }
+}
+
+@keyframes daylyx-letter {
+  to { opacity: 1; transform: none; }
+}
+
+.daylyx-intro-screen {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 32px 24px;
+  background: var(--bg);
+  opacity: 1;
+  transition: opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html.daylyx-presenting .daylyx-intro-screen {
+  display: flex;
+}
+
+html.daylyx-presenting #app {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.daylyx-intro-screen.is-leaving {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.daylyx-splash-hint {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.auth-boot-screen .daylyx-lockup {
+  font-size: clamp(64px, 10vw, 120px);
+}
+
+.login-brand .daylyx-lockup {
+  font-size: clamp(44px, 6.4vw, 88px);
+}
+
+.sidebar > .brand {
+  justify-content: flex-start;
+}
+
+.sidebar > .brand .daylyx-lockup {
+  font-size: 26px;
+}
+
+.mobile-brand.brand {
+  gap: 0;
+}
+
+.welcome-lockup {
+  display: flex;
+  justify-content: center;
+  margin: 0 auto var(--s4);
+}
+
+.welcome-lockup .daylyx-lockup {
+  font-size: 42px;
+}
+
 .boot-message {
   display: flex;
   align-items: center;
@@ -390,6 +695,7 @@ html.auth-booting #app {
 }
 
 .login-brand > .brand,
+.login-brand > .daylyx-lockup,
 .login-message {
   position: relative;
   z-index: 1;

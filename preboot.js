@@ -36,7 +36,13 @@
       }
     } catch (e) {}
   }
-  if (booting) document.documentElement.classList.add("auth-booting");
+  if (booting) {
+    document.documentElement.classList.add("auth-booting");
+  } else {
+    var path = String(location.pathname || "").replace(/\/+$/, "") || "/";
+    var isLogin = path === "/" || /\/index\.html$/i.test(location.pathname || "");
+    if (isLogin) document.documentElement.classList.add("daylyx-presenting");
+  }
 })();
 
 (function () {

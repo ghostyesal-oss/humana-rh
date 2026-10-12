@@ -1,15 +1,15 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="fr" class="auth-booting">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#022341">
-  <meta name="description" content="Humana, votre espace de gestion des ressources humaines.">
+  <meta name="description" content="Daylyx, votre espace de gestion des ressources humaines.">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; script-src-attr 'none'; style-src 'self'; style-src-elem 'self'; style-src-attr 'none'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://login.microsoftonline.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://login.microsoftonline.com; object-src 'none';">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=()">
-  <title>Accueil — Humana</title>
+  <title>Accueil — Daylyx</title>
   <script src="preboot.js"></script>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="style.css">
@@ -17,12 +17,22 @@
 <body data-page="home">
   <div id="auth-boot-screen" class="auth-boot-screen" aria-live="polite" aria-busy="true">
     <div class="auth-boot-card">
-      <div class="brand brand-large"><span>H</span> Humana</div>
-      <span class="loader" aria-hidden="true"></span>
-      <p>Chargement...</p>
+      <div class="daylyx-lockup loop" data-daylyx-mark role="img" aria-label="Daylyx">
+        <svg class="daylyx-mark" viewBox="4 14 154 132" aria-hidden="true">
+          <g class="daylyx-stem">
+            <rect x="8" y="18" width="32" height="124" rx="16" fill="#0046fe" />
+            <circle class="daylyx-hole" cx="24" cy="46" r="6" />
+          </g>
+          <path class="daylyx-arc" pathLength="1" d="M 66 38.43 A 48 48 0 1 1 66 121.57" />
+          <circle class="daylyx-dot" cx="84" cy="80" r="6.4" fill="#0046fe" />
+        </svg>
+        <div class="daylyx-letters" aria-hidden="true"><span>a</span><span>y</span><span>l</span><span>y</span><span>x</span></div>
+      </div>
+      <p class="daylyx-splash-hint">Chargement</p>
     </div>
   </div>
   <div id="app" aria-live="polite"></div>
+  <script src="daylyx-mark.js"></script>
   <script src="config.js"></script>
   <script src="humana-client.js"></script>
   <script src="boot.js"></script>

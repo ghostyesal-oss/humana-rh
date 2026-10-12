@@ -4,33 +4,64 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#022341">
-  <meta name="description" content="Humana, votre espace de gestion des ressources humaines.">
+  <meta name="description" content="Daylyx, votre espace de gestion des ressources humaines.">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; script-src-attr 'none'; style-src 'self'; style-src-elem 'self'; style-src-attr 'none'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://login.microsoftonline.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://login.microsoftonline.com; object-src 'none';">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=()">
-  <title>Humana — Espace RH</title>
+  <title>Daylyx — Espace RH</title>
   <script src="preboot.js"></script>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div id="daylyx-intro-screen" class="daylyx-intro-screen" aria-live="polite">
+    <div class="daylyx-lockup play" data-daylyx-mark role="img" aria-label="Daylyx">
+      <svg class="daylyx-mark" viewBox="4 14 154 132" aria-hidden="true">
+        <g class="daylyx-stem">
+          <rect x="8" y="18" width="32" height="124" rx="16" fill="#0046fe" />
+          <circle class="daylyx-hole" cx="24" cy="46" r="6" />
+        </g>
+        <path class="daylyx-arc" pathLength="1" d="M 66 38.43 A 48 48 0 1 1 66 121.57" />
+        <circle class="daylyx-dot" cx="84" cy="80" r="6.4" fill="#0046fe" />
+      </svg>
+      <div class="daylyx-letters" aria-hidden="true"><span>a</span><span>y</span><span>l</span><span>y</span><span>x</span></div>
+    </div>
+  </div>
   <div id="auth-boot-screen" class="auth-boot-screen" aria-live="polite" aria-busy="true" hidden>
     <div class="auth-boot-card">
-      <div class="brand brand-large"><span>H</span> Humana</div>
-      <span class="loader" aria-hidden="true"></span>
-      <p>Connexion en cours...</p>
+      <div class="daylyx-lockup loop" data-daylyx-mark role="img" aria-label="Daylyx">
+        <svg class="daylyx-mark" viewBox="4 14 154 132" aria-hidden="true">
+          <g class="daylyx-stem">
+            <rect x="8" y="18" width="32" height="124" rx="16" fill="#0046fe" />
+            <circle class="daylyx-hole" cx="24" cy="46" r="6" />
+          </g>
+          <path class="daylyx-arc" pathLength="1" d="M 66 38.43 A 48 48 0 1 1 66 121.57" />
+          <circle class="daylyx-dot" cx="84" cy="80" r="6.4" fill="#0046fe" />
+        </svg>
+        <div class="daylyx-letters" aria-hidden="true"><span>a</span><span>y</span><span>l</span><span>y</span><span>x</span></div>
+      </div>
+      <p class="daylyx-splash-hint">Chargement</p>
     </div>
   </div>
   <div id="app" aria-live="polite">
     <main class="login-page">
       <section class="login-brand">
-        <div class="brand brand-large"><span>H</span> Humana</div>
+        <div class="daylyx-lockup is-static" role="img" aria-label="Daylyx">
+          <svg class="daylyx-mark" viewBox="4 14 154 132" aria-hidden="true">
+            <g class="daylyx-stem">
+              <rect x="8" y="18" width="32" height="124" rx="16" fill="#0046fe" />
+              <circle class="daylyx-hole" cx="24" cy="46" r="6" />
+            </g>
+            <path class="daylyx-arc" pathLength="1" d="M 66 38.43 A 48 48 0 1 1 66 121.57" />
+            <circle class="daylyx-dot" cx="84" cy="80" r="6.4" fill="#0046fe" />
+          </svg>
+          <div class="daylyx-letters" aria-hidden="true"><span>a</span><span>y</span><span>l</span><span>y</span><span>x</span></div>
+        </div>
         <div class="login-message">
-          <span class="eyebrow">Humana RH</span>
+          <span class="eyebrow">Daylyx</span>
           <h1>Gestion RH<br><em>simplifiée</em>.</h1>
           <p>Pointage, congés, documents — un espace fiable pour votre quotidien professionnel.</p>
-          <div class="trust-row"><span>Hébergé en France</span><span>Données chiffrées</span></div>
         </div>
       </section>
       <section class="login-panel">
@@ -41,7 +72,19 @@
           </button>
         </div>
         <div class="login-card">
-          <div class="mobile-brand brand"><span>H</span> Humana</div>
+          <div class="mobile-brand brand">
+            <div class="daylyx-lockup is-compact is-static" role="img" aria-label="Daylyx">
+              <svg class="daylyx-mark" viewBox="4 14 154 132" aria-hidden="true">
+                <g class="daylyx-stem">
+                  <rect x="8" y="18" width="32" height="124" rx="16" fill="#0046fe" />
+                  <circle class="daylyx-hole" cx="24" cy="46" r="6" />
+                </g>
+                <path class="daylyx-arc" pathLength="1" d="M 66 38.43 A 48 48 0 1 1 66 121.57" />
+                <circle class="daylyx-dot" cx="84" cy="80" r="6.4" fill="#0046fe" />
+              </svg>
+              <div class="daylyx-letters" aria-hidden="true"><span>a</span><span>y</span><span>l</span><span>y</span><span>x</span></div>
+            </div>
+          </div>
           <h2>Connexion</h2>
           <p>Utilisez votre compte Microsoft professionnel.</p>
           <button id="microsoft-login" type="button" class="microsoft-button">
@@ -57,6 +100,7 @@
       </section>
     </main>
   </div>
+  <script src="daylyx-mark.js"></script>
   <script src="config.js"></script>
   <script src="humana-client.js"></script>
   <script src="boot.js"></script>

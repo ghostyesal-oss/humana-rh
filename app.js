@@ -76,7 +76,7 @@ function syncPageUrl(page) {
       window.history.pushState({ humanaPage: page }, "", next);
     }
     document.body.dataset.page = page;
-    if (pages[page]) document.title = `${pages[page][0]} — Humana`;
+    if (pages[page]) document.title = `${pages[page][0]} — Daylyx`;
   } catch (_) { /* ignore */ }
 }
 
@@ -257,20 +257,48 @@ function maybeShowMicrosoftWelcome() {
   showMicrosoftWelcomePopup();
 }
 
+function daylyxLockupMarkup(extraClass) {
+  if (window.DaylyxMark && typeof window.DaylyxMark.html === "function") {
+    return window.DaylyxMark.html(extraClass);
+  }
+  return `<div class="daylyx-lockup ${extraClass || ""} is-static" role="img" aria-label="Daylyx">Daylyx</div>`;
+}
+
 function showAuthBootScreen() {
+  document.documentElement.classList.remove("daylyx-presenting");
   document.documentElement.classList.add("auth-booting");
   const bootScreen = document.getElementById("auth-boot-screen");
-  if (bootScreen) bootScreen.hidden = false;
+  if (bootScreen) {
+    bootScreen.hidden = false;
+    bootScreen.setAttribute("aria-hidden", "false");
+    bootScreen.setAttribute("aria-busy", "true");
+  }
+  if (window.DaylyxMark) window.DaylyxMark.sync();
 }
 
 function hideAuthBootScreen() {
-  document.documentElement.classList.remove("auth-booting");
-  const bootScreen = document.getElementById("auth-boot-screen");
-  if (bootScreen) bootScreen.hidden = true;
-  try {
-    sessionStorage.removeItem("humana_auth_boot");
-  } catch (_) {
-    /* ignore */
+  const finish = () => {
+    document.documentElement.classList.remove("auth-booting");
+    const bootScreen = document.getElementById("auth-boot-screen");
+    if (bootScreen) {
+      bootScreen.hidden = true;
+      bootScreen.setAttribute("aria-hidden", "true");
+      bootScreen.setAttribute("aria-busy", "false");
+    }
+    try {
+      sessionStorage.removeItem("humana_auth_boot");
+    } catch (_) {
+      /* ignore */
+    }
+  };
+  if (!document.documentElement.classList.contains("auth-booting")) {
+    finish();
+    return;
+  }
+  if (window.DaylyxMark && typeof window.DaylyxMark.hideBootWithReveal === "function") {
+    window.DaylyxMark.hideBootWithReveal(finish);
+  } else {
+    finish();
   }
 }
 
@@ -314,10 +342,10 @@ function showMicrosoftWelcomePopup() {
       <div class="welcome-orb welcome-orb-2"></div>
       <article class="welcome-card">
         <div class="welcome-card-face">
-          <span class="welcome-logo" aria-hidden="true"></span>
+          <div class="welcome-lockup">${daylyxLockupMarkup("is-compact is-static")}</div>
           <p class="welcome-eyebrow">Connexion réussie</p>
           <h2 id="welcome-title">${dayGreeting()}, <b>${firstName}</b></h2>
-          <p class="welcome-text">Bienvenue sur Humana. Votre espace RH est prêt.</p>
+          <p class="welcome-text">Bienvenue sur Daylyx. Votre espace RH est prêt.</p>
           <button type="button" class="welcome-cta primary">Commencer</button>
         </div>
       </article>
@@ -2622,7 +2650,7 @@ function renderCreatorAccountsSection() {
         </div>
         <button type="submit" class="primary">Ajouter un compte créateur</button>
       </form>
-      <p class="hierarchy-meta">Si la personne ne s'est jamais connectée à Humana, elle sera préenregistrée comme administrateur créateur. Sinon, son profil existant sera promu administrateur créateur.</p>
+      <p class="hierarchy-meta">Si la personne ne s'est jamais connectée à Daylyx, elle sera préenregistrée comme administrateur créateur. Sinon, son profil existant sera promu administrateur créateur.</p>
     </article>`;
 }
 
@@ -2819,10 +2847,10 @@ function renderUserAccountSection() {
             ${editing ? `<button type="button" id="admin-cancel-edit" class="outline-button">Annuler</button>` : ""}
           </div>
         </form>
-        <p class="hierarchy-meta">Si la personne ne s'est jamais connectée à Humana, elle sera préenregistrée. À la première connexion Microsoft, son compte sera créé automatiquement.</p>
+        <p class="hierarchy-meta">Si la personne ne s'est jamais connectée à Daylyx, elle sera préenregistrée. À la première connexion Microsoft, son compte sera créé automatiquement.</p>
         <div class="planning-import admin-employee-import">
           <strong>Importer les employés (Excel Cegid)</strong>
-          <p class="hierarchy-meta">Cegid ID = matricule Humana (le Matricule RH 1, 2, 3… est ignoré). STATUT Inactif et DATE DEPART déjà passée sont exclus. Manager = Nom + Prénom (vide = pas de manager).</p>
+          <p class="hierarchy-meta">Cegid ID = matricule Daylyx (le Matricule RH 1, 2, 3… est ignoré). STATUT Inactif et DATE DEPART déjà passée sont exclus. Manager = Nom + Prénom (vide = pas de manager).</p>
           <input type="file" id="admin-employee-import" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
           ${appData.employeeImportNotice ? `<p class="planning-import-notice">${escapeHtml(appData.employeeImportNotice)}</p>` : ""}
         </div>
@@ -6739,7 +6767,7 @@ async function importPlanningFromFile(file) {
   const { entries, unmatched, skippedEmptyCegid } = buildPlanningImportEntries(rawRows, pool);
   if (!entries.length) {
     throw new Error(unmatched.length
-      ? `Aucun agent reconnu : les ID CEGID (${unmatched[0].split(" · ").pop() || ""}) ne correspondent pas aux matricules Humana, et les noms du fichier ne matchent pas les fiches. Ex. : ${unmatched.slice(0, 3).join(" · ")}`
+      ? `Aucun agent reconnu : les ID CEGID (${unmatched[0].split(" · ").pop() || ""}) ne correspondent pas aux matricules Daylyx, et les noms du fichier ne matchent pas les fiches. Ex. : ${unmatched.slice(0, 3).join(" · ")}`
       : "Aucun agent reconnu dans le fichier (les lignes sans ID CEGID sont ignorées).");
   }
   const dates = entries.map((row) => row.work_date).sort();
@@ -8443,18 +8471,17 @@ function renderLogin(error = "") {
     app.innerHTML = `
       <main class="login-page">
         <section class="login-brand">
-          <div class="brand brand-large"><span>H</span> Humana</div>
+          ${daylyxLockupMarkup("is-static")}
           <div class="login-message">
-            <span class="eyebrow">Humana RH</span>
+            <span class="eyebrow">Daylyx</span>
             <h1>Gestion RH<br><em>simplifiée</em>.</h1>
             <p>Pointage, congés, documents — un espace fiable pour votre quotidien professionnel.</p>
-            <div class="trust-row"><span>Hébergé en France</span><span>Données chiffrées</span></div>
           </div>
         </section>
         <section class="login-panel">
           <div class="login-theme-wrap">${themeToggleMarkup()}</div>
           <div class="login-card">
-            <div class="mobile-brand brand"><span>H</span> Humana</div>
+            <div class="mobile-brand brand">${daylyxLockupMarkup("is-compact is-static")}</div>
             <h2>Connexion</h2>
             <p>Utilisez votre compte Microsoft professionnel.</p>
             <button id="microsoft-login" type="button" class="microsoft-button" disabled>
@@ -8530,7 +8557,7 @@ function renderApp() {
     <div class="app-shell" data-current-page="${currentPage}">
       <aside class="sidebar">
         <button type="button" class="brand brand-home" id="brand-home" aria-label="Retour à l'accueil">
-          <span>H</span> Humana
+          ${daylyxLockupMarkup("is-compact is-static")}
         </button>
         <button class="close-menu" type="button" aria-label="Fermer"></button>
         <nav>${getNavigationItems().map((item) => `
@@ -10262,9 +10289,10 @@ async function initialize() {
       if (demoFlag) {
         demoMode = true;
         supabaseClient = getSupabaseClient();
-        hideAuthBootScreen();
+        showAuthBootScreen();
         hydrateDemoWorkspace();
         renderApp();
+        hideAuthBootScreen();
         return;
       }
     }
@@ -10469,7 +10497,8 @@ window.humanaStartDemo = function () {
   demoMode = true;
   supabaseClient = getSupabaseClient();
   ensureAppContainer();
-  hideAuthBootScreen();
+  try { sessionStorage.setItem("humana_auth_boot", "1"); } catch (_) { /* ignore */ }
+  showAuthBootScreen();
   hydrateDemoWorkspace();
   if (!mpaMode) {
     // Le mode démo doit rejoindre la vraie home MPA (avec pages/*.js chargés).
@@ -10479,6 +10508,7 @@ window.humanaStartDemo = function () {
     return;
   }
   renderApp();
+  hideAuthBootScreen();
 };
 
 // Retarde initialize() jusqu'à ce que tous les scripts synchrones du HTML aient

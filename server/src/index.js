@@ -240,7 +240,7 @@ runMigrations()
   .then(() => query("select 1"))
   .then(() => {
     app.listen(port, () => {
-      console.log(`Humana API écoute sur ${port}`);
+      console.log(`Daylyx API écoute sur ${port}`);
     });
   })
   .catch((error) => {
