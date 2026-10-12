@@ -106,7 +106,9 @@ const COLUMN_SQL = Object.freeze({
   period_year: '"period_year"',
   period_month: '"period_month"',
   period_label: '"period_label"',
-  created_by: '"created_by"'
+  created_by: '"created_by"',
+  slot: '"slot"',
+  structure: '"structure"'
 });
 
 const DIRECTORY_COLUMNS = [
@@ -131,7 +133,8 @@ const PERSONAL_TABLES = new Set([
   "salary_advance_requests",
   "attestation_requests",
   "push_subscriptions",
-  "hr_alerts"
+  "hr_alerts",
+  "planning_entries"
 ]);
 
 const REQUEST_TABLES = new Set([
@@ -172,6 +175,7 @@ const PUBLIC_APP_SETTING_KEYS = ["nav_visibility", "company_timezone", "gta_shif
  * company_events           | visibilité all/managers/admins | admin                         | admin                               | admin
  * hr_alerts                | destinataire / admin           | soi / admin / RPC             | destinataire (lu) / admin           | destinataire / admin
  * push_subscriptions       | soi / admin                    | soi                           | soi                                 | soi
+ * planning_entries         | soi / équipe / admin           | RPC import (manager/admin)    | RPC import                          | RPC import
  */
 
 function denied(message, status = 403) {
@@ -203,6 +207,7 @@ function resolveLogicalTable(requested) {
   else if (requested === "hr_documents") { table = "hr_documents"; fromSql = '"hr_documents"'; }
   else if (requested === "payslips") { table = "payslips"; fromSql = '"payslips"'; }
   else if (requested === "app_settings") { table = "app_settings"; fromSql = '"app_settings"'; }
+  else if (requested === "planning_entries") { table = "planning_entries"; fromSql = '"planning_entries"'; }
   if (!table || !fromSql) throw denied(`Table non autorisée: ${requested}`, 400);
   return { table, fromSql };
 }
@@ -463,6 +468,10 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters, on
     throw denied("Accès refusé.");
   }
 
+  if (table === "planning_entries" && op !== "select") {
+    throw denied("Utilisez l'import planning.");
+  }
+
   if (table === "time_punches" && (op === "insert" || op === "upsert") && !isAdmin(user)) {
     for (const row of rows) {
       if (!row) continue;
@@ -698,7 +707,8 @@ async function executeQuery(user, body) {
       params.push(Number(body.limit));
       text += ` limit $${params.length}`;
     }
-    const result = await dbQuery(text, params);
+    const adminDirectory = isAdmin(user) && (table === "profiles" || table === "profiles_directory");
+    const result = adminDirectory ? await adminQuery(text, params) : await dbQuery(text, params);
     const data = await embedProfiles(result.rows, parsed.embed);
     await auditRead(user, table, data);
     if (body.maybeSingle || body.single) {

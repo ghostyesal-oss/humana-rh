@@ -39,6 +39,10 @@
 	import humana_site
 }
 
+www.daylyx.com {
+	redir https://daylyx.com{uri} permanent
+}
+
 {$CADDY_ADDRESS} {
 	import humana_site
 }

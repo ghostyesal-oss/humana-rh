@@ -33,7 +33,7 @@
     const directReports = getDirectReportProfiles();
 
     return `
-      <p class="data-note">Périmètre : ${scopeLabel} · ${profiles.length} collaborateur${profiles.length > 1 ? "s" : ""}</p>
+      <p class="data-note">Périmètre : ${scopeLabel} · ${profiles.length} collaborateur${profiles.length > 1 ? "s" : ""}. Un manager, HR ou la Direction peut rectifier l'entrée, la pause et la sortie si le retard affiché n'est pas réel.</p>
       <article class="card form-card page-spacer">
         ${cardHeading("Filtres")}
         <form id="team-punches-filter" class="feature-form team-punches-filter">
@@ -106,6 +106,7 @@
                 <th>Heure rectifiée</th>
                 <th>Modifié par</th>
                 <th>Motif</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -114,6 +115,7 @@
                     const profile = profileById(row.userId) || { full_name: row.name, id: row.userId };
                     const stats = analyzeWorkedDay(row, profile);
                     const correction = formatDayCorrectionSummary(row.userId, row.dayKey);
+                    const canRectify = canRectifyCollaboratorPunches(row.userId);
                     return `
                   <tr>
                     <td><strong>${escapeHtml(row.name)}</strong></td>
@@ -131,9 +133,12 @@
                     <td>${correction.rectified === "Oui" ? badge("Oui") : escapeHtml(correction.rectified)}</td>
                     <td>${escapeHtml(correction.who)}</td>
                     <td>${escapeHtml(correction.motif)}</td>
+                    <td>${canRectify
+                      ? `<button type="button" class="outline-button punch-rectify-btn" data-punch-rectify data-user-id="${escapeHtml(row.userId)}" data-day-key="${escapeHtml(row.dayKey)}">Rectifier</button>`
+                      : ""}</td>
                   </tr>`;
                   }).join("")
-                : `<tr><td colspan="15" class="empty-cell">Aucun pointage pour cette période. Ajustez les filtres, puis actualisez.</td></tr>`}
+                : `<tr><td colspan="16" class="empty-cell">Aucun pointage pour cette période. Ajustez les filtres, puis actualisez.</td></tr>`}
             </tbody>
           </table>
         </div>

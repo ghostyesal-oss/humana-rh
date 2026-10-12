@@ -3,6 +3,7 @@ import test from "node:test";
 import { adminQuery, withUser } from "../src/db.js";
 import { runMigrations } from "../src/migrate.js";
 import { runQuery } from "../src/query.js";
+import { runRpc } from "../src/rpc.js";
 import { assertCanReadStorage } from "../src/storage.js";
 
 const A = "a0000000-0000-4000-8000-000000000001";
@@ -23,6 +24,7 @@ const mgr = { sub: M, role: "manager", email: "mgr@authz.test" };
 const admin = { sub: AD, role: "admin", email: "admin@authz.test" };
 
 async function reset() {
+  await adminQuery("delete from public.planning_entries where user_id = any($1::uuid[])", [[A, B, M, AD]]);
   await adminQuery("delete from public.audit_log where actor_email like '%@authz.test'");
   await adminQuery("delete from public.payslips where id = $1", [PAY_B]);
   await adminQuery("delete from public.leave_requests where id = $1", [LEAVE_A]);
@@ -30,17 +32,18 @@ async function reset() {
   await adminQuery("delete from public.hr_documents where id = any($1::uuid[])", [[DOC, DOC_ADMIN]]);
   await adminQuery("delete from public.company_events where id = any($1::uuid[])", [[EVT_ADMIN, EVT_MGR]]);
   await adminQuery("delete from public.app_settings where key in ('studio_creators', 'nav_visibility', 'company_timezone', 'gta_shifts')");
+  await adminQuery("delete from public.profiles where matricule = any($1::text[])", [["20999", "21001", "21002"]]);
   await adminQuery("delete from public.profiles where id = any($1::uuid[])", [[A, B, M, AD]]);
 }
 
 async function seed() {
   await adminQuery(
-    `insert into public.profiles (id, email, full_name, role, manager_id)
+    `insert into public.profiles (id, email, full_name, role, manager_id, matricule)
      values
-       ($1, $2, 'Admin Test', 'admin', null),
-       ($3, $4, 'Manager Test', 'manager', $1),
-       ($5, $6, 'Employe A', 'employee', $3),
-       ($7, $8, 'Employe B', 'employee', $3)`,
+       ($1, $2, 'Admin Test', 'admin', null, '20001'),
+       ($3, $4, 'Manager Test', 'manager', $1, '20002'),
+       ($5, $6, 'Employe A', 'employee', $3, '20812'),
+       ($7, $8, 'Employe B', 'employee', $3, '20811')`,
     [AD, admin.email, M, mgr.email, A, empA.email, B, empB.email]
   );
   await adminQuery(
@@ -159,6 +162,19 @@ test("authz: salarié, manager, admin", async (t) => {
       }),
       (error) => error.status === 403
     );
+  });
+
+  await t.test("API: le manager rectifie l'heure d'un N-1", async () => {
+    const iso = "2026-09-15T07:00:00.000Z";
+    const ok = await runQuery(mgr, {
+      table: "time_punches",
+      op: "update",
+      filters: [{ op: "eq", column: "id", value: PUNCH_A }],
+      payload: { punched_at: iso }
+    });
+    assert.ok(ok.data?.[0]);
+    const { rows } = await adminQuery("select punched_at from public.time_punches where id = $1", [PUNCH_A]);
+    assert.equal(new Date(rows[0].punched_at).toISOString(), iso);
   });
 
   await t.test("API: un salarié ne lit pas les pointages d'un autre", async () => {
@@ -400,5 +416,100 @@ test("authz: salarié, manager, admin", async (t) => {
     );
     const { rows } = await adminQuery("select user_id from public.leave_requests where id = $1", [LEAVE_A]);
     assert.equal(rows[0].user_id, A);
+  });
+
+  await t.test("planning: import manager ok, salarié hors périmètre refusé", async () => {
+    const payload = {
+      replace_from: "2026-09-13",
+      replace_to: "2026-09-13",
+      replace_user_ids: [A],
+      entries: [{
+        user_id: A,
+        work_date: "2026-09-13",
+        slot: 1,
+        kind: "PR",
+        hours: 0,
+        matricule: "20812",
+        source: "cegid"
+      }]
+    };
+    const imported = await runRpc(mgr, "import_planning_entries", payload);
+    assert.equal(imported.error, null);
+    assert.equal(imported.data.imported, 1);
+
+    const own = await runQuery(empA, {
+      table: "planning_entries",
+      op: "select",
+      filters: [{ op: "eq", column: "user_id", value: A }]
+    });
+    assert.equal((own.data || []).length, 1);
+    assert.equal(own.data[0].matricule, "20812");
+
+    const other = await runQuery(empB, {
+      table: "planning_entries",
+      op: "select",
+      filters: [{ op: "eq", column: "user_id", value: A }]
+    });
+    assert.equal((other.data || []).length, 0);
+
+    await assert.rejects(
+      () => runRpc(empB, "import_planning_entries", payload),
+      (error) => error.status === 403
+    );
+    await assert.rejects(
+      () => runQuery(mgr, {
+        table: "planning_entries",
+        op: "insert",
+        payload: { user_id: A, work_date: "2026-09-14", slot: 1, kind: "PR", hours: 8 }
+      }),
+      (error) => error.status === 403
+    );
+  });
+
+  await t.test("employés: import admin ok, salarié refusé", async () => {
+    await assert.rejects(
+      () => runRpc(empA, "import_employees", {
+        employees: [{ matricule: "20999", full_name: "Test Import", role: "employee" }]
+      }),
+      (error) => error.status === 403
+    );
+    const result = await runRpc(admin, "import_employees", {
+      employees: [{
+        matricule: "20999",
+        full_name: "Import Cegid",
+        job_title: "Agent",
+        department: "CS",
+        role: "employee",
+        shift_code: "cs",
+        leave_grade: "employee",
+        manager_matricule: "20812"
+      }]
+    });
+    assert.equal(result.error, null);
+    assert.equal(result.data.created, 1);
+    const { rows } = await adminQuery(
+      "select full_name, manager_id, matricule from public.profiles where matricule = $1",
+      ["20999"]
+    );
+    assert.equal(rows[0].full_name, "Import Cegid");
+    assert.equal(rows[0].manager_id, A);
+    const padded = await runRpc(admin, "import_employees", {
+      employees: [
+        { matricule: "0020812", full_name: "Employe A", role: "employee" },
+        { matricule: "21001", full_name: "FANOUI Charaf Eddine", role: "employee", manager_name: "JANATI Yousra" },
+        { matricule: "21002", full_name: "JANATI Yousra", role: "manager" }
+      ]
+    });
+    assert.equal(padded.error, null);
+    assert.equal(padded.data.created, 2);
+    assert.ok(padded.data.updated >= 1);
+    assert.ok(padded.data.total >= 6);
+    const linked = await adminQuery(
+      "select manager_id from public.profiles where matricule = $1",
+      ["21001"]
+    );
+    const janati = await adminQuery("select id from public.profiles where matricule = $1", ["21002"]);
+    assert.equal(linked.rows[0].manager_id, janati.rows[0].id);
+    await adminQuery("delete from public.profiles where matricule = any($1::text[])", [["20999", "21001", "21002"]]);
   });
 });

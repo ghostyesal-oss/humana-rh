@@ -135,7 +135,8 @@ let workStatusColumnEnabled = false;
 let journalFullscreen = false;
 let journalFullscreenListenerBound = false;
 let leaveCalendarMonth = null;
-let planningState = { tab: "grid", dept: "cs", cursor: null };
+let planningState = { tab: "grid", dept: "cs", cursor: null, importNotice: "", assignOpen: false };
+let adminUserQuery = "";
 let initialAuthHandled = false;
 
 let appData = {
@@ -168,7 +169,9 @@ let appData = {
   adminEditingId: "",
   adminEditingInviteId: "",
   companyTimezone: "GMT+1",
-  shiftHours: null
+  shiftHours: null,
+  planningEntries: [],
+  employeeImportNotice: ""
 };
 
 const roleLabels = {
@@ -992,8 +995,8 @@ async function loadGtaSettings() {
     if (error.message.includes("does not exist") || error.message.includes("app_settings")) {
       appData.companyTimezone = fallbackTimezone;
       appData.shiftHours = fallbackHours;
-      return;
-    }
+    return;
+  }
     throw error;
   }
 
@@ -1068,6 +1071,12 @@ function canViewReports() {
 
 function canViewPlanning() {
   return Boolean(session?.user) && isNavPageVisible("planning");
+}
+
+function canImportPlanning() {
+  if (demoMode) return true;
+  const role = String(appData.profile?.role || "").toLowerCase();
+  return role === "admin" || role === "creator" || role === "manager";
 }
 
 function canAccessPage(pageId) {
@@ -1364,15 +1373,307 @@ function pendingGtaItems(list) {
 
 function normalizeTeamPunchRow(row) {
   const profile = row.profiles || profileById(row.user_id);
+  const time = row.punched_at || row.time;
   return {
     id: row.id,
     userId: row.user_id,
-    type: row.punch_type,
-    time: row.punched_at,
-    workLocation: row.work_location || null,
+    type: row.punch_type || row.type,
+    time,
+    punchDate: row.punch_date ? String(row.punch_date).slice(0, 10) : (time ? companyDateKey(time) : ""),
+    workLocation: row.work_location || row.workLocation || null,
     name: profile?.full_name || "Collaborateur",
     email: profile?.email || ""
   };
+}
+
+function fromCompanyCivil(year, month, day, hours, minutes, seconds = 0) {
+  const utc = Date.UTC(year, month, day, hours, minutes, seconds);
+  return new Date(utc - getCompanyOffsetMinutes() * 60000);
+}
+
+function companyDateTimeIso(dayKey, hhmm) {
+  const [year, month, day] = String(dayKey || "").split("-").map(Number);
+  const [hours, minutes] = String(hhmm || "").split(":").map(Number);
+  if (![year, month, day, hours, minutes].every((value) => Number.isFinite(value))) return "";
+  return fromCompanyCivil(year, month - 1, day, hours, minutes, 0).toISOString();
+}
+
+function companyDayUtcRange(dayKey) {
+  const [year, month, day] = String(dayKey || "").split("-").map(Number);
+  if (![year, month, day].every((value) => Number.isFinite(value))) return null;
+  return {
+    start: fromCompanyCivil(year, month - 1, day, 0, 0, 0).toISOString(),
+    end: fromCompanyCivil(year, month - 1, day, 23, 59, 59).toISOString()
+  };
+}
+
+function parseHhmm(value) {
+  const match = String(value || "").trim().match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  return match ? `${match[1]}:${match[2]}` : "";
+}
+
+function hhmmToMinutes(value) {
+  const hhmm = parseHhmm(value);
+  if (!hhmm) return null;
+  const [hours, minutes] = hhmm.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function canRectifyCollaboratorPunches(userId) {
+  if (!userId) return false;
+  if (!canViewTeamPunches() && !isAdmin()) return false;
+  return canManageGtaItem({ user_id: userId });
+}
+
+function sanitizePunchReason(value) {
+  return String(value || "").replace(/[\u0000-\u001F\u007F]/g, " ").replace(/\s+/g, " ").trim().slice(0, 400);
+}
+
+function pickPunchOfKind(rows, kind) {
+  const matches = (rows || []).filter((row) => {
+    const type = row.punch_type || row.type;
+    return type === kind;
+  }).sort((a, b) => new Date(a.punched_at || a.time) - new Date(b.punched_at || b.time));
+  if (!matches.length) return null;
+  return kind === "out" ? matches[matches.length - 1] : matches[0];
+}
+
+function currentPunchTimesForDay(rows) {
+  const times = {};
+  PUNCH_KIND_OPTIONS.forEach(({ value }) => {
+    const punch = pickPunchOfKind(rows, value);
+    times[value] = punch ? formatTime(punch.punched_at || punch.time) : "";
+  });
+  return times;
+}
+
+function assertPunchTimesOrder(times) {
+  const sequence = ["in", "break_start", "break_end", "out"]
+    .map((kind) => ({ kind, minutes: hhmmToMinutes(times[kind]) }))
+    .filter((item) => item.minutes != null);
+  for (let index = 1; index < sequence.length; index += 1) {
+    if (sequence[index].minutes < sequence[index - 1].minutes) {
+      throw new Error("Les heures doivent se suivre : entrée, pause, reprise, puis sortie.");
+    }
+  }
+}
+
+async function loadPunchesForUserDay(userId, dayKey) {
+  if (!usesDatabase()) {
+    return (appData.teamPunches || []).filter((row) => {
+      const normalized = normalizeTeamPunchRow(row);
+      return normalized.userId === userId && normalized.punchDate === dayKey;
+    });
+  }
+  const range = companyDayUtcRange(dayKey);
+  if (!range) return [];
+  const { data, error } = await supabaseClient
+    .from("time_punches")
+    .select("*")
+    .eq("user_id", userId)
+    .gte("punched_at", range.start)
+    .lte("punched_at", range.end)
+    .order("punched_at", { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+async function upsertPunchAt(userId, dayKey, kind, hhmm, existingRows = []) {
+  if (!PUNCH_KIND_OPTIONS.some((item) => item.value === kind)) {
+    throw new Error("Type de pointage invalide.");
+  }
+  const time = parseHhmm(hhmm);
+  if (!time) return null;
+  const punchedAt = companyDateTimeIso(dayKey, time);
+  if (!punchedAt) throw new Error("Heure invalide.");
+  const current = pickPunchOfKind(existingRows, kind);
+  if (usesDatabase()) {
+    if (current?.id) {
+      const { error } = await supabaseClient
+        .from("time_punches")
+        .update({ punched_at: punchedAt })
+        .eq("id", current.id);
+      if (error) throw error;
+      return { id: current.id, action: "update" };
+    }
+    await insertTimePunch({
+      user_id: userId,
+      punch_type: kind,
+      punched_at: punchedAt
+    });
+    return { action: "insert" };
+  }
+  const punches = appData.teamPunches || [];
+  if (current) {
+    current.punched_at = punchedAt;
+    current.punch_type = kind;
+  } else {
+    const profile = profileById(userId);
+    punches.push({
+      id: `demo-${userId}-${kind}-${dayKey}`,
+      user_id: userId,
+      punch_type: kind,
+      punched_at: punchedAt,
+      punch_date: dayKey,
+      profiles: { full_name: profile?.full_name, email: profile?.email }
+    });
+    appData.teamPunches = punches;
+  }
+  return { action: current ? "update" : "insert" };
+}
+
+async function recordPunchRectification({ userId, dayKey, kind, time, reason }) {
+  const payload = {
+    user_id: userId,
+    punch_date: dayKey,
+    requested_time: time,
+    punch_kind: kind,
+    reason,
+    status: "Approuve",
+    reviewed_by: session?.user?.id || null,
+    reviewed_at: new Date().toISOString()
+  };
+  if (usesDatabase()) {
+    await insertPunchCorrectionRow(payload);
+    return;
+  }
+  const rows = getPunchCorrections();
+  rows.unshift({
+    id: Date.now(),
+    userId,
+    date: dayKey,
+    time,
+    punchKind: kind,
+    reason,
+    status: "Approuve",
+    reviewedBy: session?.user?.id,
+    reviewedByName: getUserName(),
+    created: new Date().toISOString()
+  });
+  saveGtaStore("punchCorrections", rows);
+}
+
+async function applyApprovedPunchCorrection(item) {
+  const userId = gtaItemUserId(item);
+  const dayKey = gtaItemDate(item);
+  const kind = item.punch_kind || item.punchKind || "in";
+  const time = parseHhmm(item.time || item.requested_time);
+  if (!userId || !dayKey || !time) return;
+  if (!canRectifyCollaboratorPunches(userId) && !isAdmin()) {
+    throw new Error("Vous ne pouvez pas rectifier ce pointage.");
+  }
+  const existing = await loadPunchesForUserDay(userId, dayKey);
+  await upsertPunchAt(userId, dayKey, kind, time, existing);
+}
+
+async function rectifyCollaboratorPunchDay({ userId, dayKey, times, reason }) {
+  if (!canRectifyCollaboratorPunches(userId)) {
+    throw new Error("Seul le manager, HR ou la Direction peut rectifier le pointage d'un collaborateur.");
+  }
+  const motif = sanitizePunchReason(reason);
+  if (motif.length < 4) throw new Error("Indiquez un motif (au moins 4 caractères).");
+  const existing = await loadPunchesForUserDay(userId, dayKey);
+  const currentTimes = currentPunchTimesForDay(existing);
+  const nextTimes = { ...currentTimes };
+  const changed = [];
+  PUNCH_KIND_OPTIONS.forEach(({ value }) => {
+    const next = parseHhmm(times[value]);
+    if (!next) return;
+    nextTimes[value] = next;
+    if (next !== currentTimes[value]) changed.push({ kind: value, time: next });
+  });
+  if (!changed.length) throw new Error("Aucune heure n'a été modifiée.");
+  assertPunchTimesOrder(nextTimes);
+  for (const item of changed) {
+    const rows = await loadPunchesForUserDay(userId, dayKey);
+    await upsertPunchAt(userId, dayKey, item.kind, item.time, rows);
+    await recordPunchRectification({
+      userId,
+      dayKey,
+      kind: item.kind,
+      time: item.time,
+      reason: motif
+    });
+  }
+}
+
+function closePunchRectifyDialog() {
+  document.removeEventListener("keydown", onPunchRectifyKeydown);
+  document.getElementById("punch-rectify-overlay")?.remove();
+}
+
+function onPunchRectifyKeydown(event) {
+  if (event.key === "Escape") closePunchRectifyDialog();
+}
+
+function openPunchRectifyDialog(userId, dayKey) {
+  if (!canRectifyCollaboratorPunches(userId)) return;
+  closePunchRectifyDialog();
+  const profile = profileById(userId);
+  const rows = (appData.teamPunches || []).filter((row) => {
+    const normalized = normalizeTeamPunchRow(row);
+    return normalized.userId === userId && normalized.punchDate === dayKey;
+  });
+  const times = currentPunchTimesForDay(rows);
+  const overlay = document.createElement("div");
+  overlay.id = "punch-rectify-overlay";
+  overlay.className = "punch-rectify-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-labelledby", "punch-rectify-title");
+  overlay.innerHTML = `
+    <form id="punch-rectify-form" class="punch-rectify-card">
+      <h3 id="punch-rectify-title">Rectifier les horaires</h3>
+      <p class="hierarchy-meta">${escapeHtml(profile?.full_name || "Collaborateur")} · ${escapeHtml(formatDate(dayKey))}</p>
+      <p class="data-note">Utilisez cette correction lorsque le retard affiché n'est pas réel (oubli de badge, pause non pointée, heure erronée). Les heures EDS / retards sont recalculées.</p>
+      <div class="form-row">
+        <label>Entrée <input type="time" name="in" value="${escapeHtml(times.in)}"></label>
+        <label>Sortie <input type="time" name="out" value="${escapeHtml(times.out)}"></label>
+      </div>
+      <div class="form-row">
+        <label>Début pause <input type="time" name="break_start" value="${escapeHtml(times.break_start)}"></label>
+        <label>Fin pause <input type="time" name="break_end" value="${escapeHtml(times.break_end)}"></label>
+      </div>
+      <label>Motif <textarea name="reason" rows="2" required minlength="4" maxlength="400" placeholder="Ex. : arrivée à l'heure, oubli de pointer"></textarea></label>
+      <input type="hidden" name="userId" value="${escapeHtml(userId)}">
+      <input type="hidden" name="dayKey" value="${escapeHtml(dayKey)}">
+      <div class="punch-rectify-actions">
+        <button type="button" class="outline-button" data-punch-rectify-close>Annuler</button>
+        <button type="submit" class="primary">Enregistrer</button>
+      </div>
+    </form>`;
+  const close = () => closePunchRectifyDialog();
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  overlay.querySelector("[data-punch-rectify-close]")?.addEventListener("click", close);
+  overlay.querySelector("#punch-rectify-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const targetUserId = String(data.get("userId") || "");
+    const targetDay = String(data.get("dayKey") || "");
+    withAction(async () => {
+      await rectifyCollaboratorPunchDay({
+        userId: targetUserId,
+        dayKey: targetDay,
+        times: {
+          in: data.get("in"),
+          out: data.get("out"),
+          break_start: data.get("break_start"),
+          break_end: data.get("break_end")
+        },
+        reason: data.get("reason")
+      });
+      closePunchRectifyDialog();
+      if (usesDatabase()) {
+        dataStamp.teamPunches = 0;
+        dataStamp.gta = 0;
+      }
+    });
+  });
+  document.body.appendChild(overlay);
+  overlay.querySelector("textarea[name='reason']")?.focus();
+  document.addEventListener("keydown", onPunchRectifyKeydown);
 }
 
 function computeWorkedMsInRange(punches, startStr, endStr) {
@@ -1461,8 +1762,8 @@ function summarizeTeamPunchesByDay(teamPunchesRows, startStr, endStr) {
 
   teamPunchesRows.forEach((row) => {
     const normalized = normalizeTeamPunchRow(row);
-    const dayKey = toDateKey(new Date(normalized.time));
-    if (dayKey < startStr || dayKey > endStr) return;
+    const dayKey = normalized.punchDate || companyDateKey(normalized.time);
+    if (!dayKey || dayKey < startStr || dayKey > endStr) return;
 
     const mapKey = `${normalized.userId}|${dayKey}`;
     if (!byUserDay.has(mapKey)) {
@@ -1475,6 +1776,7 @@ function summarizeTeamPunchesByDay(teamPunchesRows, startStr, endStr) {
       });
     }
     byUserDay.get(mapKey).punches.push({
+      id: normalized.id,
       type: normalized.type,
       time: normalized.time,
       workLocation: normalized.workLocation
@@ -2419,6 +2721,31 @@ async function persistUserAccount({ email, profileId, inviteId, payload }) {
   }, { onConflict: "email" }), payload);
 }
 
+function getFilteredAdminProfiles() {
+  const list = [...(appData.orgProfiles || [])]
+    .filter(Boolean)
+    .sort((a, b) => (a.full_name || "").localeCompare(b.full_name || "", "fr"));
+  const query = foldPlanningToken(adminUserQuery);
+  if (!query) return list;
+  return list.filter((profile) => foldPlanningToken(
+    `${profile.full_name || ""} ${profile.email || ""} ${profile.matricule || ""} ${profile.job_title || ""} ${profile.department || ""}`
+  ).includes(query));
+}
+
+function renderAdminUserRows(profiles) {
+  if (!profiles.length) {
+    return `<tr><td colspan="5" class="empty-cell">Aucun utilisateur${adminUserQuery ? " ne correspond à la recherche" : " actif"}.</td></tr>`;
+  }
+  return profiles.map((profile) => `
+    <tr>
+      <td><strong>${escapeHtml(profile.full_name)}</strong><br><small>${escapeHtml(profile.job_title || "")}${profile.matricule ? ` · ${escapeHtml(profile.matricule)}` : ""}</small></td>
+      <td>${escapeHtml(profile.email || "—")}</td>
+      <td>${badge(roleLabels[profile.role] || profile.role)}</td>
+      <td>${escapeHtml(managerName(profile.manager_id))}</td>
+      <td><button type="button" class="outline-button admin-edit-profile" data-profile-id="${profile.id}">Gérer</button></td>
+    </tr>`).join("");
+}
+
 function renderUserAccountSection() {
   const { editingId, editingInviteId } = getUserAccountEditing();
   const editingProfile = appData.orgProfiles.find((profile) => profile.id === editingId);
@@ -2493,23 +2820,26 @@ function renderUserAccountSection() {
           </div>
         </form>
         <p class="hierarchy-meta">Si la personne ne s'est jamais connectée à Humana, elle sera préenregistrée. À la première connexion Microsoft, son compte sera créé automatiquement.</p>
+        <div class="planning-import admin-employee-import">
+          <strong>Importer les employés (Excel Cegid)</strong>
+          <p class="hierarchy-meta">Cegid ID = matricule Humana (le Matricule RH 1, 2, 3… est ignoré). STATUT Inactif et DATE DEPART déjà passée sont exclus. Manager = Nom + Prénom (vide = pas de manager).</p>
+          <input type="file" id="admin-employee-import" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
+          ${appData.employeeImportNotice ? `<p class="planning-import-notice">${escapeHtml(appData.employeeImportNotice)}</p>` : ""}
+        </div>
       </article>
-      <article class="card table-card">
-        <div class="toolbar"><h3>Utilisateurs actifs</h3></div>
+      <article class="card table-card admin-user-list">
+        <div class="toolbar">
+          <h3>Utilisateurs actifs <span id="admin-user-count" class="admin-user-count">${getFilteredAdminProfiles().length} / ${appData.orgProfiles.length}</span></h3>
+          <label class="admin-user-search">
+            Rechercher
+            <input type="search" id="admin-user-search" value="${escapeHtml(adminUserQuery)}" placeholder="Nom, matricule, e-mail…">
+          </label>
+        </div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Nom</th><th>E-mail</th><th>Rôle</th><th>Manager</th><th></th></tr></thead>
-            <tbody>
-              ${appData.orgProfiles.length
-                ? appData.orgProfiles.map((profile) => `
-                  <tr>
-                    <td><strong>${escapeHtml(profile.full_name)}</strong><br><small>${escapeHtml(profile.job_title || "")}</small></td>
-                    <td>${escapeHtml(profile.email)}</td>
-                    <td>${badge(roleLabels[profile.role] || profile.role)}</td>
-                    <td>${escapeHtml(managerName(profile.manager_id))}</td>
-                    <td><button type="button" class="outline-button admin-edit-profile" data-profile-id="${profile.id}">Gérer</button></td>
-                  </tr>`).join("")
-                : `<tr><td colspan="5" class="empty-cell">Aucun utilisateur actif.</td></tr>`}
+            <tbody id="admin-user-tbody">
+              ${renderAdminUserRows(getFilteredAdminProfiles())}
             </tbody>
           </table>
         </div>
@@ -2559,6 +2889,27 @@ function bindUserAccountSection() {
     });
   });
 
+  document.querySelector("#admin-employee-import")?.addEventListener("change", (event) => {
+    const input = event.currentTarget;
+    const file = input.files && input.files[0];
+    input.value = "";
+    if (!file) return;
+    (async () => {
+      appData.loading = true;
+      appData.error = "";
+      renderApp();
+      try {
+        await withTimeout(importEmployeesFromFile(file), 180000, "Import employés");
+        if (usesDatabase()) await loadPageData(currentPage, { force: true });
+      } catch (error) {
+        appData.error = formatAppError(error);
+      } finally {
+        appData.loading = false;
+        renderApp();
+      }
+    })();
+  });
+
   document.querySelector("#admin-cancel-edit")?.addEventListener("click", () => {
     clearUserAccountEditing();
     renderApp();
@@ -2568,6 +2919,21 @@ function bindUserAccountSection() {
     button.addEventListener("click", () => {
       setUserAccountEditing({ profileId: button.dataset.profileId, inviteId: "" });
       renderApp();
+    });
+  });
+
+  document.querySelector("#admin-user-search")?.addEventListener("input", (event) => {
+    adminUserQuery = event.currentTarget.value;
+    const tbody = document.querySelector("#admin-user-tbody");
+    const count = document.querySelector("#admin-user-count");
+    const filtered = getFilteredAdminProfiles();
+    if (tbody) tbody.innerHTML = renderAdminUserRows(filtered);
+    if (count) count.textContent = `${filtered.length} / ${appData.orgProfiles.length}`;
+    document.querySelectorAll(".admin-edit-profile").forEach((button) => {
+      button.addEventListener("click", () => {
+        setUserAccountEditing({ profileId: button.dataset.profileId, inviteId: "" });
+        renderApp();
+      });
     });
   });
 
@@ -2760,8 +3126,8 @@ function parseClientEnvironment() {
   let os = "Inconnu";
   if (/Windows/i.test(uaData?.platform || "") || /Windows/i.test(ua)) os = "Windows";
   else if (/Mac/i.test(uaData?.platform || "") || /Mac OS X/i.test(ua)) os = "macOS";
-  else if (/Android/i.test(ua)) os = "Android";
-  else if (/iPhone|iPad|iPod/i.test(ua)) os = "iOS";
+    else if (/Android/i.test(ua)) os = "Android";
+    else if (/iPhone|iPad|iPod/i.test(ua)) os = "iOS";
   else if (/Linux/i.test(uaData?.platform || "") || /Linux/i.test(ua)) os = "Linux";
 
   let browser = "Navigateur";
@@ -3551,24 +3917,24 @@ function renderPunchHistory(punches, profile) {
   }
   return `
     <div class="punch-history-body">
-      <div class="dtl-history-legend">
-        <span class="dtl-legend-item dtl-legend--work">En poste</span>
-        <span class="dtl-legend-item dtl-legend--lunch">Pause dej</span>
-        <span class="dtl-legend-item dtl-legend--off">Hors poste</span>
-        <span class="dtl-legend-item dtl-legend--late">Retard</span>
-      </div>
+    <div class="dtl-history-legend">
+      <span class="dtl-legend-item dtl-legend--work">En poste</span>
+      <span class="dtl-legend-item dtl-legend--lunch">Pause dej</span>
+      <span class="dtl-legend-item dtl-legend--off">Hors poste</span>
+      <span class="dtl-legend-item dtl-legend--late">Retard</span>
+    </div>
       ${renderHistoryHourScale()}
-      <div class="punch-history-list">
+    <div class="punch-history-list">
         ${groups.map(([dayKey, dayPunches]) => `
-          <div class="dtl-history-row">
-            <div class="dtl-history-date">
-              <strong>${escapeHtml(formatHistoryDateLabel(dayKey))}</strong>
-            </div>
-            ${renderDayTimeline(dayPunches, profile, {
-              variant: "history",
-              asOfMin: historyAsOfMin(dayPunches, dayKey, profile)
-            })}
-          </div>`).join("")}
+        <div class="dtl-history-row">
+          <div class="dtl-history-date">
+            <strong>${escapeHtml(formatHistoryDateLabel(dayKey))}</strong>
+          </div>
+          ${renderDayTimeline(dayPunches, profile, {
+            variant: "history",
+            asOfMin: historyAsOfMin(dayPunches, dayKey, profile)
+          })}
+        </div>`).join("")}
       </div>
     </div>`;
 }
@@ -3996,7 +4362,7 @@ function fireBrowserLateNotification(info) {
   fireWindowsNotification({
     title: "⏰ Pointage oublié",
     body: `Il est ${info.triggerLabel} passé et tu n'as pas encore pointé ton arrivée. Retard : ${formatNotifMinutes(info.delayMinutes)}.`,
-    tag: "humana-late-reminder",
+      tag: "humana-late-reminder",
     page: "pointeuse"
   });
 }
@@ -4123,7 +4489,7 @@ function checkGtaDesktopAlerts() {
         page: "pointeuse"
       });
     }
-  } catch (error) {
+    } catch (error) {
     console.warn("[humana] overtime notice failed", error);
   }
   try {
@@ -4572,7 +4938,7 @@ function renderGtaClockTools() {
     <div class="feature-grid page-spacer">
       <article class="card form-card">
         ${cardHeading("Correction de pointage")}
-        <p class="hierarchy-meta">Quota : ${remaining}/${PUNCH_CORRECTION_QUOTA} demandes ce mois. Le manager confirme, le Traffic Manager applique.</p>
+        <p class="hierarchy-meta">Quota : ${remaining}/${PUNCH_CORRECTION_QUOTA} demandes ce mois. Après validation du manager, l'heure d'entrée, de pause ou de sortie est réellement mise à jour (le retard EDS est recalculé).</p>
         <form id="punch-correction-form" class="feature-form">
           <label>Date <input type="date" name="date" value="${today}" required></label>
           <label>Point a rectifier
@@ -5286,7 +5652,7 @@ function renderGtaSettingsSection() {
             ${COMPANY_TIMEZONES.map((entry) => `
               <option value="${entry.id}"${timezone === entry.id ? " selected" : ""}>${escapeHtml(entry.label)}</option>`).join("")}
           </select>
-        </label>
+      </label>
         <p class="hierarchy-meta">Les heures de pointage et la chronologie s'affichent dans ce fuseau, quel que soit le fuseau du navigateur.</p>
         <div class="table-wrap">
           <table class="gta-shift-table">
@@ -5400,6 +5766,8 @@ function edsBucketForLeave(type) {
 
 function earlyLeaveMinutes(row, profile) {
   if (!row.endTime) return 0;
+  const importedHours = importedPlannedHours(profile?.id || row.userId, row.dayKey);
+  if (importedHours === 0) return 0;
   const shift = getActiveShift(profile, row.dayKey);
   const end = new Date(row.endTime);
   const endMin = end.getHours() * 60 + end.getMinutes();
@@ -5605,30 +5973,30 @@ function buildEdsRows() {
     };
     if (showPayroll) {
       Object.assign(row, {
-        primesExcept: 0,
-        primeOutbound: 0,
-        primeProjet: 0,
-        primeChallenge: 0,
-        primeEid: 0,
-        primeParrainage: 0,
-        primeLangue: 0,
-        primeProd: 0,
-        regulM1: 0,
-        primeAnciennete: 0,
-        hs100: 0,
-        hs125: hsHours,
-        hs150: 0,
-        avance: 0,
-        preavis: 0,
-        chifaa: 0,
-        retraiteSal: "",
-        retraitePat: "",
-        salaireBrut: "",
-        salaireNet: "",
-        primesFixesPror: 0,
-        variablePror: 0,
-        salaireEstime: "",
-        primeProjet2: 0,
+      primesExcept: 0,
+      primeOutbound: 0,
+      primeProjet: 0,
+      primeChallenge: 0,
+      primeEid: 0,
+      primeParrainage: 0,
+      primeLangue: 0,
+      primeProd: 0,
+      regulM1: 0,
+      primeAnciennete: 0,
+      hs100: 0,
+      hs125: hsHours,
+      hs150: 0,
+      avance: 0,
+      preavis: 0,
+      chifaa: 0,
+      retraiteSal: "",
+      retraitePat: "",
+      salaireBrut: "",
+      salaireNet: "",
+      primesFixesPror: 0,
+      variablePror: 0,
+      salaireEstime: "",
+      primeProjet2: 0,
         primeOutbound2: 0
       });
     }
@@ -5641,6 +6009,7 @@ function edsRowCells(row, columns = visibleEdsColumns()) {
 }
 
 const PLANNING_DEPTS = [
+  { id: "all", label: "Tous", hint: "Tous les agents du périmètre, y compris le planning Cegid importé." },
   { id: "rnd", label: "R&D", hint: "Objectif : 8h travaillées + 1h de pause déjeuner (horaire souple)." },
   { id: "cs", label: "CS", hint: "Calendrier fixe 08h–17h, pause 1h." },
   { id: "ces", label: "CES", hint: "Calendrier fixe 08h–17h, pause 1h." }
@@ -5662,8 +6031,915 @@ const PLANNING_CODES = [
   { code: "MP", label: "Mise à pied" },
   { code: "SP", label: "Congé spécial" },
   { code: "EC", label: "Écart d'heures (R&D)" },
-  { code: "AB", label: "Non pointé" }
+  { code: "AB", label: "Non pointé" },
+  { code: "FER", label: "Jour férié" }
 ];
+
+const PLANNING_KIND_MAP = {
+  P: "PR", PRES: "PR", PRESENT: "PR", PRESENCE: "PR", PR: "PR",
+  TT: "TT", TELETRAVAIL: "TT", REMOTE: "TT",
+  RE: "RE", RETARD: "RE",
+  DP: "DP", DEPART: "DP",
+  AJ: "AJ", AI: "AI",
+  CP: "CP", CONGES: "CP",
+  MA: "MA", MATERNITE: "MA",
+  PA: "PA", PATERNITE: "PA",
+  SS: "SS",
+  RC: "RC", RTT: "RC", RECUP: "RC",
+  DE: "DE",
+  MP: "MP",
+  SP: "SP",
+  EC: "EC",
+  AB: "AB",
+  FER: "FER", FERIE: "FER", JF: "FER"
+};
+
+const FR_PLANNING_MONTHS = {
+  janvier: 0, fevrier: 1, mars: 2, avril: 3, mai: 4, juin: 5,
+  juillet: 6, aout: 7, septembre: 8, octobre: 9, novembre: 10, decembre: 11
+};
+
+function foldPlanningToken(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function normalizeCegidId(value) {
+  const text = String(value ?? "").trim().replace(/\s+/g, "");
+  if (!text || text === "-" || text === "0") return "";
+  if (/^\d+(\.0+)?$/.test(text)) return String(Math.round(Number(text)));
+  return text.toUpperCase();
+}
+
+function parseFrenchPlanningDate(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const slash = text.match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})$/);
+  if (slash) {
+    const year = slash[3].length === 2 ? `20${slash[3]}` : slash[3];
+    return `${year}-${slash[2].padStart(2, "0")}-${slash[1].padStart(2, "0")}`;
+  }
+  const folded = foldPlanningToken(text);
+  const named = folded.match(/(\d{1,2})\s+([a-z]+)\s+(\d{4})/);
+  if (named && Object.prototype.hasOwnProperty.call(FR_PLANNING_MONTHS, named[2])) {
+    const month = FR_PLANNING_MONTHS[named[2]] + 1;
+    return `${named[3]}-${String(month).padStart(2, "0")}-${named[1].padStart(2, "0")}`;
+  }
+  const serial = Number(text);
+  if (Number.isFinite(serial) && serial > 20000 && serial < 90000) {
+    const utc = new Date(Date.UTC(1899, 11, 30) + Math.round(serial) * 86400000);
+    return utc.toISOString().slice(0, 10);
+  }
+  return "";
+}
+
+function parsePlanningHoursValue(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  if (/^\d+([.,]\d+)?$/.test(text)) {
+    const n = Number(text.replace(",", "."));
+    return Number.isFinite(n) ? Math.max(0, n) : null;
+  }
+  const clock = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!clock) return null;
+  return Math.round((Number(clock[1]) + Number(clock[2]) / 60 + Number(clock[3] || 0) / 3600) * 100) / 100;
+}
+
+function mapPlanningHeader(raw) {
+  const text = foldPlanningToken(raw);
+  if (!text) return "";
+  if (text.includes("cegid") || text.includes("matricule") || (text.includes("id") && text.includes("employ"))) return "matricule";
+  if (text.includes("nomferie") || text.includes("ferie")) return "holiday";
+  if (text.includes("location") || text === "lieu") return "location";
+  if ((text.includes("heure") && text.includes("plann")) || text === "heureplanning") return "duration";
+  if (text === "heures" || text === "heure") return "hoursCol";
+  if (text === "valeur" || text === "code" || text === "type") return "value";
+  if (text.includes("departement") || text === "dept") return "department";
+  if (text.includes("structure")) return "structure";
+  if (text === "nom" || text === "agent" || text.includes("collaborateur") || text === "employe") return "agent";
+  if (text === "date" || text.startsWith("jour")) return "date";
+  return "";
+}
+
+function mapPlanningKind(value, location, holiday) {
+  if (String(holiday || "").trim()) return "FER";
+  const loc = foldPlanningToken(location);
+  if (loc && (loc.includes("teletravail") || loc === "tt" || loc.includes("remote") || loc.includes("domicile"))) return "TT";
+  const token = foldPlanningToken(value).replace(/\s+/g, "").toUpperCase();
+  return PLANNING_KIND_MAP[token] || (token ? "PR" : "PR");
+}
+
+function decodePlanningXml(value) {
+  return String(value || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function splitPlanningCsvLine(line, delimiter) {
+  const out = [];
+  let current = "";
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (quoted && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (ch === delimiter && !quoted) {
+      out.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  out.push(current);
+  return out;
+}
+
+function detectCsvDelimiter(line) {
+  const tab = String(line || "").split("\t").length;
+  const semi = String(line || "").split(";").length;
+  const comma = String(line || "").split(",").length;
+  if (tab >= 8 || (tab > semi && tab > comma)) return "\t";
+  if (semi > comma) return ";";
+  return ",";
+}
+
+function parseCsvGrid(text) {
+  const raw = String(text || "").replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const lines = raw.split("\n").filter((line) => line.trim());
+  if (!lines.length) return [];
+  const delimiter = detectCsvDelimiter(lines[0]);
+  return lines.map((line) => splitPlanningCsvLine(line, delimiter));
+}
+
+function mapGridToRows(grid, mapHeader) {
+  if (!grid.length) return [];
+  const headers = (grid[0] || []).map(mapHeader);
+  return grid.slice(1).map((cells) => {
+    const row = {};
+    headers.forEach((key, index) => {
+      if (!key) return;
+      const value = cells[index] == null ? "" : String(cells[index]).trim();
+      if (row[key] && !value) return;
+      row[key] = value;
+    });
+    return row;
+  });
+}
+
+function parsePlanningCsvText(text) {
+  return mapGridToRows(parseCsvGrid(text), mapPlanningHeader)
+    .filter((row) => row.date || row.agent || row.matricule);
+}
+
+function planningColRow(ref) {
+  const match = String(ref || "").match(/^([A-Z]+)(\d+)$/i);
+  if (!match) return { col: 0, row: 0 };
+  let col = 0;
+  for (const ch of match[1].toUpperCase()) col = col * 26 + (ch.charCodeAt(0) - 64);
+  return { col: col - 1, row: Number(match[2]) - 1 };
+}
+
+function parseZipCentral(buffer) {
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i -= 1) {
+    if (view.getUint32(i, true) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) throw new Error("Fichier Excel invalide (ZIP).");
+  const count = view.getUint16(eocd + 10, true);
+  let pointer = view.getUint32(eocd + 16, true);
+  const files = {};
+  for (let n = 0; n < count; n += 1) {
+    if (view.getUint32(pointer, true) !== 0x02014b50) break;
+    const method = view.getUint16(pointer + 10, true);
+    const compSize = view.getUint32(pointer + 20, true);
+    const nameLen = view.getUint16(pointer + 28, true);
+    const extraLen = view.getUint16(pointer + 30, true);
+    const commentLen = view.getUint16(pointer + 32, true);
+    const localOff = view.getUint32(pointer + 42, true);
+    const name = new TextDecoder().decode(bytes.subarray(pointer + 46, pointer + 46 + nameLen));
+    const localNameLen = view.getUint16(localOff + 26, true);
+    const localExtra = view.getUint16(localOff + 28, true);
+    const dataStart = localOff + 30 + localNameLen + localExtra;
+    files[name] = { method, bytes: bytes.subarray(dataStart, dataStart + compSize) };
+    pointer += 46 + nameLen + extraLen + commentLen;
+  }
+  return files;
+}
+
+async function inflatePlanningZipEntry(entry) {
+  if (!entry) return "";
+  if (entry.method === 0) return new TextDecoder("utf-8").decode(entry.bytes);
+  if (entry.method !== 8) throw new Error("Compression Excel non supportée. Enregistrez le fichier en .xlsx ou .csv.");
+  const stream = new Blob([entry.bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  return new TextDecoder("utf-8").decode(await new Response(stream).arrayBuffer());
+}
+
+function parseSharedStringsXml(xml) {
+  const out = [];
+  const block = /<(?:[\w.-]+:)?si\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?si>/g;
+  let match;
+  while ((match = block.exec(xml))) {
+    const texts = [];
+    const token = /<(?:[\w.-]+:)?t(?:\s[^>]*)?>([\s\S]*?)<\/(?:[\w.-]+:)?t>/g;
+    let inner;
+    while ((inner = token.exec(match[1]))) texts.push(decodePlanningXml(inner[1]));
+    out.push(texts.join(""));
+  }
+  return out;
+}
+
+function parseSheetRowsXml(xml, shared) {
+  const byIndex = new Map();
+  const rowRe = /<(?:[\w.-]+:)?row\b([^>]*)>([\s\S]*?)<\/(?:[\w.-]+:)?row>/g;
+  let rowMatch;
+  let fallback = 0;
+  while ((rowMatch = rowRe.exec(xml))) {
+    const cells = [];
+    const rowNum = Number((String(rowMatch[1] || "").match(/\br="(\d+)"/i) || [])[1] || 0);
+    const idx = rowNum > 0 ? rowNum - 1 : fallback;
+    fallback += 1;
+    const cellRe = /<(?:[\w.-]+:)?c\b([^/>]*)(?:\/>|>([\s\S]*?)<\/(?:[\w.-]+:)?c>)/g;
+    let cellMatch;
+    let seq = 0;
+    while ((cellMatch = cellRe.exec(rowMatch[2] || ""))) {
+      const attrs = cellMatch[1] || "";
+      const ref = (attrs.match(/\br="([^"]+)"/) || [])[1] || "";
+      const type = (attrs.match(/\bt="([^"]+)"/) || [])[1] || "";
+      const parsed = ref ? planningColRow(ref) : { col: seq };
+      const col = Number.isFinite(parsed.col) ? parsed.col : seq;
+      seq += 1;
+      let value = "";
+      const inner = cellMatch[2] || "";
+      const is = inner.match(/<(?:[\w.-]+:)?is>[\s\S]*?<(?:[\w.-]+:)?t(?:\s[^>]*)?>([\s\S]*?)<\/(?:[\w.-]+:)?t>/);
+      const v = inner.match(/<(?:[\w.-]+:)?v[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?v>/);
+      if (is) value = decodePlanningXml(is[1]);
+      else if (v) {
+        const raw = decodePlanningXml(v[1]);
+        value = type === "s" ? (shared[Number(raw)] || "") : raw;
+      }
+      cells[col] = value;
+    }
+    byIndex.set(idx, cells);
+  }
+  const max = byIndex.size ? Math.max(...byIndex.keys()) : -1;
+  const rows = [];
+  for (let i = 0; i <= max; i += 1) rows.push(byIndex.get(i) || []);
+  return rows;
+}
+
+function zipFileLookup(files, name) {
+  if (files[name]) return files[name];
+  const wanted = String(name || "").replace(/\\/g, "/").toLowerCase();
+  const key = Object.keys(files || {}).find((item) => item.replace(/\\/g, "/").toLowerCase() === wanted);
+  return key ? files[key] : null;
+}
+
+function parseWorkbookSheetList(workbook, rels) {
+  const out = [];
+  const sheetRe = /<sheet\b([^>]*)\/?>/gi;
+  let match;
+  while ((match = sheetRe.exec(workbook || ""))) {
+    const attrs = match[1];
+    const name = ((attrs.match(/\bname="([^"]+)"/i) || [])[1] || "").trim();
+    const rid = ((attrs.match(/\br:id="([^"]+)"/i) || [])[1] || "").trim();
+    const hidden = /state="hidden"/i.test(attrs) || /state="veryHidden"/i.test(attrs);
+    let target = "";
+    if (rid && rels) {
+      const rel = rels.match(new RegExp(`Id="${rid}"[^>]*Target="([^"]+)"`, "i"))
+        || rels.match(new RegExp(`Target="([^"]+)"[^>]*Id="${rid}"`, "i"));
+      target = rel ? rel[1].replace(/^\//, "") : "";
+    }
+    out.push({
+      name,
+      hidden,
+      sheetPath: target ? (target.startsWith("xl/") ? target : `xl/${target}`) : ""
+    });
+  }
+  return out;
+}
+
+async function parseXlsxSheets(buffer) {
+  const files = parseZipCentral(buffer);
+  const sharedXml = await inflatePlanningZipEntry(zipFileLookup(files, "xl/sharedStrings.xml"));
+  const shared = sharedXml ? parseSharedStringsXml(sharedXml) : [];
+  const workbook = await inflatePlanningZipEntry(zipFileLookup(files, "xl/workbook.xml"));
+  const rels = await inflatePlanningZipEntry(zipFileLookup(files, "xl/_rels/workbook.xml.rels"));
+  const listed = parseWorkbookSheetList(workbook, rels);
+  const sheets = [];
+  for (const item of listed) {
+    const entry = zipFileLookup(files, item.sheetPath) || zipFileLookup(files, "xl/worksheets/sheet1.xml");
+    const xml = await inflatePlanningZipEntry(entry);
+    if (!xml) continue;
+    sheets.push({ name: item.name || "Feuille", hidden: item.hidden, rows: parseSheetRowsXml(xml, shared) });
+  }
+  if (!sheets.length) {
+    const fallback = await inflatePlanningZipEntry(zipFileLookup(files, "xl/worksheets/sheet1.xml"));
+    if (fallback) sheets.push({ name: "sheet1", hidden: false, rows: parseSheetRowsXml(fallback, shared) });
+  }
+  return sheets;
+}
+
+async function parseXlsxGrid(buffer) {
+  const sheets = await parseXlsxSheets(buffer);
+  if (!sheets.length) throw new Error("Feuille Excel introuvable.");
+  return sheets[0].rows;
+}
+
+async function parsePlanningXlsx(buffer) {
+  const grid = await parseXlsxGrid(buffer);
+  return mapGridToRows(grid, mapPlanningHeader)
+    .filter((row) => row.date || row.agent || row.matricule);
+}
+
+function mapEmployeeHeader(raw) {
+  const text = foldPlanningToken(raw);
+  if (!text) return "";
+  if ((text.includes("matricule") && text.includes("manager")) || text === "matricule manager") return "managerMatricule";
+  if (text === "manager" || (text.includes("manager") && !text.includes("matricule"))) return "managerName";
+  if (text.includes("statut") || text === "stat" || text === "status") return "status";
+  if (text.includes("cegid")) return "cegid";
+  if (text.includes("matricule") && (text.includes("rh") || text.includes("hr"))) return "matriculeRh";
+  if (text.includes("civil")) return "civility";
+  if (text.includes("prenom")) return "firstName";
+  if (text === "nom" || text === "name") return "lastName";
+  if (text.includes("recrut") || text.includes("embauche") || (text.includes("date") && (text.includes("entree") || text.includes("debut")))) return "hiredAt";
+  if (text.includes("nature") && text.includes("depart")) return "leftReason";
+  if (text.includes("depart") && text.includes("date")) return "leftAt";
+  if (text === "bu" || text === "departement" || text === "department") return "bu";
+  if ((text.includes("sub") && text.includes("bu")) || text.includes("sous bu") || text === "sub bu") return "subBu";
+  if (text === "job" || text.includes("poste") || text.includes("emploi") || text.includes("intitule")) return "job";
+  if (text === "profile" || text === "profil") return "profileLabel";
+  if (text.includes("mail") || text === "email") return "email";
+  return "";
+}
+
+function mapEmployeeHeaders(rawHeaders) {
+  let seenCegid = false;
+  return rawHeaders.map((raw) => {
+    const key = mapEmployeeHeader(raw);
+    if (key !== "cegid") return key;
+    if (seenCegid) return "cegidAlt";
+    seenCegid = true;
+    return "cegid";
+  });
+}
+
+function parseHrDate(value) {
+  const text = String(value || "").trim();
+  if (!text || text === "-") return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const slash = text.match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})$/);
+  if (slash) {
+    const year = slash[3].length === 2 ? `20${slash[3]}` : slash[3];
+    const y = Number(year);
+    if (y < 1990 || y > 2100) return "";
+    return `${year}-${slash[2].padStart(2, "0")}-${slash[1].padStart(2, "0")}`;
+  }
+  const serial = Number(text);
+  if (Number.isFinite(serial) && serial >= 36526 && serial < 90000) {
+    const utc = new Date(Date.UTC(1899, 11, 30) + Math.round(serial) * 86400000);
+    return utc.toISOString().slice(0, 10);
+  }
+  return "";
+}
+
+function employeeStatusIsInactive(status) {
+  const parts = foldPlanningToken(status).split(" ").filter(Boolean);
+  return parts.some((part) => (
+    part === "inactif" || part === "inactive" || part === "sorti" || part === "out"
+    || part === "licencie" || part === "demissionnaire"
+  ));
+}
+
+function employeeHasLeft(row) {
+  if (employeeStatusIsInactive(row.status)) return true;
+  const left = parseHrDate(row.leftAt);
+  return Boolean(left && left <= toDateKey(new Date()));
+}
+
+function mapCellsToEmployeeRow(cells, keys) {
+  const row = {};
+  keys.forEach((key, index) => {
+    if (!key) return;
+    const value = cells[index] == null ? "" : String(cells[index]).trim();
+    if (row[key] && !value) return;
+    row[key] = value;
+  });
+  return row;
+}
+
+function findEmployeeHeaderIndex(grid) {
+  let best = 0;
+  let bestScore = -1;
+  const max = Math.min(grid.length, 40);
+  for (let i = 0; i < max; i += 1) {
+    const keys = mapEmployeeHeaders(grid[i] || []);
+    const unique = new Set(keys.filter(Boolean));
+    let score = unique.size;
+    if (keys.includes("cegid")) score += 8;
+    if (keys.includes("status")) score += 5;
+    if (keys.includes("lastName") && keys.includes("firstName")) score += 6;
+    if (keys.includes("managerName")) score += 2;
+    if (keys.includes("hiredAt")) score += 1;
+    if (score > bestScore) {
+      bestScore = score;
+      best = i;
+    }
+  }
+  return bestScore >= 8 ? best : 0;
+}
+
+function scoreEmployeeGrid(grid) {
+  const headerIdx = findEmployeeHeaderIndex(grid);
+  const keys = mapEmployeeHeaders(grid[headerIdx] || []);
+  let score = new Set(keys.filter(Boolean)).size;
+  if (keys.includes("cegid")) score += 8;
+  if (keys.includes("status")) score += 5;
+  if (keys.includes("lastName") && keys.includes("firstName")) score += 6;
+  grid.slice(headerIdx + 1).forEach((cells) => {
+    const row = mapCellsToEmployeeRow(cells, keys);
+    if (normalizeCegidId(row.cegid) || normalizeCegidId(row.cegidAlt) || String(row.lastName || "").trim()) {
+      score += 1;
+    }
+  });
+  return { score, headerIdx, grid };
+}
+
+async function parseSpreadsheetGrid(file) {
+  const name = String(file?.name || "").toLowerCase();
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
+  if (name.endsWith(".xls") && !isZip) {
+    throw new Error("Le .xls ancien n'est pas lu. Enregistrez le fichier en .xlsx ou .csv.");
+  }
+  let grid;
+  if (isZip || name.endsWith(".xlsx")) {
+    const sheets = await parseXlsxSheets(buffer);
+    if (!sheets.length) throw new Error("Feuille Excel introuvable.");
+    let best = null;
+    sheets.forEach((sheet) => {
+      const scored = scoreEmployeeGrid(sheet.rows || []);
+      if (!best || scored.score > best.score) best = scored;
+    });
+    grid = best ? best.grid : sheets[0].rows;
+  } else {
+    grid = parseCsvGrid(new TextDecoder("utf-8").decode(bytes));
+  }
+  const headerIdx = findEmployeeHeaderIndex(grid);
+  return grid.slice(headerIdx);
+}
+
+function planningHoursFromRow(row) {
+  const fromHours = parsePlanningHoursValue(row.hoursCol);
+  const fromDuration = parsePlanningHoursValue(row.duration);
+  if (fromHours > 0) return fromHours;
+  if (fromDuration > 0) return fromDuration;
+  if (fromHours === 0 || fromDuration === 0) return 0;
+  return 0;
+}
+
+function planningNameTokens(value) {
+  return foldPlanningToken(value).split(" ").filter((token) => token.length >= 2);
+}
+
+function planningTokensClose(left, right) {
+  if (left === right) return true;
+  if (left.length >= 3 && right.startsWith(left)) return true;
+  if (right.length >= 3 && left.startsWith(right)) return true;
+  return false;
+}
+
+function planningTokenSetsMatch(left, right) {
+  if (!left.length || !right.length) return false;
+  const everyLeft = left.every((token) => right.some((item) => planningTokensClose(token, item)));
+  const everyRight = right.every((token) => left.some((item) => planningTokensClose(token, item)));
+  return everyLeft && everyRight;
+}
+
+function normalizeCegidDigits(value) {
+  return String(value ?? "").replace(/\D/g, "").replace(/^0+/, "");
+}
+
+function matchPlanningProfileByMatricule(row, profiles) {
+  const cegid = normalizeCegidId(row.matricule);
+  const digits = normalizeCegidDigits(row.matricule);
+  if (!cegid && !digits) return null;
+  const hits = profiles.filter((profile) => {
+    const mat = normalizeCegidId(profile.matricule);
+    if (cegid && mat && mat === cegid) return true;
+    const profileDigits = normalizeCegidDigits(profile.matricule);
+    return Boolean(digits && profileDigits && profileDigits === digits);
+  });
+  if (hits.length === 1) return hits[0];
+  if (hits.length > 1) {
+    const named = hits.filter((profile) => foldPlanningToken(profile.full_name) === foldPlanningToken(row.agent));
+    return named[0] || hits[0];
+  }
+  return null;
+}
+
+function matchPlanningProfileByName(row, profiles) {
+  const tokens = planningNameTokens(row.agent);
+  if (!tokens.length) return null;
+  const exact = profiles.filter((profile) => foldPlanningToken(profile.full_name) === foldPlanningToken(row.agent));
+  if (exact.length === 1) return exact[0];
+  const scored = profiles.map((profile) => {
+    const other = planningNameTokens(profile.full_name);
+    if (!other.length) return null;
+    if (planningTokenSetsMatch(tokens, other)) return { profile, score: 90 };
+    const lastName = tokens[0];
+    const given = tokens.slice(1);
+    const hasLast = other.some((token) => token === lastName);
+    const hasGiven = given.some((name) => other.some((token) => planningTokensClose(name, token)));
+    if (hasLast && hasGiven) return { profile, score: 70 };
+    return null;
+  }).filter(Boolean);
+  scored.sort((left, right) => right.score - left.score);
+  if (!scored.length) return null;
+  const best = scored.filter((item) => item.score === scored[0].score);
+  return best.length === 1 ? best[0].profile : null;
+}
+
+function matchPlanningProfile(row, profiles) {
+  return matchPlanningProfileByMatricule(row, profiles) || matchPlanningProfileByName(row, profiles);
+}
+
+function buildPlanningImportEntries(rawRows, profiles) {
+  const unmatched = [];
+  const grouped = new Map();
+  let skippedEmptyCegid = 0;
+  const fileHasCegid = rawRows.some((row) => Boolean(normalizeCegidId(row.matricule)));
+  rawRows.forEach((row) => {
+    const workDate = parseFrenchPlanningDate(row.date);
+    if (!workDate) return;
+    const cegid = normalizeCegidId(row.matricule);
+    let profile = null;
+    if (cegid) {
+      profile = matchPlanningProfileByMatricule(row, profiles);
+      if (!profile) profile = matchPlanningProfileByName(row, profiles);
+      if (!profile) {
+        unmatched.push(`${row.agent || "?"} · Cegid ${cegid}`);
+        return;
+      }
+    } else if (fileHasCegid) {
+      profile = matchPlanningProfileByName(row, profiles);
+      if (!profile) {
+        skippedEmptyCegid += 1;
+        return;
+      }
+    } else {
+      profile = matchPlanningProfileByName(row, profiles);
+      if (!profile) {
+        unmatched.push(row.agent || "?");
+        return;
+      }
+    }
+    const hours = planningHoursFromRow(row);
+    const kind = mapPlanningKind(row.value, row.location, row.holiday);
+    const key = `${profile.id}|${workDate}`;
+    const list = grouped.get(key) || [];
+    list.push({
+      user_id: profile.id,
+      work_date: workDate,
+      kind: hours <= 0 && kind === "PR" && !String(row.holiday || "").trim() ? "PR" : kind,
+      hours,
+      department: row.department || "",
+      structure: row.structure || "",
+      location: row.location || "",
+      note: [row.value, row.holiday].filter(Boolean).join(" · "),
+      source: "cegid",
+      matricule: cegid
+    });
+    grouped.set(key, list);
+  });
+  const entries = [];
+  grouped.forEach((list) => {
+    const slots = list.slice(0, 2);
+    slots.forEach((item, index) => {
+      entries.push({ ...item, slot: index + 1 });
+    });
+  });
+  entries.sort((a, b) => String(a.work_date).localeCompare(b.work_date) || String(a.user_id).localeCompare(b.user_id) || a.slot - b.slot);
+  return { entries, unmatched: [...new Set(unmatched)], skippedEmptyCegid };
+}
+
+function getPlanningEntries() {
+  return appData.planningEntries || [];
+}
+
+function planningSlotsByUserDay() {
+  const list = getPlanningEntries();
+  if (planningSlotsByUserDay.cacheRef === list) return planningSlotsByUserDay.cacheMap;
+  const map = new Map();
+  list.forEach((row) => {
+    const userId = row.user_id || row.userId;
+    const dayKey = String(row.work_date || row.workDate || "").slice(0, 10);
+    if (!userId || !dayKey) return;
+    const key = `${userId}|${dayKey}`;
+    const slots = map.get(key) || [];
+    slots.push({
+      slot: Number(row.slot) === 2 ? 2 : 1,
+      kind: String(row.kind || "PR").toUpperCase(),
+      hours: Number(row.hours || 0),
+      location: row.location || "",
+      note: row.note || "",
+      matricule: row.matricule || ""
+    });
+    map.set(key, slots);
+  });
+  planningSlotsByUserDay.cacheRef = list;
+  planningSlotsByUserDay.cacheMap = map;
+  return map;
+}
+
+function importedPlannedHours(userId, dayKey) {
+  const slots = planningSlotsByUserDay().get(`${userId}|${dayKey}`);
+  if (!slots) return null;
+  return slots.reduce((total, item) => total + Number(item.hours || 0), 0);
+}
+
+function planningEntriesRange() {
+  const month = planningMonthRange();
+  let start = month.start;
+  let end = month.end;
+  const eds = getEdsRange();
+  if (eds.start < start) start = eds.start;
+  if (eds.end > end) end = eds.end;
+  if (teamPunchFilters?.start && teamPunchFilters.start < start) start = teamPunchFilters.start;
+  if (teamPunchFilters?.end && teamPunchFilters.end > end) end = teamPunchFilters.end;
+  return { start, end };
+}
+
+async function loadPlanningEntries() {
+  if (!usesDatabase() || !session?.user) {
+    appData.planningEntries = appData.planningEntries || [];
+    return appData.planningEntries;
+  }
+  const range = planningEntriesRange();
+  const { data, error } = await supabaseClient
+    .from("planning_entries")
+    .select("id, user_id, work_date, slot, kind, hours, department, structure, location, note, source, matricule")
+    .gte("work_date", range.start)
+    .lte("work_date", range.end);
+  if (error) {
+    const message = String(error.message || "");
+    if (message.includes("does not exist") || message.includes("planning_entries")) {
+      appData.planningEntries = [];
+      return [];
+    }
+    throw error;
+  }
+  appData.planningEntries = data || [];
+  return appData.planningEntries;
+}
+
+function chunkPlanningEntries(list, size = 1500) {
+  const out = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
+async function parsePlanningFile(file) {
+  const name = String(file?.name || "").toLowerCase();
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
+  if (name.endsWith(".xls") && !isZip) {
+    throw new Error("Le .xls ancien n'est pas lu. Enregistrez le fichier en .xlsx ou .csv.");
+  }
+  if (isZip || name.endsWith(".xlsx")) return parsePlanningXlsx(buffer);
+  const text = new TextDecoder("utf-8").decode(bytes);
+  return parsePlanningCsvText(text);
+}
+
+async function importPlanningFromFile(file) {
+  const profiles = (appData.orgProfiles || []).filter(Boolean);
+  const pool = profiles.length ? profiles : getReportProfiles();
+  const rawRows = await parsePlanningFile(file);
+  if (!rawRows.length) throw new Error("Aucune ligne de planning n'a été lue.");
+  const { entries, unmatched, skippedEmptyCegid } = buildPlanningImportEntries(rawRows, pool);
+  if (!entries.length) {
+    throw new Error(unmatched.length
+      ? `Aucun agent reconnu : les ID CEGID (${unmatched[0].split(" · ").pop() || ""}) ne correspondent pas aux matricules Humana, et les noms du fichier ne matchent pas les fiches. Ex. : ${unmatched.slice(0, 3).join(" · ")}`
+      : "Aucun agent reconnu dans le fichier (les lignes sans ID CEGID sont ignorées).");
+  }
+  const dates = entries.map((row) => row.work_date).sort();
+  const replaceFrom = dates[0];
+  const replaceTo = dates[dates.length - 1];
+  const userIds = [...new Set(entries.map((row) => row.user_id))];
+  await savePlanningEntries(entries, { replaceFrom, replaceTo, userIds });
+  planningState.dept = "all";
+  const sample = unmatched.slice(0, 4).join(" · ");
+  const skipped = skippedEmptyCegid ? ` · ${skippedEmptyCegid} ligne${skippedEmptyCegid > 1 ? "s" : ""} sans ID CEGID ignorée${skippedEmptyCegid > 1 ? "s" : ""}` : "";
+  planningState.importNotice = `${entries.length} créneau${entries.length > 1 ? "x" : ""} importé${entries.length > 1 ? "s" : ""} · ${userIds.length} agent${userIds.length > 1 ? "s" : ""} · ID CEGID = matricule · heures prévues pour le calcul${skipped}${unmatched.length ? ` · ${unmatched.length} non reconnu${unmatched.length > 1 ? "s" : ""}${sample ? ` (${sample})` : ""}` : ""}.`;
+}
+
+function employeeNamesMatch(left, right) {
+  const a = [...planningNameTokens(left)].sort();
+  const b = [...planningNameTokens(right)].sort();
+  if (a.length < 2 || a.length !== b.length) return false;
+  return a.every((token, index) => token === b[index]);
+}
+
+function isPersonManagerName(value) {
+  const tokens = planningNameTokens(value);
+  if (tokens.length < 2) return false;
+  const folded = foldPlanningToken(value);
+  return !/^(oui|non|yes|no|n a|na|aucun|sans|x|manager|responsable)$/.test(folded);
+}
+
+function findProfileByEmployeeName(name, profiles) {
+  if (!isPersonManagerName(name) && !planningNameTokens(name).length) return null;
+  const hits = (profiles || []).filter((profile) => employeeNamesMatch(profile.full_name, name));
+  return hits.length === 1 ? hits[0] : null;
+}
+
+function mapEmployeeRole(profileLabel, job, bu) {
+  const text = foldPlanningToken([profileLabel, job, bu].join(" "));
+  if (/(directeur|direction|codir|dirigeant)/.test(text)) return { role: "manager", leave_grade: "codir" };
+  if (/(ops manager|operations manager|manager|responsable|chef de|head of)/.test(text)) return { role: "manager", leave_grade: "manager" };
+  return { role: "employee", leave_grade: "employee" };
+}
+
+function mapEmployeeShift(bu, subBu, job) {
+  const text = foldPlanningToken([bu, subBu, job].join(" "));
+  if (/(r d|r&d|\brnd\b|recherche)/.test(text)) return "rnd";
+  if (/\bces\b/.test(text)) return "ces";
+  return "cs";
+}
+
+function buildEmployeeImportRows(rawRows) {
+  const employees = [];
+  let skippedLeft = 0;
+  let skippedEmpty = 0;
+  rawRows.forEach((row) => {
+    const cegid = normalizeCegidId(row.cegid) || normalizeCegidId(row.cegidAlt);
+    const firstName = String(row.firstName || "").trim();
+    const lastName = String(row.lastName || "").trim();
+    const fullName = [firstName, lastName].filter(Boolean).join(" ").trim()
+      || [lastName, firstName].filter(Boolean).join(" ").trim();
+    if (!cegid && !fullName) {
+      skippedEmpty += 1;
+      return;
+    }
+    if (employeeHasLeft(row)) {
+      skippedLeft += 1;
+      return;
+    }
+    const ranks = mapEmployeeRole(row.profileLabel, row.job, row.bu);
+    const department = [row.bu, row.subBu].map((item) => String(item || "").trim()).filter(Boolean).join(" / ") || "General";
+    const managerName = isPersonManagerName(row.managerName) ? String(row.managerName).trim() : "";
+    employees.push({
+      matricule: cegid,
+      full_name: fullName || cegid,
+      email: String(row.email || "").trim().toLowerCase(),
+      job_title: String(row.job || row.profileLabel || "Collaborateur").trim() || "Collaborateur",
+      department,
+      role: ranks.role,
+      leave_grade: ranks.leave_grade,
+      shift_code: mapEmployeeShift(row.bu, row.subBu, row.job),
+      hired_at: parseHrDate(row.hiredAt) || "",
+      manager_matricule: normalizeCegidId(row.managerMatricule),
+      manager_name: managerName
+    });
+  });
+  const seen = new Set();
+  const unique = [];
+  employees.forEach((row) => {
+    const key = normalizeCegidDigits(row.matricule) || foldPlanningToken(row.full_name);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    unique.push(row);
+  });
+  const managerNames = unique.map((row) => row.manager_name).filter(Boolean);
+  unique.forEach((row) => {
+    if (row.role !== "employee") return;
+    if (managerNames.some((name) => employeeNamesMatch(row.full_name, name))) {
+      row.role = "manager";
+      row.leave_grade = "manager";
+    }
+  });
+  return { employees: unique, skippedLeft, skippedEmpty };
+}
+
+async function importEmployeesFromFile(file) {
+  if (!isAdmin() && !demoMode) throw new Error("Seul un administrateur peut importer les employés.");
+  const grid = await parseSpreadsheetGrid(file);
+  if (!grid.length) throw new Error("Aucune ligne n'a été lue.");
+  const headerKeys = mapEmployeeHeaders(grid[0] || []);
+  const rawRows = grid.slice(1).map((cells) => {
+    const row = {};
+    headerKeys.forEach((key, index) => {
+      if (!key) return;
+      const value = cells[index] == null ? "" : String(cells[index]).trim();
+      if (row[key] && !value) return;
+      row[key] = value;
+    });
+    return row;
+  });
+  const { employees, skippedLeft, skippedEmpty } = buildEmployeeImportRows(rawRows);
+  if (!employees.length) {
+    throw new Error("Aucun employé actif à importer. Vérifiez les colonnes Nom / PRENOM / Cegid ID, et les dates de départ.");
+  }
+  let created = 0;
+  let updated = 0;
+  let managersLinked = 0;
+  let total = 0;
+  if (demoMode || !usesDatabase()) {
+    const byMatricule = new Map((appData.orgProfiles || []).map((profile) => {
+      const digits = normalizeCegidDigits(profile.matricule);
+      return [digits || normalizeCegidId(profile.matricule), profile];
+    }));
+    employees.forEach((row) => {
+      const existing = (row.matricule && (byMatricule.get(normalizeCegidDigits(row.matricule)) || byMatricule.get(row.matricule)))
+        || findProfileByEmployeeName(row.full_name, appData.orgProfiles);
+      if (existing) {
+        Object.assign(existing, {
+          full_name: row.full_name || existing.full_name,
+          job_title: row.job_title,
+          department: row.department,
+          matricule: row.matricule || existing.matricule,
+          shift_code: row.shift_code,
+          leave_grade: row.leave_grade,
+          hired_at: row.hired_at || existing.hired_at,
+          role: existing.role === "creator" || existing.role === "admin" ? existing.role : row.role
+        });
+        updated += 1;
+      } else {
+        const profile = {
+          id: `import-${row.matricule || Date.now()}-${created}`,
+          email: row.email || "",
+          full_name: row.full_name,
+          job_title: row.job_title,
+          department: row.department,
+          role: row.role,
+          manager_id: "",
+          matricule: row.matricule,
+          shift_code: row.shift_code,
+          leave_grade: row.leave_grade,
+          hired_at: row.hired_at
+        };
+        appData.orgProfiles.push(profile);
+        byMatricule.set(normalizeCegidDigits(row.matricule) || row.matricule, profile);
+        created += 1;
+      }
+    });
+    employees.forEach((row) => {
+      if (!row.manager_matricule && !row.manager_name) return;
+      const profile = (appData.orgProfiles || []).find((item) => (
+        (row.matricule && (normalizeCegidDigits(item.matricule) === normalizeCegidDigits(row.matricule) || normalizeCegidId(item.matricule) === row.matricule))
+        || employeeNamesMatch(item.full_name, row.full_name)
+      ));
+      const manager = (appData.orgProfiles || []).find((item) => (
+        (row.manager_matricule && (normalizeCegidDigits(item.matricule) === normalizeCegidDigits(row.manager_matricule) || normalizeCegidId(item.matricule) === row.manager_matricule))
+        || (row.manager_name && employeeNamesMatch(item.full_name, row.manager_name))
+      ));
+      if (profile && manager && manager.id !== profile.id) {
+        profile.manager_id = manager.id;
+        if (manager.role === "employee") {
+          manager.role = "manager";
+          manager.leave_grade = manager.leave_grade === "codir" ? "codir" : "manager";
+        }
+        managersLinked += 1;
+      }
+    });
+  } else {
+    const chunks = chunkPlanningEntries(employees, 400);
+    for (const chunk of chunks) {
+      const { data, error } = await supabaseClient.rpc("import_employees", { employees: chunk });
+      if (error) throw error;
+      if (data && data.error) throw new Error(data.error.message || "Import employés refusé.");
+      created += Number(data?.created || 0);
+      updated += Number(data?.updated || 0);
+      managersLinked += Number(data?.managersLinked || data?.managers_linked || 0);
+      total = Number(data?.total || 0) || total;
+    }
+    dataStamp.org = 0;
+    dataStamp.orgFull = 0;
+    await loadOrgProfilesFull();
+  }
+  const visible = (appData.orgProfiles || []).length;
+  appData.employeeImportNotice = `${employees.length} actif${employees.length > 1 ? "s" : ""} importé${employees.length > 1 ? "s" : ""} · ${created} créé${created > 1 ? "s" : ""} · ${updated} mis à jour · ${visible} fiches visibles${total ? ` · ${total} en base` : ""} · Cegid ID = matricule${skippedLeft ? ` · ${skippedLeft} Inactif/départ ignoré${skippedLeft > 1 ? "s" : ""}` : ""}${skippedEmpty ? ` · ${skippedEmpty} ligne${skippedEmpty > 1 ? "s" : ""} vide${skippedEmpty > 1 ? "s" : ""}` : ""}.`;
+}
 
 function getPlanningCursor() {
   if (planningState.cursor instanceof Date && !Number.isNaN(planningState.cursor.getTime())) {
@@ -5702,7 +6978,7 @@ function planningDeptOf(profile) {
 
 function getPlanningProfiles(dept = planningState.dept) {
   return getReportProfiles()
-    .filter((profile) => planningDeptOf(profile) === dept)
+    .filter((profile) => dept === "all" || planningDeptOf(profile) === dept)
     .sort((a, b) => (a.full_name || "").localeCompare(b.full_name || "", "fr"));
 }
 
@@ -5757,16 +7033,31 @@ function buildPlanningModel() {
     unjustified: new Set()
   };
 
+  const imported = planningSlotsByUserDay();
   const rows = profiles.map((profile) => {
     const cells = {};
     days.forEach((dayKey) => {
-      const working = isWorkingDayKey(dayKey);
+      const slots = imported.get(`${profile.id}|${dayKey}`);
+      const plannedHours = slots
+        ? slots.reduce((total, item) => total + Number(item.hours || 0), 0)
+        : null;
+      const working = plannedHours == null ? isWorkingDayKey(dayKey) : plannedHours > 0;
       const dayRow = daily.find((row) => row.userId === profile.id && row.dayKey === dayKey);
       const dayLeaves = leaves.filter((item) => (
         (item.userId || item.user_id) === profile.id && leaveCoversPlanningDay(item, dayKey)
       ));
       const codes = [];
       const notes = [];
+      if (slots) {
+        slots.forEach((item) => {
+          if (!item.kind) return;
+          if (plannedHours <= 0 && item.kind === "PR") return;
+          codes.push(item.kind);
+        });
+        notes.push(`Prévu ${plannedHours}h`);
+        const cegid = slots.map((item) => item.matricule).find(Boolean);
+        if (cegid) notes.push(`Cegid ${cegid}`);
+      }
       dayLeaves.forEach((item) => {
         const code = planningLeaveCode(item.type);
         if (code) {
@@ -5782,16 +7073,16 @@ function buildPlanningModel() {
         if (loc === "remote") {
           codes.push("TT");
           gapAgents.telework.add(profile.id);
-        } else if (!dayLeaves.length) {
-          codes.push("PR");
+        } else if (!dayLeaves.length && !(slots && plannedHours > 0 && slots.some((item) => item.kind === "PR"))) {
+          if (working) codes.push("PR");
         }
-        if (!flexible && stats.delayMin > 0) {
+        if (!flexible && working && stats.delayMin > 0) {
           codes.push("RE");
           notes.push(`Retard ${stats.delayMin} min`);
           logs.push({ dayKey, name: profile.full_name, kind: "RE", detail: `${stats.delayMin} min`, source: "pointage" });
           gapAgents.delay.add(profile.id);
         }
-        if (!flexible) {
+        if (!flexible && working) {
           const early = earlyLeaveMinutes(dayRow, profile);
           if (early > 0) {
             codes.push("DP");
@@ -5800,20 +7091,24 @@ function buildPlanningModel() {
             gapAgents.early.add(profile.id);
           }
         }
-        if (flexible && stats.realizedMs > 0 && stats.realizedMs < 8 * 3600000) {
+        const targetMs = stats.plannedMs || 8 * 3600000;
+        if (flexible && working && stats.realizedMs > 0 && stats.realizedMs < targetMs) {
           codes.push("EC");
-          notes.push(`${formatDuration(stats.realizedMs)} / 8h`);
-          logs.push({ dayKey, name: profile.full_name, kind: "EC", detail: `${formatDuration(stats.realizedMs)} / 8h`, source: "pointage" });
+          notes.push(`${formatDuration(stats.realizedMs)} / ${formatDuration(targetMs)}`);
+          logs.push({ dayKey, name: profile.full_name, kind: "EC", detail: `${formatDuration(stats.realizedMs)} / ${formatDuration(targetMs)}`, source: "pointage" });
           gapAgents.hours.add(profile.id);
         }
       } else if (working && !dayLeaves.length) {
-        codes.push("AB");
         notes.push("Non pointé");
         logs.push({ dayKey, name: profile.full_name, kind: "AB", detail: "Jour ouvré sans pointage ni demande", source: "écart" });
         gapAgents.missing.add(profile.id);
+        const planned = slots && plannedHours > 0;
+        if (!planned) codes.push("AB");
       }
+      const uniqueCodes = [...new Set(codes)];
+      const plannedPresence = uniqueCodes.some((code) => code === "PR" || code === "TT" || code === "FER" || code === "DE");
       cells[dayKey] = {
-        codes: [...new Set(codes)],
+        codes: plannedPresence ? uniqueCodes.filter((code) => code !== "AB") : uniqueCodes,
         title: notes.join(" · "),
         off: !working
       };
@@ -5826,6 +7121,284 @@ function buildPlanningModel() {
 }
 
 /* planningPage() moved to pages/planning.js */
+
+function planningAssignScopeLists() {
+  const profiles = getPlanningProfiles("all");
+  const departments = [...new Set(profiles.map((profile) => String(profile.department || "").trim()).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, "fr"));
+  const reportIds = new Set(profiles.map((profile) => profile.manager_id).filter(Boolean));
+  const managers = profiles
+    .filter((profile) => reportIds.has(profile.id))
+    .sort((left, right) => String(left.full_name || "").localeCompare(String(right.full_name || ""), "fr"));
+  return { departments, managers };
+}
+
+function resolvePlanningAssignProfiles(data) {
+  const all = getPlanningProfiles("all");
+  const scope = String(data.get("scope") || "shift");
+  const value = String(data.get("scope_value") || "");
+  if (scope === "shift") {
+    if (!value || value === "all") return all;
+    return all.filter((profile) => planningDeptOf(profile) === value);
+  }
+  if (scope === "department") {
+    return all.filter((profile) => String(profile.department || "") === value);
+  }
+  if (scope === "manager") {
+    return all.filter((profile) => profile.manager_id === value);
+  }
+  return all;
+}
+
+function planningAssignWorkDates(start, end, mode) {
+  const from = parseLocalDate(start);
+  const to = parseLocalDate(end);
+  const dates = [];
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to < from) return dates;
+  const cursor = new Date(from);
+  while (cursor <= to) {
+    const key = toDateKey(cursor);
+    const weekday = cursor.getDay();
+    if (mode === "all" || (weekday >= 1 && weekday <= 5)) dates.push(key);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+
+function buildMassPlanningEntries(profiles, options) {
+  const allowed = Object.fromEntries(PLANNING_CODES.map((item) => [item.code, true]));
+  const kind = allowed[String(options.kind || "PR").toUpperCase()] ? String(options.kind).toUpperCase() : "PR";
+  const hours = Math.max(0, Math.min(12, Number(options.hours || 0)));
+  const split = options.split === "half" && hours > 0;
+  const slotHours = split ? Math.round((hours / 2) * 100) / 100 : hours;
+  const entries = [];
+  profiles.forEach((profile) => {
+    options.dates.forEach((workDate) => {
+      const base = {
+        user_id: profile.id,
+        work_date: workDate,
+        kind,
+        hours: slotHours,
+        department: profile.department || "",
+        structure: "",
+        location: kind === "TT" ? "Télétravail" : "",
+        note: "Affectation masse",
+        source: "assign",
+        matricule: profile.matricule || ""
+      };
+      if (split) {
+        entries.push({ ...base, slot: 1 });
+        entries.push({ ...base, slot: 2 });
+      } else {
+        entries.push({ ...base, slot: 1, hours });
+      }
+    });
+  });
+  return entries;
+}
+
+async function savePlanningEntries(entries, { replaceFrom, replaceTo, userIds }) {
+  const ids = [...new Set((userIds || []).filter(Boolean))];
+  if (demoMode || !usesDatabase()) {
+    appData.planningEntries = [
+      ...getPlanningEntries().filter((row) => {
+        const day = String(row.work_date || "").slice(0, 10);
+        const uid = row.user_id || row.userId;
+        return !(ids.includes(uid) && day >= replaceFrom && day <= replaceTo);
+      }),
+      ...entries.map((row, index) => ({ ...row, id: `local-pl-${Date.now()}-${index}` }))
+    ];
+    return { imported: entries.length };
+  }
+  if (!entries.length) {
+    const { data, error } = await supabaseClient.rpc("import_planning_entries", {
+      entries: [],
+      replace_from: replaceFrom,
+      replace_to: replaceTo,
+      replace_user_ids: ids
+    });
+    if (error) throw error;
+    if (data && data.error) throw new Error(data.error.message || "Affectation planning refusée.");
+    dataStamp.planningEntries = 0;
+    await loadPlanningEntries();
+    return { imported: 0 };
+  }
+  const chunks = chunkPlanningEntries(entries, 1500);
+  for (let i = 0; i < chunks.length; i += 1) {
+    const { data, error } = await supabaseClient.rpc("import_planning_entries", {
+      entries: chunks[i],
+      replace_from: replaceFrom,
+      replace_to: replaceTo,
+      replace_user_ids: i === 0 ? ids : []
+    });
+    if (error) throw error;
+    if (data && data.error) throw new Error(data.error.message || "Affectation planning refusée.");
+  }
+  dataStamp.planningEntries = 0;
+  await loadPlanningEntries();
+  return { imported: entries.length };
+}
+
+async function applyMassShiftCode(profiles, shiftCode) {
+  if (!shiftCode || !["cs", "ces", "rnd"].includes(shiftCode)) return 0;
+  let count = 0;
+  const pending = [];
+  profiles.forEach((profile) => {
+    if (profile.shift_code === shiftCode) return;
+    profile.shift_code = shiftCode;
+    count += 1;
+    if (!demoMode && usesDatabase()) {
+      pending.push(supabaseClient.from("profiles").update({ shift_code: shiftCode }).eq("id", profile.id));
+    }
+  });
+  for (let i = 0; i < pending.length; i += 15) {
+    const batch = await Promise.all(pending.slice(i, i + 15));
+    const failed = batch.find((item) => item.error);
+    if (failed?.error) throw failed.error;
+  }
+  return count;
+}
+
+async function applyMassPlanning(formOrData) {
+  if (!canImportPlanning()) throw new Error("Seul un manager ou un administrateur peut affecter un planning.");
+  const data = formOrData instanceof FormData ? formOrData : new FormData(formOrData);
+  const start = String(data.get("start") || "");
+  const end = String(data.get("end") || "");
+  const kind = String(data.get("kind") || "PR");
+  const daysMode = String(data.get("days") || "week");
+  const profiles = resolvePlanningAssignProfiles(data);
+  if (!profiles.length) throw new Error("Aucun agent dans ce périmètre.");
+  if (!start || !end) throw new Error("Indiquez une période.");
+  if (parseLocalDate(end) < parseLocalDate(start)) throw new Error("La date de fin doit être après la date de début.");
+  const span = Math.round((parseLocalDate(end) - parseLocalDate(start)) / 86400000) + 1;
+  if (span > 62) throw new Error("Période trop longue (max 62 jours).");
+  const dates = kind === "clear" ? [] : planningAssignWorkDates(start, end, daysMode);
+  if (kind !== "clear" && !dates.length) throw new Error("Aucun jour dans cette période.");
+  const userIds = profiles.map((profile) => profile.id);
+  const entries = kind === "clear"
+    ? []
+    : buildMassPlanningEntries(profiles, {
+      dates,
+      kind,
+      hours: data.get("hours"),
+      split: data.get("split")
+    });
+  await savePlanningEntries(entries, { replaceFrom: start, replaceTo: end, userIds });
+  const shifted = await applyMassShiftCode(profiles, String(data.get("shift_code") || ""));
+  planningState.dept = "all";
+  const agents = `${profiles.length} agent${profiles.length > 1 ? "s" : ""}`;
+  if (kind === "clear") {
+    planningState.importNotice = `Planning effacé pour ${agents} du ${start} au ${end}.`;
+    return;
+  }
+  planningState.importNotice = `${entries.length} créneau${entries.length > 1 ? "x" : ""} affecté${entries.length > 1 ? "s" : ""} · ${agents} · ${dates.length} jour${dates.length > 1 ? "s" : ""} · ${kind}${shifted ? ` · vacation mise à jour (${shifted})` : ""}.`;
+}
+
+function planningAssignPreviewText(formOrData) {
+  if (!formOrData) return "";
+  const data = formOrData instanceof FormData ? formOrData : new FormData(formOrData);
+  const profiles = resolvePlanningAssignProfiles(data);
+  const start = String(data.get("start") || "");
+  const end = String(data.get("end") || "");
+  const kind = String(data.get("kind") || "PR");
+  if (kind === "clear") {
+    return `${profiles.length} agent${profiles.length > 1 ? "s" : ""} · le planning sera effacé sur la période.`;
+  }
+  const dates = planningAssignWorkDates(start, end, String(data.get("days") || "week"));
+  const split = data.get("split") === "half" ? 2 : 1;
+  return `${profiles.length} agent${profiles.length > 1 ? "s" : ""} · ${dates.length} jour${dates.length > 1 ? "s" : ""} · ${profiles.length * dates.length * split} créneaux.`;
+}
+
+function renderPlanningAssignPanel() {
+  if (!canImportPlanning()) return "";
+  const month = planningMonthRange();
+  const assign = planningState._assignDraft || {};
+  const scope = assign.scope || "shift";
+  const lists = planningAssignScopeLists();
+  const scopeValue = assign.scopeValue || (scope === "shift" ? "cs" : "");
+  let valueOptions = "";
+  if (scope === "shift") {
+    valueOptions = PLANNING_DEPTS.map((item) => `<option value="${item.id}"${item.id === scopeValue ? " selected" : ""}>${escapeHtml(item.label)}</option>`).join("");
+  } else if (scope === "department") {
+    valueOptions = lists.departments.length
+      ? lists.departments.map((item) => `<option value="${escapeHtml(item)}"${item === scopeValue ? " selected" : ""}>${escapeHtml(item)}</option>`).join("")
+      : `<option value="">Aucune équipe</option>`;
+  } else {
+    valueOptions = lists.managers.length
+      ? lists.managers.map((item) => `<option value="${item.id}"${item.id === scopeValue ? " selected" : ""}>${escapeHtml(item.full_name)}</option>`).join("")
+      : `<option value="">Aucun manager</option>`;
+  }
+  return `
+    <details class="planning-assign"${planningState.assignOpen ? " open" : ""}>
+      <summary>Affecter un planning (masse / équipe)</summary>
+      <form id="planning-assign-form" class="feature-form planning-assign-form">
+        <div class="form-row">
+          <label>
+            Périmètre
+            <select name="scope" id="planning-assign-scope">
+              <option value="shift"${scope === "shift" ? " selected" : ""}>Vacation (CS / CES / R&amp;D)</option>
+              <option value="department"${scope === "department" ? " selected" : ""}>Équipe (département)</option>
+              <option value="manager"${scope === "manager" ? " selected" : ""}>Équipe d'un manager</option>
+            </select>
+          </label>
+          <label>
+            Cible
+            <select name="scope_value" id="planning-assign-value">${valueOptions}</select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>
+            Du
+            <input type="date" name="start" value="${escapeHtml(assign.start || month.start)}" required>
+          </label>
+          <label>
+            Au
+            <input type="date" name="end" value="${escapeHtml(assign.end || month.end)}" required>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>
+            Jours
+            <select name="days">
+              <option value="week"${(assign.days || "week") === "week" ? " selected" : ""}>Lundi → vendredi</option>
+              <option value="all"${assign.days === "all" ? " selected" : ""}>Tous les jours</option>
+            </select>
+          </label>
+          <label>
+            Type
+            <select name="kind">
+              ${PLANNING_CODES.map((item) => `<option value="${item.code}"${(assign.kind || "PR") === item.code ? " selected" : ""}>${item.code} · ${escapeHtml(item.label)}</option>`).join("")}
+              <option value="clear"${assign.kind === "clear" ? " selected" : ""}>Effacer le planning</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>
+            Heures / jour
+            <input type="number" name="hours" min="0" max="12" step="0.5" value="${escapeHtml(String(assign.hours ?? 8))}">
+          </label>
+          <label>
+            Découpage
+            <select name="split">
+              <option value="one"${assign.split === "one" ? " selected" : ""}>Journée (1 créneau)</option>
+              <option value="half"${(assign.split || "half") === "half" ? " selected" : ""}>2 × demi-journée</option>
+            </select>
+          </label>
+        </div>
+        <label>
+          Vacation à appliquer (optionnel)
+          <select name="shift_code">
+            <option value="">Inchangée</option>
+            <option value="cs"${assign.shiftCode === "cs" ? " selected" : ""}>CS · 08h–17h</option>
+            <option value="ces"${assign.shiftCode === "ces" ? " selected" : ""}>CES · 08h–17h</option>
+            <option value="rnd"${assign.shiftCode === "rnd" ? " selected" : ""}>R&amp;D · horaire souple</option>
+          </select>
+        </label>
+        <p class="hierarchy-meta" id="planning-assign-preview"></p>
+        <button type="submit" class="primary">Appliquer à l'équipe</button>
+      </form>
+    </details>`;
+}
 
 function renderPlanningGrid(model) {
   if (!model.profiles.length) {
@@ -5852,7 +7425,7 @@ function renderPlanningGrid(model) {
                 <th class="planning-name">${escapeHtml(row.profile.full_name)}<small>${escapeHtml(row.profile.matricule || "")}</small></th>
                 ${model.days.map((day) => {
                   const cell = row.cells[day];
-                  const codes = cell.codes.length ? cell.codes.join(" ") : "";
+                  const codes = cell.codes.length ? cell.codes.join("/") : "";
                   const cls = [cell.off ? "is-off" : "", cell.codes[0] ? `pl-cell--${cell.codes[0]}` : ""].filter(Boolean).join(" ");
                   return `<td class="${cls}" title="${escapeHtml(cell.title || codes)}">${escapeHtml(codes)}</td>`;
                 }).join("")}
@@ -6434,13 +8007,13 @@ async function ensureProfile() {
     ) {
       appData.profile = existing;
     } else {
-      const { data, error } = await supabaseClient
-        .from("profiles")
-        .upsert(payload, { onConflict: "id" })
-        .select()
-        .single();
-      if (error) throw error;
-      appData.profile = data;
+    const { data, error } = await supabaseClient
+      .from("profiles")
+      .upsert(payload, { onConflict: "id" })
+      .select()
+      .single();
+    if (error) throw error;
+    appData.profile = data;
     }
     if (window.__humanaInviteApplied) return;
     const { error: inviteError } = await supabaseClient.rpc("apply_pending_invite", {
@@ -6482,8 +8055,8 @@ async function fetchOrgDirectoryRows() {
 }
 
 const PAGE_COLLECTIONS = {
-  home: ["punches", "events", "hrAlerts"],
-  pointeuse: ["punches", "gta"],
+  home: ["punches", "events", "hrAlerts", "planningEntries"],
+  pointeuse: ["punches", "gta", "planningEntries"],
   leave: ["leave", "teamLeave"],
   attestations: ["attestations", "documents"],
   events: ["events"],
@@ -6491,10 +8064,10 @@ const PAGE_COLLECTIONS = {
   admin: ["orgFull", "invites"],
   creator: ["settings"],
   journal: ["org", "journal"],
-  "team-punches": ["org", "teamPunches"],
-  reports: ["org", "leave", "teamPunches"],
-  global: ["org", "teamPunches"],
-  planning: ["org", "teamPunches"]
+  "team-punches": ["org", "teamPunches", "gta", "planningEntries"],
+  reports: ["org", "leave", "teamPunches", "planningEntries"],
+  global: ["org", "teamPunches", "planningEntries"],
+  planning: ["org", "teamPunches", "planningEntries"]
 };
 
 function cacheFresh(key, ttl = DATA_TTL_MS) {
@@ -6550,7 +8123,7 @@ async function loadOwnPunches() {
     .eq("user_id", userId)
     .order("punched_at", { ascending: true });
   if (punchesRes.error) throw punchesRes.error;
-  appData.punches = punchesRes.data || [];
+    appData.punches = punchesRes.data || [];
 }
 
 async function loadOwnLeave() {
@@ -6561,7 +8134,7 @@ async function loadOwnLeave() {
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
   if (leaveRes.error) throw leaveRes.error;
-  appData.leaveRequests = leaveRes.data || [];
+    appData.leaveRequests = leaveRes.data || [];
 }
 
 async function loadOwnAttestations() {
@@ -6573,22 +8146,22 @@ async function loadOwnAttestations() {
     .order("created_at", { ascending: false });
   if (attestationRes.error) throw attestationRes.error;
   appData.attestationRequests = attestationRes.data || [];
-  const advanceRes = await supabaseClient
-    .from("salary_advance_requests")
-    .select("*")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false });
-  if (advanceRes.error) {
-    const message = `${advanceRes.error.message || ""} ${advanceRes.error.details || ""}`.toLowerCase();
-    if (message.includes("salary_advance") || message.includes("does not exist") || message.includes("schema cache") || message.includes("relation")) {
-      appData.salaryAdvanceRequests = [];
-      appData.salaryAdvanceTableMissing = true;
+    const advanceRes = await supabaseClient
+      .from("salary_advance_requests")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+    if (advanceRes.error) {
+      const message = `${advanceRes.error.message || ""} ${advanceRes.error.details || ""}`.toLowerCase();
+      if (message.includes("salary_advance") || message.includes("does not exist") || message.includes("schema cache") || message.includes("relation")) {
+        appData.salaryAdvanceRequests = [];
+        appData.salaryAdvanceTableMissing = true;
+      } else {
+        throw advanceRes.error;
+      }
     } else {
-      throw advanceRes.error;
-    }
-  } else {
-    appData.salaryAdvanceRequests = advanceRes.data || [];
-    appData.salaryAdvanceTableMissing = false;
+      appData.salaryAdvanceRequests = advanceRes.data || [];
+      appData.salaryAdvanceTableMissing = false;
   }
 }
 
@@ -6598,7 +8171,7 @@ async function loadOrgDirectory() {
 }
 
 async function loadOrgProfilesFull() {
-  const directoryRows = appData.orgProfiles.length ? appData.orgProfiles : await fetchOrgDirectoryRows();
+  const directoryRows = await fetchOrgDirectoryRows();
   const profilesRes = await supabaseClient.from("profiles").select("*").order("full_name");
   if (profilesRes.error) throw profilesRes.error;
   appData.orgProfiles = mergeOrgProfiles(directoryRows, profilesRes.data || []);
@@ -6609,24 +8182,24 @@ async function loadPendingInvites() {
     appData.pendingInvites = [];
     return;
   }
-  const invitesRes = await withTimeout(
-    supabaseClient.from("pending_invites").select("*").order("created_at", { ascending: false }),
-    8000,
-    "Chargement des invitations"
-  );
+      const invitesRes = await withTimeout(
+        supabaseClient.from("pending_invites").select("*").order("created_at", { ascending: false }),
+        8000,
+        "Chargement des invitations"
+      );
   if (!invitesRes.error) appData.pendingInvites = invitesRes.data || [];
-}
+    }
 
 async function loadDocumentsAndPayslips() {
   const userId = session.user.id;
-  const [docsRes, payslipsRes] = await Promise.all([
-    supabaseClient.from("hr_documents").select("*").order("published_at", { ascending: false }),
-    supabaseClient.from("payslips").select("*").eq("user_id", userId)
-      .order("period_year", { ascending: false })
-      .order("period_month", { ascending: false })
-  ]);
-  if (!docsRes.error) appData.hrDocuments = docsRes.data || [];
-  if (!payslipsRes.error) appData.payslips = payslipsRes.data || [];
+    const [docsRes, payslipsRes] = await Promise.all([
+      supabaseClient.from("hr_documents").select("*").order("published_at", { ascending: false }),
+      supabaseClient.from("payslips").select("*").eq("user_id", userId)
+        .order("period_year", { ascending: false })
+        .order("period_month", { ascending: false })
+    ]);
+    if (!docsRes.error) appData.hrDocuments = docsRes.data || [];
+    if (!payslipsRes.error) appData.payslips = payslipsRes.data || [];
 }
 
 async function loadCollection(key, { force = false } = {}) {
@@ -6690,7 +8263,7 @@ async function loadCollection(key, { force = false } = {}) {
       if (canViewTeamPunches()) {
         await loadTeamPunches();
         teamPunchesInitialLoadDone = true;
-      } else {
+    } else {
         appData.teamPunches = [];
       }
       break;
@@ -6698,9 +8271,12 @@ async function loadCollection(key, { force = false } = {}) {
       if (canViewJournal()) {
         await loadJournalPunches();
         journalPunchesInitialLoadDone = true;
-      } else {
+    } else {
         appData.journalPunches = [];
       }
+      break;
+    case "planningEntries":
+      await loadPlanningEntries();
       break;
     default:
       return;
@@ -7185,11 +8761,15 @@ function approvedOvertimeHours(userId, dayKey) {
 function analyzeWorkedDay(row, profile) {
   const dayKey = row.dayKey;
   const shift = getActiveShift(profile, dayKey);
-  const plannedMs = shift.plannedHours * 3600000;
+  const importedHours = importedPlannedHours(profile?.id || row.userId, dayKey);
+  const plannedHours = importedHours == null
+    ? (isWorkingDayKey(dayKey) ? shift.plannedHours : 0)
+    : importedHours;
+  const plannedMs = plannedHours * 3600000;
   const realizedMs = row.workedMs || 0;
-  const startMin = row.startTime ? new Date(row.startTime).getHours() * 60 + new Date(row.startTime).getMinutes() : null;
+  const startMin = row.startTime ? Math.floor(companyMinutesOfDay(row.startTime)) : null;
   const lateAfter = minutesFromHhmm(shift.lateAfter);
-  const delayMin = startMin == null ? 0 : Math.max(0, startMin - lateAfter);
+  const delayMin = plannedMs <= 0 || startMin == null ? 0 : Math.max(0, startMin - lateAfter);
   const missingMs = Math.max(0, plannedMs - realizedMs);
   const extraMs = Math.max(0, realizedMs - plannedMs);
   const otApproved = approvedOvertimeHours(row.userId, dayKey) * 3600000;
@@ -7655,15 +9235,23 @@ function bindPageEvents() {
           payload.reviewed_by = reviewer.reviewed_by;
           payload.reviewed_at = reviewer.reviewed_at;
         }
+        if (kind === "corrections" && !refuse) {
+          const item = getPunchCorrections().find((row) => String(row.id) === String(itemId));
+          if (item) await applyApprovedPunchCorrection(item);
+        }
         await updateWithOptionalFields(meta.table, payload, "id", itemId, PUNCH_CORRECTION_FIELDS);
       } else {
+        if (kind === "corrections" && !refuse) {
+          const item = getPunchCorrections().find((row) => String(row.id) === String(itemId));
+          if (item) await applyApprovedPunchCorrection(item);
+        }
         saveGtaStore(meta.store, loadStore(meta.store, []).map((item) => (
           String(item.id) === String(itemId)
             ? { ...item, status, ...(kind === "corrections" ? reviewer : {}) }
             : item
         )));
       }
-      currentPage = currentPage === "reports" ? "reports" : "pointeuse";
+      if (currentPage !== "team-punches" && currentPage !== "reports") currentPage = "pointeuse";
     });
   };
 
@@ -7872,9 +9460,88 @@ function bindPageEvents() {
       renderApp();
     }
   });
+  const assignForm = document.querySelector("#planning-assign-form");
+  const snapshotAssign = () => {
+    if (!assignForm) return;
+    const data = new FormData(assignForm);
+    planningState._assignDraft = {
+      scope: String(data.get("scope") || "shift"),
+      scopeValue: String(data.get("scope_value") || ""),
+      start: String(data.get("start") || ""),
+      end: String(data.get("end") || ""),
+      kind: String(data.get("kind") || "PR"),
+      hours: data.get("hours"),
+      split: String(data.get("split") || "half"),
+      days: String(data.get("days") || "week"),
+      shiftCode: String(data.get("shift_code") || "")
+    };
+  };
+  const refreshAssignPreview = () => {
+    const preview = document.querySelector("#planning-assign-preview");
+    if (preview && assignForm) preview.textContent = planningAssignPreviewText(assignForm);
+  };
+  document.querySelector(".planning-assign")?.addEventListener("toggle", (event) => {
+    planningState.assignOpen = event.currentTarget.open;
+  });
+  document.querySelector("#planning-assign-scope")?.addEventListener("change", () => {
+    snapshotAssign();
+    planningState._assignDraft.scopeValue = "";
+    planningState.assignOpen = true;
+    renderApp();
+  });
+  assignForm?.addEventListener("input", refreshAssignPreview);
+  assignForm?.addEventListener("change", refreshAssignPreview);
+  assignForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    snapshotAssign();
+    planningState.assignOpen = true;
+    const payload = new FormData(event.currentTarget);
+    (async () => {
+      appData.loading = true;
+      appData.error = "";
+      renderApp();
+      try {
+        await withTimeout(applyMassPlanning(payload), 180000, "Affectation planning");
+        if (usesDatabase()) await loadPageData(currentPage, { force: true });
+      } catch (error) {
+        appData.error = formatAppError(error);
+      } finally {
+        appData.loading = false;
+        renderApp();
+      }
+    })();
+  });
+  refreshAssignPreview();
+
+  document.querySelector("#planning-import")?.addEventListener("change", (event) => {
+    const input = event.currentTarget;
+    const file = input.files && input.files[0];
+    input.value = "";
+    if (!file) return;
+    (async () => {
+      appData.loading = true;
+      appData.error = "";
+      renderApp();
+      try {
+        await withTimeout(importPlanningFromFile(file), 60000, "Import planning");
+        if (usesDatabase()) await loadPageData(currentPage, { force: true });
+      } catch (error) {
+        appData.error = formatAppError(error);
+      } finally {
+        appData.loading = false;
+        renderApp();
+      }
+    })();
+  });
 
   document.querySelector("#team-punches-export")?.addEventListener("click", () => {
     exportTeamPunchesCsv();
+  });
+
+  document.querySelectorAll("[data-punch-rectify]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openPunchRectifyDialog(button.dataset.userId, button.dataset.dayKey);
+    });
   });
 
   const journalFilter = document.querySelector("#journal-filter");
@@ -8656,7 +10323,7 @@ async function initialize() {
         if (mpaMode) {
           window.location.href = loginHref();
         } else {
-          renderLogin();
+        renderLogin();
         }
       }
     });
@@ -8720,6 +10387,7 @@ function hydrateDemoWorkspace() {
   appData.studioCreators = normalizeStudioCreators(loadStore("studioCreators", [session.user.email]));
   appData.companyTimezone = loadStore("companyTimezone", "GMT+1") === "GMT" ? "GMT" : "GMT+1";
   appData.shiftHours = normalizeShiftHours(loadStore("shiftHours", defaultShiftHours()));
+  appData.planningEntries = [];
   const punches = [];
   profiles.forEach((profile, index) => {
     for (let daysAgo = 2; daysAgo >= 0; daysAgo -= 1) {
@@ -8820,5 +10488,5 @@ window.humanaStartDemo = function () {
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", initialize, { once: true });
 } else {
-  initialize();
+initialize();
 }

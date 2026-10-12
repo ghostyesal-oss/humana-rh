@@ -41,6 +41,13 @@ function allowedOrigins() {
   add(process.env.APP_ORIGIN);
   add(process.env.HUMANA_DOMAIN);
   String(process.env.CORS_ORIGINS || "").split(/[,;]+/).forEach(add);
+  const host = String(process.env.HUMANA_DOMAIN || "")
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/$/, "");
+  if (host && !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) && !/^www\./i.test(host)) {
+    add(`https://${host}`);
+    add(`https://www.${host}`);
+  }
   return items;
 }
 
@@ -49,7 +56,7 @@ const origins = allowedOrigins();
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
 app.use(cookieParser());
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "8mb" }));
 app.use(cors({
   origin(origin, callback) {
     if (!origin) return callback(null, false);

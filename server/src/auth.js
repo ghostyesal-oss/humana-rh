@@ -163,6 +163,18 @@ export async function findProfileByEmail(email) {
   return rows[0] || null;
 }
 
+async function findImportedProfileStub(fullName) {
+  const name = String(fullName || "").trim();
+  if (!name) return null;
+  const { rows } = await adminQuery(
+    `select * from public.profiles
+     where (email is null or btrim(email) = '' or email ilike '%@import.humana.local')
+       and lower(btrim(full_name)) = lower(btrim($1))`,
+    [name]
+  );
+  return rows.length === 1 ? rows[0] : null;
+}
+
 export function requireAuth(req, res, next) {
   const payload = readToken(req);
   if (!payload?.sub) {
@@ -284,6 +296,13 @@ export async function finishMicrosoftLogin(req, res) {
     }
 
     let profile = await findProfileByEmail(email);
+    if (!profile && fullName) {
+      const stub = await findImportedProfileStub(fullName);
+      if (stub?.id) {
+        await adminQuery("update public.profiles set email = $1 where id = $2", [email, stub.id]);
+        profile = { ...stub, email };
+      }
+    }
     if (!profile) {
       let row = null;
       try {

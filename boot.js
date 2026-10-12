@@ -40,7 +40,7 @@
       return "Connexion Microsoft interrompue : reconnectez-vous depuis l'adresse de production " + getAuthRedirectTo() + ".";
     }
     if (message.indexOf("Unable to exchange external code") !== -1) {
-      return "Configuration Microsoft incorrecte. Vérifiez le secret Azure, l'URI de redirection Web https://votre-domaine/api/auth/microsoft/callback, et ENTRA_CLIENT_ID / ENTRA_CLIENT_SECRET sur le serveur.";
+      return "Configuration Microsoft incorrecte. Vérifiez le secret Azure, l'URI de redirection Web https://daylyx.com/api/auth/microsoft/callback, et ENTRA_CLIENT_ID / ENTRA_CLIENT_SECRET sur le serveur.";
     }
     if (message.indexOf("Error getting user email") !== -1 || message.indexOf("n'a pas transmis") !== -1) {
       return "Microsoft n'a pas transmis l'e-mail. Ajoutez les autorisations email/openid et User.Read dans Entra.";

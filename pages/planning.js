@@ -31,8 +31,16 @@
             <strong>${escapeHtml(monthLabel)}</strong>
             <button type="button" class="outline-button" id="planning-next">›</button>
           </div>
+          ${canImportPlanning() ? `
+          <label class="planning-import">
+            Importer Cegid
+            <input type="file" id="planning-import" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
+          </label>` : ""}
         </div>
       </div>
+      ${planningState.importNotice ? `<p class="planning-import-notice">${escapeHtml(planningState.importNotice)}</p>` : ""}
+      ${renderPlanningAssignPanel()}
+      <p class="planning-hint">${escapeHtml(PLANNING_DEPTS.find((item) => item.id === model.dept)?.hint || "")} Le planning importé (ID CEGID EMPLOYE = matricule) sert au calcul des heures prévues. Vous pouvez aussi affecter un planning par vacation, équipe ou manager.</p>
       ${planningState.tab === "log" ? renderPlanningLog(model)
         : planningState.tab === "gaps" ? renderPlanningGaps(model)
         : renderPlanningGrid(model)}`;
