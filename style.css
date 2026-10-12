@@ -237,6 +237,12 @@ html.auth-booting #app {
 
 /* Daylyx lockup (présentation + chargement) */
 
+@property --daylyx-arc-len {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
 .daylyx-lockup {
   --daylyx-ink: var(--text);
   --daylyx-arc-len: 1;
@@ -319,8 +325,7 @@ html.auth-booting #app {
   transform: scale(0);
 }
 
-.daylyx-intro-screen .daylyx-arc,
-.auth-boot-screen .daylyx-arc {
+.daylyx-intro-screen .daylyx-arc {
   stroke-dashoffset: var(--daylyx-arc-len);
 }
 
@@ -361,19 +366,24 @@ html.auth-booting #app {
 .daylyx-lockup.play .daylyx-letters span:nth-child(4) { animation-delay: 1.4s; }
 .daylyx-lockup.play .daylyx-letters span:nth-child(5) { animation-delay: 1.48s; }
 
-.daylyx-lockup.loop .daylyx-stem {
+.daylyx-lockup.loop .daylyx-stem,
+.auth-boot-screen .daylyx-lockup .daylyx-stem {
   opacity: 1;
   animation: none;
 }
 
-.daylyx-lockup.loop .daylyx-dot {
+.daylyx-lockup.loop .daylyx-dot,
+.auth-boot-screen .daylyx-lockup .daylyx-dot {
   opacity: 1;
   transform: none;
   animation: daylyx-pulse 1.8s ease-in-out infinite;
 }
 
-.daylyx-lockup.loop .daylyx-arc {
-  animation: daylyx-draw-loop 1.8s ease-in-out infinite;
+.daylyx-lockup.loop .daylyx-arc,
+.auth-boot-screen .daylyx-lockup .daylyx-arc {
+  animation: none;
+  stroke-dasharray: unset;
+  stroke-dashoffset: unset;
 }
 
 .daylyx-lockup.loop .daylyx-letters,
@@ -447,9 +457,9 @@ html.auth-booting #app {
 }
 
 @keyframes daylyx-draw-loop {
-  0% { stroke-dashoffset: var(--daylyx-arc-len); }
+  0% { stroke-dashoffset: 1; }
   46%, 72% { stroke-dashoffset: 0; }
-  100% { stroke-dashoffset: var(--daylyx-arc-len); }
+  100% { stroke-dashoffset: 1; }
 }
 
 @keyframes daylyx-pop {
@@ -501,17 +511,13 @@ html.daylyx-presenting #app {
   pointer-events: none;
 }
 
-.daylyx-splash-hint {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-tertiary);
+.auth-boot-screen .daylyx-splash-hint,
+.auth-boot-screen .daylyx-letters {
+  display: none !important;
 }
 
 .auth-boot-screen .daylyx-lockup {
-  font-size: clamp(64px, 10vw, 120px);
+  font-size: clamp(72px, 12vw, 128px);
 }
 
 .login-brand .daylyx-lockup {

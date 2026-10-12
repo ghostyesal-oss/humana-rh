@@ -4,7 +4,7 @@ COPY deploy/Caddyfile.selfhost /etc/caddy/Caddyfile
 COPY deploy/caddy-entrypoint.sh /entrypoint.sh
 COPY scripts/generate-config.mjs /opt/humana-config/generate-config.mjs
 COPY scripts/stamp-assets.mjs /opt/humana-config/stamp-assets.mjs
-COPY index.html app.js style.css sw.js boot.js preboot.js daylyx-mark.js humana-client.js animations.js manifest.webmanifest /srv/
+COPY index.html app.js style.css sw.js boot.js preboot.js daylyx-mark.js humana-client.js animations.js manifest.webmanifest favicon.ico /srv/
 COPY pages /srv/pages
 COPY assets /srv/assets
 COPY *.html /srv/

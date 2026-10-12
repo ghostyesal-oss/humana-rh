@@ -4183,19 +4183,7 @@ function desktopNotificationPermission() {
 
 function getNotificationIcon() {
   try {
-    const canvas = document.createElement("canvas");
-    canvas.width = 64;
-    canvas.height = 64;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return undefined;
-    ctx.fillStyle = "#022341";
-    ctx.fillRect(0, 0, 64, 64);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 36px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("H", 32, 36);
-    return canvas.toDataURL("image/png");
+    return new URL("/assets/favicon-192.png", window.location.origin).href;
   } catch (_) {
     return undefined;
   }

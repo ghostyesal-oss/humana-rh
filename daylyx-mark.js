@@ -1,11 +1,12 @@
 /* Logo Daylyx : présentation à l'arrivée, chargement après login. */
 (function () {
   var INTRO_MS = 2300;
-  var REVEAL_MS = 850;
+  var LOADER_MS = 2000;
   var introTimer = 0;
   var hideTimer = 0;
   var introStarted = false;
   var loaderActive = false;
+  var loaderStartedAt = 0;
 
   function lockupHtml(extraClass) {
     var cls = "daylyx-lockup";
@@ -51,10 +52,36 @@
     restart(lockup, "play");
   }
 
+  function ensureLoopAnim(lockup) {
+    var arc = lockup && lockup.querySelector(".daylyx-arc");
+    if (!arc) return;
+    arc.removeAttribute("pathLength");
+    var len = 0;
+    try { len = arc.getTotalLength(); } catch (_) { len = 0; }
+    if (!len) len = 201;
+    var lenText = String(len);
+    arc.setAttribute("stroke-dasharray", lenText);
+    arc.setAttribute("stroke-dashoffset", lenText);
+    var anim = arc.querySelector("animate");
+    if (!anim) {
+      anim = document.createElementNS("http://www.w3.org/2000/svg", "animate");
+      anim.setAttribute("attributeName", "stroke-dashoffset");
+      anim.setAttribute("dur", "1.8s");
+      anim.setAttribute("repeatCount", "indefinite");
+      anim.setAttribute("keyTimes", "0;0.46;0.72;1");
+      arc.appendChild(anim);
+    }
+    anim.setAttribute("values", lenText + ";0;0;" + lenText);
+    if (anim.beginElement) {
+      try { anim.beginElement(); } catch (_) { /* ignore */ }
+    }
+  }
+
   function playLoader(lockup) {
     if (!lockup) return;
     prepare(lockup);
     restart(lockup, "loop");
+    ensureLoopAnim(lockup);
   }
 
   function reveal(lockup) {
@@ -128,16 +155,12 @@
   }
 
   function startLoaderIfNeeded() {
-    if (!document.documentElement.classList.contains("auth-booting")) {
-      loaderActive = false;
-      return;
-    }
+    if (!document.documentElement.classList.contains("auth-booting")) return;
     if (loaderActive) return;
     loaderActive = true;
+    loaderStartedAt = Date.now();
     document.documentElement.classList.remove("daylyx-presenting");
     var lockup = ensureBootLockup();
-    var hint = document.querySelector("#auth-boot-screen .daylyx-splash-hint, #auth-boot-screen p");
-    if (hint) hint.textContent = "Chargement";
     playLoader(lockup);
   }
 
@@ -146,13 +169,18 @@
     var lockup = boot && boot.querySelector("[data-daylyx-mark]");
     window.clearTimeout(hideTimer);
     if (!lockup) {
+      loaderActive = false;
       if (typeof done === "function") done();
       return;
     }
-    reveal(lockup);
+    playLoader(lockup);
+    var elapsed = loaderStartedAt ? Date.now() - loaderStartedAt : 0;
+    var wait = Math.max(0, LOADER_MS - elapsed);
     hideTimer = window.setTimeout(function () {
+      loaderActive = false;
+      loaderStartedAt = 0;
       if (typeof done === "function") done();
-    }, REVEAL_MS);
+    }, wait);
   }
 
   function sync() {

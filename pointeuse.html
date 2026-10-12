@@ -12,6 +12,9 @@
   <title>Pointeuse — Daylyx</title>
   <script src="preboot.js"></script>
   <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/assets/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/assets/favicon-192.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body data-page="pointeuse">
@@ -23,12 +26,13 @@
             <rect x="8" y="18" width="32" height="124" rx="16" fill="#0046fe" />
             <circle class="daylyx-hole" cx="24" cy="46" r="6" />
           </g>
-          <path class="daylyx-arc" pathLength="1" d="M 66 38.43 A 48 48 0 1 1 66 121.57" />
+          <path class="daylyx-arc" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" d="M 66 38.43 A 48 48 0 1 1 66 121.57">
+            <animate attributeName="stroke-dashoffset" values="1;0;0;1" keyTimes="0;0.46;0.72;1" dur="1.8s" repeatCount="indefinite" />
+          </path>
           <circle class="daylyx-dot" cx="84" cy="80" r="6.4" fill="#0046fe" />
         </svg>
         <div class="daylyx-letters" aria-hidden="true"><span>a</span><span>y</span><span>l</span><span>y</span><span>x</span></div>
       </div>
-      <p class="daylyx-splash-hint">Chargement</p>
     </div>
   </div>
   <div id="app" aria-live="polite"></div>

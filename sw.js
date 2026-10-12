@@ -1,6 +1,6 @@
 /* Humana Service Worker - gère les notifications push (rappel de pointage). */
 
-const SW_VERSION = "daylyx-sw-1";
+const SW_VERSION = "daylyx-sw-2";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -30,8 +30,8 @@ self.addEventListener("push", (event) => {
     tag: payload.tag || "humana-gta",
     renotify: true,
     requireInteraction: true,
-    badge: "/favicon.ico",
-    icon: "/favicon.ico",
+    badge: "/assets/favicon-192.png",
+    icon: "/assets/favicon-192.png",
     data: { url: payload.url || "/", page: payload.page || "pointeuse" }
   };
 
