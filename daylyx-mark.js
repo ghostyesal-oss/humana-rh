@@ -18,7 +18,7 @@
             '<rect x="8" y="18" width="32" height="124" rx="16" fill="#0046fe"></rect>' +
             '<circle class="daylyx-hole" cx="24" cy="46" r="6"></circle>' +
           "</g>" +
-          '<path class="daylyx-arc" pathLength="1" d="M 66 38.43 A 48 48 0 1 1 66 121.57"></path>' +
+          '<path class="daylyx-arc" d="M 66 38.43 A 48 48 0 1 1 66 121.57"></path>' +
           '<circle class="daylyx-dot" cx="84" cy="80" r="6.4" fill="#0046fe"></circle>' +
         "</svg>" +
         '<div class="daylyx-letters" aria-hidden="true">' +
@@ -26,12 +26,6 @@
         "</div>" +
       "</div>"
     );
-  }
-
-  function prepare(lockup) {
-    if (!lockup) return;
-    var arc = lockup.querySelector(".daylyx-arc");
-    if (arc && !arc.getAttribute("pathLength")) arc.setAttribute("pathLength", "1");
   }
 
   function clear(lockup) {
@@ -48,45 +42,16 @@
 
   function playIntro(lockup) {
     if (!lockup) return;
-    prepare(lockup);
     restart(lockup, "play");
-  }
-
-  function ensureLoopAnim(lockup) {
-    var arc = lockup && lockup.querySelector(".daylyx-arc");
-    if (!arc) return;
-    arc.removeAttribute("pathLength");
-    var len = 0;
-    try { len = arc.getTotalLength(); } catch (_) { len = 0; }
-    if (!len) len = 201;
-    var lenText = String(len);
-    arc.setAttribute("stroke-dasharray", lenText);
-    arc.setAttribute("stroke-dashoffset", lenText);
-    var anim = arc.querySelector("animate");
-    if (!anim) {
-      anim = document.createElementNS("http://www.w3.org/2000/svg", "animate");
-      anim.setAttribute("attributeName", "stroke-dashoffset");
-      anim.setAttribute("dur", "1.8s");
-      anim.setAttribute("repeatCount", "indefinite");
-      anim.setAttribute("keyTimes", "0;0.46;0.72;1");
-      arc.appendChild(anim);
-    }
-    anim.setAttribute("values", lenText + ";0;0;" + lenText);
-    if (anim.beginElement) {
-      try { anim.beginElement(); } catch (_) { /* ignore */ }
-    }
   }
 
   function playLoader(lockup) {
     if (!lockup) return;
-    prepare(lockup);
     restart(lockup, "loop");
-    ensureLoopAnim(lockup);
   }
 
   function reveal(lockup) {
     if (!lockup) return;
-    prepare(lockup);
     clear(lockup);
     void lockup.offsetWidth;
     lockup.classList.add("resolved");

@@ -238,14 +238,14 @@ html.auth-booting #app {
 /* Daylyx lockup (présentation + chargement) */
 
 @property --daylyx-arc-len {
-  syntax: "<number>";
+  syntax: "<length>";
   inherits: true;
-  initial-value: 1;
+  initial-value: 201.07px;
 }
 
 .daylyx-lockup {
   --daylyx-ink: var(--text);
-  --daylyx-arc-len: 1;
+  --daylyx-arc-len: 201.07px;
   --daylyx-letters-w: 4em;
   --daylyx-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --daylyx-draw: cubic-bezier(0.65, 0, 0.25, 1);
@@ -286,8 +286,8 @@ html.auth-booting #app {
   stroke: var(--daylyx-ink);
   stroke-width: 28;
   stroke-linecap: round;
-  stroke-dasharray: var(--daylyx-arc-len);
-  stroke-dashoffset: 0;
+  stroke-dasharray: 201.07px;
+  stroke-dashoffset: 0px;
 }
 
 .daylyx-dot {
@@ -314,28 +314,25 @@ html.auth-booting #app {
   color: var(--daylyx-ink);
 }
 
-.daylyx-intro-screen .daylyx-stem,
-.auth-boot-screen .daylyx-stem {
+/* Présentation : le logo part masqué, puis s'ouvre. */
+.daylyx-intro-screen .daylyx-stem {
   opacity: 0;
 }
 
-.daylyx-intro-screen .daylyx-dot,
-.auth-boot-screen .daylyx-dot {
+.daylyx-intro-screen .daylyx-dot {
   opacity: 0;
   transform: scale(0);
 }
 
 .daylyx-intro-screen .daylyx-arc {
-  stroke-dashoffset: var(--daylyx-arc-len);
+  stroke-dashoffset: 201.07px;
 }
 
-.daylyx-intro-screen .daylyx-letters,
-.auth-boot-screen .daylyx-letters {
+.daylyx-intro-screen .daylyx-letters {
   max-width: 0em;
 }
 
-.daylyx-intro-screen .daylyx-letters span,
-.auth-boot-screen .daylyx-letters span {
+.daylyx-intro-screen .daylyx-letters span {
   opacity: 0;
   transform: translateX(-0.28em);
 }
@@ -366,6 +363,7 @@ html.auth-booting #app {
 .daylyx-lockup.play .daylyx-letters span:nth-child(4) { animation-delay: 1.4s; }
 .daylyx-lockup.play .daylyx-letters span:nth-child(5) { animation-delay: 1.48s; }
 
+/* Chargement : uniquement le D en boucle, comme l'onglet Chargement. */
 .daylyx-lockup.loop .daylyx-stem,
 .auth-boot-screen .daylyx-lockup .daylyx-stem {
   opacity: 1;
@@ -381,13 +379,14 @@ html.auth-booting #app {
 
 .daylyx-lockup.loop .daylyx-arc,
 .auth-boot-screen .daylyx-lockup .daylyx-arc {
-  animation: none;
-  stroke-dasharray: unset;
-  stroke-dashoffset: unset;
+  stroke-dasharray: 201.07px;
+  animation: daylyx-draw-loop 1.8s ease-in-out infinite;
 }
 
 .daylyx-lockup.loop .daylyx-letters,
-.daylyx-lockup.loop .daylyx-letters span {
+.daylyx-lockup.loop .daylyx-letters span,
+.auth-boot-screen .daylyx-lockup .daylyx-letters,
+.auth-boot-screen .daylyx-lockup .daylyx-letters span {
   animation: none;
   max-width: 0em;
   opacity: 0;
@@ -452,14 +451,14 @@ html.auth-booting #app {
 }
 
 @keyframes daylyx-draw {
-  from { stroke-dashoffset: var(--daylyx-arc-len); }
-  to { stroke-dashoffset: 0; }
+  from { stroke-dashoffset: 201.07px; }
+  to { stroke-dashoffset: 0px; }
 }
 
 @keyframes daylyx-draw-loop {
-  0% { stroke-dashoffset: 1; }
-  46%, 72% { stroke-dashoffset: 0; }
-  100% { stroke-dashoffset: 1; }
+  0% { stroke-dashoffset: 201.07px; }
+  46%, 72% { stroke-dashoffset: 0px; }
+  100% { stroke-dashoffset: 201.07px; }
 }
 
 @keyframes daylyx-pop {
@@ -475,7 +474,7 @@ html.auth-booting #app {
 
 @keyframes daylyx-open {
   from { max-width: 0em; }
-  to { max-width: var(--daylyx-letters-w); }
+  to { max-width: 4em; }
 }
 
 @keyframes daylyx-letter {
@@ -4763,6 +4762,41 @@ tbody tr:hover td { background: var(--surface-2); }
 
   .card:hover,
   .home-widget:hover { transform: none; }
+
+  /* Le D de chargement/présentation doit rester animé (sinon la boucle se fige masquée). */
+  .daylyx-intro-screen {
+    transition: opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1) !important;
+  }
+
+  .daylyx-lockup.play .daylyx-stem {
+    animation: daylyx-stem-in 0.55s var(--daylyx-ease) forwards !important;
+  }
+
+  .daylyx-lockup.play .daylyx-arc {
+    animation: daylyx-draw 0.9s var(--daylyx-draw) 0.22s forwards !important;
+  }
+
+  .daylyx-lockup.play .daylyx-dot {
+    animation: daylyx-pop 0.48s cubic-bezier(0.34, 1.45, 0.64, 1) 0.98s forwards !important;
+  }
+
+  .daylyx-lockup.play .daylyx-letters {
+    animation: daylyx-open 0.72s var(--daylyx-ease) 1.12s forwards !important;
+  }
+
+  .daylyx-lockup.play .daylyx-letters span {
+    animation: daylyx-letter 0.5s var(--daylyx-ease) forwards !important;
+  }
+
+  .daylyx-lockup.loop .daylyx-arc,
+  .auth-boot-screen .daylyx-lockup .daylyx-arc {
+    animation: daylyx-draw-loop 1.8s ease-in-out infinite !important;
+  }
+
+  .daylyx-lockup.loop .daylyx-dot,
+  .auth-boot-screen .daylyx-lockup .daylyx-dot {
+    animation: daylyx-pulse 1.8s ease-in-out infinite !important;
+  }
 }
 
 /* Responsive */
