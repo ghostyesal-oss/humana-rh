@@ -232,7 +232,8 @@ const pages = {
   "team-punches": ["Pointages équipe", "Admin : tous les collaborateurs. Manager : son équipe directe."],
   reports: ["Rapports EDS", "Temps, absences, retards et export paie du 21 au 20."],
   admin: ["Administration", "Gestion des comptes et des accès."],
-  creator: ["Studio créateur", "Contrôlez la visibilité des onglets par profil."]
+  creator: ["Studio créateur", "Contrôlez la visibilité des onglets par profil."],
+  privacy: ["Mes données", "Consultez et exportez les informations vous concernant."]
 };
 
 const THEME_KEY = "humana-theme";
@@ -1108,6 +1109,7 @@ function canImportPlanning() {
 }
 
 function canAccessPage(pageId) {
+  if (pageId === "privacy") return true;
   if (pageId === "creator") return isCreator();
   if (pageId === "admin") return isAdmin() && isNavPageVisible("admin");
   if (pageId === "global") return canViewGlobal();
@@ -1131,6 +1133,7 @@ function getFirstAccessiblePage() {
     "team-punches",
     "reports",
     "journal",
+    "privacy",
     "admin",
     "creator"
   ];
@@ -2492,6 +2495,7 @@ function getNavigationItems() {
     const after = teamIndex >= 0 ? teamIndex : items.findIndex(([pageId]) => pageId === "pointeuse");
     items.splice((after >= 0 ? after : items.length - 1) + 1, 0, ["reports", "Rapports EDS"]);
   }
+  items.push(["privacy", "Mes données"]);
   if (canViewJournal()) {
     items.push(["journal", "Journal"]);
   }
@@ -8083,7 +8087,8 @@ const PAGE_COLLECTIONS = {
   "team-punches": ["org", "teamPunches", "gta", "planningEntries"],
   reports: ["org", "leave", "teamPunches", "planningEntries"],
   global: ["org", "teamPunches", "planningEntries"],
-  planning: ["org", "teamPunches", "planningEntries"]
+  planning: ["org", "teamPunches", "planningEntries"],
+  privacy: ["punches", "leave", "attestations", "documents"]
 };
 
 function cacheFresh(key, ttl = DATA_TTL_MS) {
@@ -8480,7 +8485,10 @@ function renderLogin(error = "") {
             <p id="login-error" class="error-message" hidden></p>
             <div class="separator"><span>ou</span></div>
             <button id="demo-login" type="button" class="demo-button">Voir l'aperçu de démonstration</button>
-            <small>En continuant, vous acceptez les conditions d'utilisation et la politique de confidentialité.</small>
+            <p class="login-legal">Outil RH professionnel.
+              <a href="/confidentialite">Confidentialité</a> ·
+              <a href="/mentions-legales">Mentions légales</a> ·
+              <a href="/cookies">Cookies</a></p>
           </div>
         </section>
       </main>`;
