@@ -249,7 +249,7 @@ function sanitizeImportedEmployee(row) {
   const matricule = normalizeImportedMatricule(row.matricule);
   const fullName = clip(row.full_name, 120);
   if (!matricule && !fullName) return null;
-  const role = ["employee", "manager", "admin"].includes(String(row.role || "")) ? row.role : "employee";
+  const role = ["employee", "manager", "rh", "admin"].includes(String(row.role || "")) ? row.role : "employee";
   const leaveGrade = ["employee", "manager", "codir"].includes(String(row.leave_grade || "")) ? row.leave_grade : "employee";
   const shift = ["cs", "ces", "rnd"].includes(String(row.shift_code || "")) ? row.shift_code : "cs";
   const hired = DATE_RE.test(String(row.hired_at || "")) ? row.hired_at : null;

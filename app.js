@@ -123,6 +123,7 @@ let bootstrapInFlight = null;
 let hierarchySearch = "";
 const collapsedOrgNodes = new Set();
 let teamPunchFilters = { start: "", end: "", userId: "", scope: "all" };
+let edsFilters = { start: "", end: "" };
 let teamPunchesInitialLoadDone = false;
 let journalFilters = { start: "", end: "", userId: "", query: "" };
 let journalSort = { key: "connectedAt", dir: "desc" };
@@ -171,15 +172,19 @@ let appData = {
   companyTimezone: "GMT+1",
   shiftHours: null,
   planningEntries: [],
-  employeeImportNotice: ""
+  employeeImportNotice: "",
+  edsPayroll: {}
 };
 
 const roleLabels = {
   admin: "Administrateur",
+  rh: "RH",
   manager: "Manager",
   employee: "Collaborateur",
   creator: "Créateur"
 };
+
+const ASSIGNABLE_ROLES = ["employee", "manager", "rh", "admin"];
 
 const NAV_VISIBILITY_PAGES = [
   { id: "home", label: "Accueil" },
@@ -874,6 +879,19 @@ function isAdmin() {
   return role === "admin" || role === "creator";
 }
 
+function isRhRole(role) {
+  const value = String(role || "").toLowerCase();
+  return value === "rh" || value === "admin" || value === "creator";
+}
+
+function isHr() {
+  return isRhRole(appData.profile?.role);
+}
+
+function hasOrgWideAccess() {
+  return isAdmin() || isHr();
+}
+
 function getStudioCreatorEmails() {
   return (appData.studioCreators || [])
     .map((email) => String(email || "").trim().toLowerCase())
@@ -892,6 +910,9 @@ function isStudioCreatorEmail(email) {
 
 function renderUserRolePills() {
   const pills = [];
+  if (appData.profile?.role === "rh" || (isHr() && !isAdmin() && !isCreator())) {
+    pills.push(`<span class="admin-pill">RH</span>`);
+  }
   if (isAdmin()) pills.push(`<span class="admin-pill">Admin</span>`);
   if (isCreator()) pills.push(`<span class="creator-pill">Créateur</span>`);
   return pills.join("");
@@ -899,7 +920,7 @@ function renderUserRolePills() {
 
 function getNavAudienceRole() {
   const role = appData.profile?.role || "employee";
-  if (role === "admin" || role === "creator") return "admin";
+  if (role === "admin" || role === "creator" || role === "rh") return "admin";
   if (role === "manager" || hasDirectReports()) return "manager";
   return "employee";
 }
@@ -1086,12 +1107,12 @@ function canViewJournal() {
 
 function canViewTeamPunches() {
   return isNavPageVisible("team-punches")
-    && (demoMode || (usesDatabase() && (isAdmin() || hasDirectReports())));
+    && (demoMode || (usesDatabase() && (hasOrgWideAccess() || hasDirectReports())));
 }
 
 function canViewGlobal() {
   return isNavPageVisible("global")
-    && (demoMode || (usesDatabase() && (isAdmin() || hasDirectReports())));
+    && (demoMode || (usesDatabase() && (hasOrgWideAccess() || hasDirectReports())));
 }
 
 function canViewReports() {
@@ -1105,7 +1126,7 @@ function canViewPlanning() {
 function canImportPlanning() {
   if (demoMode) return true;
   const role = String(appData.profile?.role || "").toLowerCase();
-  return role === "admin" || role === "creator" || role === "manager";
+  return role === "admin" || role === "creator" || role === "rh" || role === "manager";
 }
 
 function canAccessPage(pageId) {
@@ -1141,7 +1162,7 @@ function getFirstAccessiblePage() {
 }
 
 function canViewTeamLeaveCalendar() {
-  return usesDatabase() && (isAdmin() || hasDirectReports());
+  return usesDatabase() && (hasOrgWideAccess() || hasDirectReports());
 }
 
 function getDirectReportProfiles() {
@@ -1149,7 +1170,7 @@ function getDirectReportProfiles() {
 }
 
 function getTeamPunchScope() {
-  if (!isAdmin()) return "team";
+  if (!hasOrgWideAccess()) return "team";
   return teamPunchFilters.scope === "team" ? "team" : "all";
 }
 
@@ -1165,8 +1186,8 @@ function getDefaultTeamPunchRange() {
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
   const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
   return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10)
+    start: toDateKey(start),
+    end: toDateKey(end)
   };
 }
 
@@ -1394,7 +1415,7 @@ function canManageGtaItem(item) {
   const userId = gtaItemUserId(item);
   if (!userId) return false;
   if (userId === session?.user?.id && !isAdmin()) return false;
-  if (isAdmin()) return true;
+  if (hasOrgWideAccess()) return true;
   return getDirectReportProfiles().some((profile) => profile.id === userId);
 }
 
@@ -1982,18 +2003,30 @@ function normalizeTeamLeaveRequest(row) {
   };
 }
 
+function leaveQueryRange(monthRef = getLeaveCalendarMonth()) {
+  if (monthRef?.start && monthRef?.end) {
+    return { start: monthRef.start, end: monthRef.end };
+  }
+  const year = Number(monthRef?.year);
+  const month = Number(monthRef?.month);
+  const cursor = Number.isFinite(year) && Number.isFinite(month)
+    ? { year, month }
+    : getLeaveCalendarMonth();
+  const monthStart = `${cursor.year}-${String(cursor.month + 1).padStart(2, "0")}-01`;
+  const lastDay = new Date(cursor.year, cursor.month + 1, 0).getDate();
+  const monthEnd = `${cursor.year}-${String(cursor.month + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  return { start: monthStart, end: monthEnd };
+}
+
 async function loadTeamLeaveRequests(monthRef = getLeaveCalendarMonth()) {
   if (!canViewTeamLeaveCalendar()) {
     appData.teamLeaveRequests = [];
     return [];
   }
 
-  const { year, month } = monthRef;
-  const monthStart = `${year}-${String(month + 1).padStart(2, "0")}-01`;
-  const lastDay = new Date(year, month + 1, 0).getDate();
-  const monthEnd = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  const { start: monthStart, end: monthEnd } = leaveQueryRange(monthRef);
 
-  const userIds = isAdmin()
+  const userIds = hasOrgWideAccess()
     ? appData.orgProfiles.map((profile) => profile.id)
     : getDirectReportProfiles().map((profile) => profile.id);
 
@@ -2184,7 +2217,7 @@ async function resetLeaveCalendarToToday() {
 }
 
 function canViewHrAlerts() {
-  return usesDatabase() && (isAdmin() || hasDirectReports());
+  return usesDatabase() && (hasOrgWideAccess() || hasDirectReports());
 }
 
 function countUnreadHrAlerts() {
@@ -2524,9 +2557,10 @@ function managerOptions(selectedId = "", excludeId = "") {
 }
 
 function roleOptions(selectedRole = "employee") {
-  return ["employee", "manager", "admin"].map((role) => {
+  const roles = selectedRole === "creator" ? ["creator", ...ASSIGNABLE_ROLES] : ASSIGNABLE_ROLES;
+  return roles.map((role) => {
     const selected = role === selectedRole ? " selected" : "";
-    return `<option value="${role}"${selected}>${roleLabels[role]}</option>`;
+    return `<option value="${role}"${selected}>${roleLabels[role] || role}</option>`;
   }).join("");
 }
 
@@ -2686,7 +2720,7 @@ function bindCreatorAccountsSection() {
 
 function parseUserAccountForm(data) {
   const requestedRole = String(data.get("role") || "employee");
-  const role = ["employee", "manager", "admin"].includes(requestedRole)
+  const role = ASSIGNABLE_ROLES.includes(requestedRole)
     ? requestedRole
     : "employee";
   return {
@@ -3105,6 +3139,7 @@ function getAttestationRequests() {
   if (usesDatabase()) {
     return appData.attestationRequests.map((request) => ({
       id: request.id,
+      userId: request.user_id,
       kind: "attestation",
       type: request.document_type,
       reason: request.reason,
@@ -3119,6 +3154,7 @@ function getSalaryAdvanceRequests() {
   if (usesDatabase()) {
     return (appData.salaryAdvanceRequests || []).map((request) => ({
       id: request.id,
+      userId: request.user_id,
       kind: "advance",
       amount: request.amount,
       reason: request.reason,
@@ -3135,12 +3171,28 @@ function getHrRequests() {
     .sort((a, b) => new Date(b.created || 0) - new Date(a.created || 0));
 }
 
+function getOwnHrRequests() {
+  const me = session?.user?.id;
+  return getHrRequests().filter((request) => !request.userId || request.userId === me);
+}
+
+function canValidateHrRequest(request) {
+  const userId = request?.userId;
+  if (!userId || userId === session?.user?.id) return false;
+  if (hasOrgWideAccess()) return true;
+  return getDirectReportProfiles().some((profile) => profile.id === userId);
+}
+
+function pendingHrForValidator() {
+  return getHrRequests().filter((request) => isHrRequestPending(request.status) && canValidateHrRequest(request));
+}
+
 function countPendingLeave() {
   return getLeaveRequests().filter((item) => String(item.status || "").toLowerCase().includes("valider")).length;
 }
 
 function countPendingHrRequests() {
-  return getHrRequests().filter((item) => isHrRequestPending(item.status)).length;
+  return pendingHrForValidator().length;
 }
 
 function navBadge(page) {
@@ -4743,7 +4795,7 @@ function canSeeVisibility(visibility) {
   const vis = String(visibility || "all");
   if (vis === "admins") return isAdmin();
   if (vis === "managers") {
-    return isAdmin() || appData.profile?.role === "manager" || hasDirectReports();
+    return hasOrgWideAccess() || appData.profile?.role === "manager" || hasDirectReports();
   }
   return true;
 }
@@ -5067,11 +5119,11 @@ function renderGtaTeamInbox() {
 /* pointeusePage() moved to pages/pointeuse.js */
 
 function canViewJournalTeam() {
-  return isAdmin() || hasDirectReports();
+  return hasOrgWideAccess() || hasDirectReports();
 }
 
 function getJournalProfiles() {
-  if (isAdmin()) return getTeamPunchProfiles("all");
+  if (hasOrgWideAccess()) return getTeamPunchProfiles("all");
   if (hasDirectReports()) {
     const self = profileById(session?.user?.id);
     const seen = new Set();
@@ -5575,23 +5627,58 @@ function renderEventDetailOverlay(events, admin) {
 
 /* attestationsPage() moved to pages/attestations.js */
 
+function hrRequestDetail(request) {
+  const isAdvance = request.kind === "advance";
+  return isAdvance
+    ? `${formatMad(request.amount)}${request.reason ? ` · ${request.reason}` : ""}`
+    : `${request.type || "Attestation"}${request.reason ? ` · ${request.reason}` : ""}`;
+}
+
 function hrRequestRows(requests) {
   if (!requests.length) {
     return `<tr><td colspan="4" class="empty-cell">Aucune demande RH pour le moment.</td></tr>`;
   }
   return requests.map((request) => {
     const isAdvance = request.kind === "advance";
-    const detail = isAdvance
-      ? `${formatMad(request.amount)}${request.reason ? ` · ${request.reason}` : ""}`
-      : `${request.type || "Attestation"}${request.reason ? ` · ${request.reason}` : ""}`;
     return `
     <tr>
       <td><strong>${isAdvance ? "Avance sur salaire" : "Attestation"}</strong></td>
-      <td>${escapeHtml(detail)}</td>
+      <td>${escapeHtml(hrRequestDetail(request))}</td>
       <td>${formatDate(request.created)}</td>
       <td>${badge(request.status)}</td>
     </tr>`;
   }).join("");
+}
+
+function renderHrValidationInbox() {
+  const pending = pendingHrForValidator();
+  if (!pending.length) return "";
+  return `
+    <article class="card table-card page-spacer">
+      <div class="toolbar"><h3>Demandes RH à valider</h3></div>
+      <p class="hierarchy-meta">Le Directeur ou le RH peut valider — un seul visa suffit.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Collaborateur</th><th>Type</th><th>Détail</th><th>Statut</th><th></th></tr></thead>
+          <tbody>
+            ${pending.map((request) => {
+              const isAdvance = request.kind === "advance";
+              return `
+                <tr>
+                  <td>${escapeHtml(profileById(request.userId)?.full_name || "Collaborateur")}</td>
+                  <td>${isAdvance ? "Avance sur salaire" : "Attestation"}</td>
+                  <td>${escapeHtml(hrRequestDetail(request))}</td>
+                  <td>${badge(request.status)}</td>
+                  <td>
+                    <button type="button" class="primary hr-approve" data-hr-kind="${request.kind}" data-hr-id="${request.id}">Valider</button>
+                    <button type="button" class="outline-button hr-reject" data-hr-kind="${request.kind}" data-hr-id="${request.id}">Refuser</button>
+                  </td>
+                </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    </article>`;
 }
 
 function buildOrgTree(profiles) {
@@ -5701,7 +5788,7 @@ function renderGtaSettingsSection() {
 /* adminPage() moved to pages/admin.js */
 
 function getReportProfiles() {
-  if (isAdmin()) return appData.orgProfiles.filter(Boolean);
+  if (hasOrgWideAccess()) return appData.orgProfiles.filter(Boolean);
   if (hasDirectReports()) {
     const self = profileById(session?.user?.id) || appData.profile;
     const team = getDirectReportProfiles();
@@ -5806,7 +5893,379 @@ function payrollEmails() {
 }
 
 function canViewEdsPayrollColumns() {
+  if (demoMode || isAdmin()) return true;
   return payrollEmails().includes(currentUserEmail());
+}
+
+function canEditEdsPayroll() {
+  if (!canViewReports()) return false;
+  return canViewEdsPayrollColumns();
+}
+
+function edsPayrollFields() {
+  return EDS_COLUMNS.filter((col) => col.payroll);
+}
+
+function getEdsCycleKey(range = getEdsRange()) {
+  return `${range.start}_${range.end}`;
+}
+
+function edsPayrollState() {
+  const value = appData.edsPayroll;
+  return value && typeof value === "object" ? value : {};
+}
+
+function getEdsPayrollEntry(userId, range = getEdsRange()) {
+  const cycle = edsPayrollState()[getEdsCycleKey(range)];
+  const row = cycle && userId ? cycle[userId] : null;
+  return row && typeof row === "object" ? row : {};
+}
+
+function sanitizeEdsPayrollValue(raw) {
+  const text = String(raw ?? "").trim().replace(",", ".");
+  if (!text) return "";
+  const number = Number(text);
+  if (!Number.isFinite(number) || Math.abs(number) > 1e9) return "";
+  return String(number);
+}
+
+function readEdsPayrollForm(form) {
+  const payload = {};
+  edsPayrollFields().forEach((field) => {
+    const input = form.querySelector(`[name="${field.key}"]`);
+    if (!input) return;
+    const value = sanitizeEdsPayrollValue(input.value);
+    if (value !== "") payload[field.key] = value;
+  });
+  return payload;
+}
+
+async function loadEdsPayroll() {
+  if (!usesDatabase()) {
+    appData.edsPayroll = loadStore("edsPayroll", {});
+    return;
+  }
+  const { data, error } = await supabaseClient
+    .from("app_settings")
+    .select("value")
+    .eq("key", "eds_payroll")
+    .maybeSingle();
+  if (error) {
+    if (String(error.message || "").includes("does not exist") || String(error.message || "").includes("app_settings")) {
+      appData.edsPayroll = {};
+      return;
+    }
+    throw error;
+  }
+  appData.edsPayroll = data?.value && typeof data.value === "object" && !Array.isArray(data.value)
+    ? data.value
+    : {};
+}
+
+async function saveEdsPayroll(next) {
+  const value = next && typeof next === "object" ? next : {};
+  if (!usesDatabase()) {
+    saveStore("edsPayroll", value);
+    appData.edsPayroll = value;
+    return;
+  }
+  const { error } = await supabaseClient
+    .from("app_settings")
+    .upsert({ key: "eds_payroll", value }, { onConflict: "key" });
+  if (error) throw error;
+  appData.edsPayroll = value;
+}
+
+function closeEdsPayrollDialog() {
+  document.removeEventListener("keydown", onEdsPayrollKeydown);
+  document.getElementById("eds-payroll-overlay")?.remove();
+}
+
+function onEdsPayrollKeydown(event) {
+  if (event.key === "Escape") closeEdsPayrollDialog();
+}
+
+function edsPayrollFilterValues(form) {
+  return {
+    managerId: String(form?.querySelector('select[name="managerId"]')?.value || ""),
+    department: String(form?.querySelector('select[name="department"]')?.value || ""),
+    query: String(form?.querySelector('input[name="query"]')?.value || "")
+  };
+}
+
+function filterEdsPayrollProfiles({ managerId = "", department = "", query = "" } = {}) {
+  const needle = String(query || "").trim().toLowerCase();
+  const dept = String(department || "").trim().toLowerCase();
+  return getReportProfiles().filter((profile) => {
+    if (managerId && String(profile.manager_id || "") !== managerId) return false;
+    if (dept && String(profile.department || "").trim().toLowerCase() !== dept) return false;
+    if (!needle) return true;
+    const hay = `${profile.full_name || ""} ${profile.email || ""} ${getProfileMatricule(profile.id) || profile.matricule || ""} ${profile.department || ""} ${managerName(profile.manager_id)}`.toLowerCase();
+    return hay.includes(needle);
+  });
+}
+
+function edsPayrollDepartmentOptions(selected = "") {
+  const departments = [...new Set(getReportProfiles()
+    .map((profile) => String(profile.department || "").trim())
+    .filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, "fr"));
+  return [`<option value="">Tous les départements</option>`]
+    .concat(departments.map((name) => `<option value="${escapeHtml(name)}"${name === selected ? " selected" : ""}>${escapeHtml(name)}</option>`))
+    .join("");
+}
+
+function edsPayrollManagerOptions(selected = "") {
+  const managerIds = [...new Set(getReportProfiles().map((profile) => profile.manager_id).filter(Boolean))];
+  const managers = managerIds
+    .map((id) => profileById(id))
+    .filter(Boolean)
+    .sort((left, right) => String(left.full_name || "").localeCompare(String(right.full_name || ""), "fr"));
+  return [`<option value="">Tous les managers</option>`]
+    .concat(managers.map((manager) => `<option value="${escapeHtml(manager.id)}"${manager.id === selected ? " selected" : ""}>${escapeHtml(manager.full_name || manager.email || manager.id)}</option>`))
+    .join("");
+}
+
+function edsPayrollUserOptions(selectedId, filters) {
+  const profiles = filterEdsPayrollProfiles(filters);
+  if (!profiles.length) return `<option value="">Aucun collaborateur</option>`;
+  const current = profiles.some((profile) => profile.id === selectedId) ? selectedId : profiles[0].id;
+  return profiles.map((profile) => {
+    const extra = [getProfileMatricule(profile.id), profile.department].filter(Boolean).join(" · ");
+    const label = extra
+      ? `${profile.full_name || profile.email || profile.id} · ${extra}`
+      : (profile.full_name || profile.email || profile.id);
+    return `<option value="${escapeHtml(profile.id)}"${profile.id === current ? " selected" : ""}>${escapeHtml(label)}</option>`;
+  }).join("");
+}
+
+function edsPayrollPeopleMarkup(selectedIds, filters = {}) {
+  const selected = selectedIds instanceof Set
+    ? selectedIds
+    : new Set(Array.isArray(selectedIds) ? selectedIds : selectedIds ? [selectedIds] : []);
+  const profiles = filterEdsPayrollProfiles(filters);
+  if (!profiles.length) return `<p class="empty-state">Aucun collaborateur.</p>`;
+  return profiles.map((profile) => {
+    const extra = [getProfileMatricule(profile.id), profile.department, managerName(profile.manager_id)]
+      .filter((item) => item && item !== "—")
+      .join(" · ");
+    return `
+    <label class="eds-payroll-person">
+      <input type="checkbox" name="people" value="${escapeHtml(profile.id)}"${selected.has(profile.id) ? " checked" : ""}>
+      <span>
+        <strong>${escapeHtml(profile.full_name || "Collaborateur")}</strong>
+        <small>${escapeHtml(extra || profile.email || "")}</small>
+      </span>
+    </label>`;
+  }).join("");
+}
+
+function edsPayrollFieldsMarkup(values) {
+  return edsPayrollFields().map((field) => {
+    const current = values[field.key] ?? "";
+    return `
+      <label>
+        ${escapeHtml(field.label)}
+        <input type="text" inputmode="decimal" name="${escapeHtml(field.key)}" value="${escapeHtml(current)}" autocomplete="off">
+      </label>`;
+  }).join("");
+}
+
+function openEdsPayrollDialog(mode = "one") {
+  if (!canEditEdsPayroll()) return;
+  closeEdsPayrollDialog();
+  const range = getEdsRange();
+  const profiles = getReportProfiles();
+  const firstId = profiles[0]?.id || "";
+  const overlay = document.createElement("div");
+  overlay.id = "eds-payroll-overlay";
+  overlay.className = "eds-payroll-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-labelledby", "eds-payroll-title");
+  overlay.innerHTML = `
+    <form id="eds-payroll-form" class="eds-payroll-card">
+      <div class="eds-payroll-head">
+        <div>
+          <h3 id="eds-payroll-title">Éléments de paie</h3>
+          <p class="hierarchy-meta">Cycle du ${escapeHtml(formatDate(range.start))} au ${escapeHtml(formatDate(range.end))}. Les heures calculées (retards, HS) restent issues des pointages.</p>
+        </div>
+        <button type="button" class="outline-button" data-eds-payroll-close>Fermer</button>
+      </div>
+      <div class="eds-payroll-tabs" role="tablist">
+        <button type="button" class="eds-payroll-tab${mode === "one" ? " is-active" : ""}" data-eds-mode="one" aria-pressed="${mode === "one" ? "true" : "false"}">Individuel</button>
+        <button type="button" class="eds-payroll-tab${mode === "mass" ? " is-active" : ""}" data-eds-mode="mass" aria-pressed="${mode === "mass" ? "true" : "false"}">En masse</button>
+      </div>
+      <div class="form-row eds-payroll-org-filters">
+        <label>
+          Manager
+          <select name="managerId">${edsPayrollManagerOptions()}</select>
+        </label>
+        <label>
+          Département
+          <select name="department">${edsPayrollDepartmentOptions()}</select>
+        </label>
+      </div>
+      <div class="eds-payroll-pane" data-eds-pane="one"${mode === "one" ? "" : " hidden"}>
+        <label>
+          Collaborateur
+          <select name="userId">${edsPayrollUserOptions(firstId, {})}</select>
+        </label>
+      </div>
+      <div class="eds-payroll-pane" data-eds-pane="mass"${mode === "mass" ? "" : " hidden"}>
+        <div class="eds-payroll-mass-tools">
+          <input type="search" name="query" placeholder="Filtrer nom, matricule, e-mail..." autocomplete="off">
+          <button type="button" class="outline-button" data-eds-select-all>Tout cocher</button>
+          <button type="button" class="outline-button" data-eds-select-none>Tout décocher</button>
+        </div>
+        <p class="data-note">Cochez les personnes, puis saisissez uniquement les champs à appliquer (les cases vides n'écrasent rien).</p>
+        <div class="eds-payroll-people" id="eds-payroll-people">${edsPayrollPeopleMarkup("", {})}</div>
+      </div>
+      <div class="eds-payroll-fields" id="eds-payroll-fields">${edsPayrollFieldsMarkup(mode === "mass" ? {} : (firstId ? getEdsPayrollEntry(firstId, range) : {}))}</div>
+      <div class="eds-payroll-actions">
+        <button type="button" class="outline-button" data-eds-payroll-close>Annuler</button>
+        <button type="submit" class="primary">Enregistrer</button>
+      </div>
+    </form>`;
+  document.body.appendChild(overlay);
+  document.addEventListener("keydown", onEdsPayrollKeydown);
+  bindEdsPayrollDialog(overlay, range);
+}
+
+function bindEdsPayrollDialog(overlay, range) {
+  const form = overlay.querySelector("#eds-payroll-form");
+  const peopleBox = overlay.querySelector("#eds-payroll-people");
+  const selected = new Set();
+  overlay.edsSelected = selected;
+  const close = () => closeEdsPayrollDialog();
+  const refreshFilteredPeople = () => {
+    const filters = edsPayrollFilterValues(form);
+    const userSelect = form?.querySelector('select[name="userId"]');
+    const previous = String(userSelect?.value || "");
+    if (userSelect) userSelect.innerHTML = edsPayrollUserOptions(previous, filters);
+    if (peopleBox) peopleBox.innerHTML = edsPayrollPeopleMarkup(selected, filters);
+    const oneVisible = overlay.querySelector('[data-eds-pane="one"]') && !overlay.querySelector('[data-eds-pane="one"]').hidden;
+    if (oneVisible) {
+      const userId = String(userSelect?.value || "");
+      const fields = overlay.querySelector("#eds-payroll-fields");
+      if (fields && userId !== previous) {
+        fields.innerHTML = edsPayrollFieldsMarkup(userId ? getEdsPayrollEntry(userId, range) : {});
+      }
+    }
+  };
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  overlay.querySelectorAll("[data-eds-payroll-close]").forEach((button) => {
+    button.addEventListener("click", close);
+  });
+  overlay.querySelectorAll("[data-eds-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const mode = button.dataset.edsMode;
+      overlay.querySelectorAll("[data-eds-mode]").forEach((tab) => {
+        const active = tab.dataset.edsMode === mode;
+        tab.classList.toggle("is-active", active);
+        tab.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+      overlay.querySelectorAll("[data-eds-pane]").forEach((pane) => {
+        pane.hidden = pane.dataset.edsPane !== mode;
+      });
+      const fields = overlay.querySelector("#eds-payroll-fields");
+      if (mode === "one") {
+        refreshFilteredPeople();
+        const userId = String(form?.querySelector('select[name="userId"]')?.value || "");
+        if (fields) fields.innerHTML = edsPayrollFieldsMarkup(userId ? getEdsPayrollEntry(userId, range) : {});
+      } else if (mode === "mass" && fields) {
+        refreshFilteredPeople();
+        fields.innerHTML = edsPayrollFieldsMarkup({});
+      }
+    });
+  });
+  form?.querySelector('select[name="userId"]')?.addEventListener("change", (event) => {
+    const userId = event.currentTarget.value;
+    const fields = overlay.querySelector("#eds-payroll-fields");
+    if (fields) fields.innerHTML = edsPayrollFieldsMarkup(userId ? getEdsPayrollEntry(userId, range) : {});
+  });
+  const queryInput = form?.querySelector('input[name="query"]');
+  peopleBox?.addEventListener("change", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || input.name !== "people") return;
+    if (input.checked) selected.add(input.value);
+    else selected.delete(input.value);
+  });
+  queryInput?.addEventListener("input", refreshFilteredPeople);
+  form?.querySelector('select[name="managerId"]')?.addEventListener("change", refreshFilteredPeople);
+  form?.querySelector('select[name="department"]')?.addEventListener("change", refreshFilteredPeople);
+  overlay.querySelector("[data-eds-select-all]")?.addEventListener("click", () => {
+    overlay.querySelectorAll('#eds-payroll-people input[name="people"]').forEach((input) => {
+      input.checked = true;
+      selected.add(input.value);
+    });
+  });
+  overlay.querySelector("[data-eds-select-none]")?.addEventListener("click", () => {
+    selected.clear();
+    overlay.querySelectorAll('#eds-payroll-people input[name="people"]').forEach((input) => { input.checked = false; });
+  });
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const massVisible = overlay.querySelector('[data-eds-pane="mass"]') && !overlay.querySelector('[data-eds-pane="mass"]').hidden;
+    const payload = readEdsPayrollForm(form);
+    let userIds = [];
+    if (massVisible) {
+      userIds = [...selected];
+      if (!userIds.length) {
+        alert("Cochez au moins un collaborateur.");
+        return;
+      }
+      if (!Object.keys(payload).length) {
+        alert("Saisissez au moins un élément de paie à appliquer.");
+        return;
+      }
+    } else {
+      const userId = String(form.querySelector('select[name="userId"]')?.value || "");
+      if (!userId) {
+        alert("Choisissez un collaborateur.");
+        return;
+      }
+      userIds = [userId];
+    }
+    const allowed = new Set(getReportProfiles().map((profile) => profile.id));
+    userIds = userIds.filter((id) => allowed.has(id));
+    if (!userIds.length) {
+      alert("Aucun collaborateur autorisé.");
+      return;
+    }
+    const cycleKey = getEdsCycleKey(range);
+    const next = { ...edsPayrollState() };
+    const cycle = { ...(next[cycleKey] || {}) };
+    userIds.forEach((userId) => {
+      if (massVisible) {
+        cycle[userId] = { ...(cycle[userId] || {}), ...payload };
+        return;
+      }
+      const previous = { ...(cycle[userId] || {}) };
+      edsPayrollFields().forEach((field) => {
+        const input = form.querySelector(`[name="${field.key}"]`);
+        if (!input) return;
+        const value = sanitizeEdsPayrollValue(input.value);
+        if (value === "") delete previous[field.key];
+        else previous[field.key] = value;
+      });
+      cycle[userId] = previous;
+    });
+    next[cycleKey] = cycle;
+    const submit = form.querySelector('button[type="submit"]');
+    if (submit) submit.disabled = true;
+    Promise.resolve(saveEdsPayroll(next))
+      .then(() => {
+        closeEdsPayrollDialog();
+        if (currentPage === "reports") refreshPageContent();
+      })
+      .catch((error) => {
+        if (submit) submit.disabled = false;
+        alert(formatAppError(error) || "Impossible d'enregistrer les éléments de paie.");
+      });
+  });
 }
 
 const EDS_COLUMNS = [
@@ -5941,6 +6400,8 @@ function buildEdsRows() {
     const earlyHours = edsQty(earlyMin / 60 + earlyLeave.qty);
     const names = splitFullName(profile.full_name);
     const hired = getHiredAt(profile);
+    const hiredKey = hired ? String(hired).slice(0, 10) : "";
+    const statut = hiredKey && hiredKey > range.end ? "Non entré" : "Actif";
     const shift = getProfileShift(profile);
     const cpBalance = accruedLeaveDays(profile);
     const absenceDays = unjust.qty + just.qty + accident.qty + cp.qty + special.qty + unpaid.qty + maternity.qty + recup.qty;
@@ -5950,7 +6411,7 @@ function buildEdsRows() {
     const showPayroll = canViewEdsPayrollColumns();
 
     const row = {
-      statut: "Actif",
+      statut,
       nom: names.last,
       prenom: names.first,
       matricule: getProfileMatricule(profile.id),
@@ -5992,32 +6453,33 @@ function buildEdsRows() {
       range
     };
     if (showPayroll) {
+      const saved = getEdsPayrollEntry(profile.id, range);
       Object.assign(row, {
-      primesExcept: 0,
-      primeOutbound: 0,
-      primeProjet: 0,
-      primeChallenge: 0,
-      primeEid: 0,
-      primeParrainage: 0,
-      primeLangue: 0,
-      primeProd: 0,
-      regulM1: 0,
-      primeAnciennete: 0,
-      hs100: 0,
-      hs125: hsHours,
-      hs150: 0,
-      avance: 0,
-      preavis: 0,
-      chifaa: 0,
-      retraiteSal: "",
-      retraitePat: "",
-      salaireBrut: "",
-      salaireNet: "",
-      primesFixesPror: 0,
-      variablePror: 0,
-      salaireEstime: "",
-      primeProjet2: 0,
-        primeOutbound2: 0
+        primesExcept: saved.primesExcept ?? 0,
+        primeOutbound: saved.primeOutbound ?? 0,
+        primeProjet: saved.primeProjet ?? 0,
+        primeChallenge: saved.primeChallenge ?? 0,
+        primeEid: saved.primeEid ?? 0,
+        primeParrainage: saved.primeParrainage ?? 0,
+        primeLangue: saved.primeLangue ?? 0,
+        primeProd: saved.primeProd ?? 0,
+        regulM1: saved.regulM1 ?? 0,
+        primeAnciennete: saved.primeAnciennete ?? 0,
+        hs100: saved.hs100 ?? 0,
+        hs125: saved.hs125 ?? hsHours,
+        hs150: saved.hs150 ?? 0,
+        avance: saved.avance ?? 0,
+        preavis: saved.preavis ?? 0,
+        chifaa: saved.chifaa ?? 0,
+        retraiteSal: saved.retraiteSal ?? "",
+        retraitePat: saved.retraitePat ?? "",
+        salaireBrut: saved.salaireBrut ?? "",
+        salaireNet: saved.salaireNet ?? "",
+        primesFixesPror: saved.primesFixesPror ?? 0,
+        variablePror: saved.variablePror ?? 0,
+        salaireEstime: saved.salaireEstime ?? "",
+        primeProjet2: saved.primeProjet2 ?? 0,
+        primeOutbound2: saved.primeOutbound2 ?? 0
       });
     }
     return row;
@@ -6054,6 +6516,10 @@ const PLANNING_CODES = [
   { code: "AB", label: "Non pointé" },
   { code: "FER", label: "Jour férié" }
 ];
+
+const PLANNING_COMPUTED_CODES = new Set(["RE", "DP", "EC", "AB"]);
+const PLANNING_ABSENCE_CODES = new Set(["CP", "AJ", "AI", "MA", "PA", "SS", "RC", "MP", "SP", "FER"]);
+const PLANNING_EDIT_CODES = PLANNING_CODES.filter((item) => !PLANNING_COMPUTED_CODES.has(item.code));
 
 const PLANNING_KIND_MAP = {
   P: "PR", PRES: "PR", PRESENT: "PR", PRESENCE: "PR", PR: "PR",
@@ -6666,6 +7132,43 @@ function getPlanningEntries() {
   return appData.planningEntries || [];
 }
 
+function planningEditorName(userId) {
+  const id = String(userId || "");
+  if (!id) return "";
+  if (id === session?.user?.id) {
+    return appData.profile?.full_name || session?.user?.email || "Vous";
+  }
+  return profileById(id)?.full_name || "";
+}
+
+function planningSourceLabel(source) {
+  const key = String(source || "").toLowerCase();
+  if (key === "manual") return "saisie";
+  if (key === "assign") return "affectation";
+  if (key === "import") return "import Cegid";
+  return key;
+}
+
+function planningSlotsEditor(slots) {
+  const list = Array.isArray(slots) ? slots : [];
+  const latest = [...list].sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")))[0];
+  if (!latest) return { name: "", at: "", source: "", label: "" };
+  const name = planningEditorName(latest.created_by);
+  const at = latest.created_at ? formatDateTimeShort(latest.created_at) : "";
+  const source = planningSourceLabel(latest.source);
+  const parts = [name, at, source].filter(Boolean);
+  return {
+    name,
+    at,
+    source,
+    label: parts.length ? `Modifié par ${parts.join(" · ")}` : ""
+  };
+}
+
+function planningDaySlots(userId, dayKey) {
+  return planningSlotsByUserDay().get(`${userId}|${dayKey}`) || [];
+}
+
 function planningSlotsByUserDay() {
   const list = getPlanningEntries();
   if (planningSlotsByUserDay.cacheRef === list) return planningSlotsByUserDay.cacheMap;
@@ -6682,7 +7185,10 @@ function planningSlotsByUserDay() {
       hours: Number(row.hours || 0),
       location: row.location || "",
       note: row.note || "",
-      matricule: row.matricule || ""
+      matricule: row.matricule || "",
+      source: row.source || "",
+      created_by: row.created_by || row.createdBy || "",
+      created_at: row.created_at || row.createdAt || ""
     });
     map.set(key, slots);
   });
@@ -6717,7 +7223,7 @@ async function loadPlanningEntries() {
   const range = planningEntriesRange();
   const { data, error } = await supabaseClient
     .from("planning_entries")
-    .select("id, user_id, work_date, slot, kind, hours, department, structure, location, note, source, matricule")
+    .select("id, user_id, work_date, slot, kind, hours, department, structure, location, note, source, matricule, created_by, created_at")
     .gte("work_date", range.start)
     .lte("work_date", range.end);
   if (error) {
@@ -7061,7 +7567,8 @@ function buildPlanningModel() {
       const plannedHours = slots
         ? slots.reduce((total, item) => total + Number(item.hours || 0), 0)
         : null;
-      const working = plannedHours == null ? isWorkingDayKey(dayKey) : plannedHours > 0;
+      const plannedAbsence = Boolean(slots && slots.some((item) => PLANNING_ABSENCE_CODES.has(item.kind)));
+      const working = plannedHours == null ? isWorkingDayKey(dayKey) : (plannedHours > 0 || plannedAbsence);
       const dayRow = daily.find((row) => row.userId === profile.id && row.dayKey === dayKey);
       const dayLeaves = leaves.filter((item) => (
         (item.userId || item.user_id) === profile.id && leaveCoversPlanningDay(item, dayKey)
@@ -7093,7 +7600,7 @@ function buildPlanningModel() {
         if (loc === "remote") {
           codes.push("TT");
           gapAgents.telework.add(profile.id);
-        } else if (!dayLeaves.length && !(slots && plannedHours > 0 && slots.some((item) => item.kind === "PR"))) {
+        } else if (!dayLeaves.length && !plannedAbsence && !(slots && plannedHours > 0 && slots.some((item) => item.kind === "PR"))) {
           if (working) codes.push("PR");
         }
         if (!flexible && working && stats.delayMin > 0) {
@@ -7118,7 +7625,7 @@ function buildPlanningModel() {
           logs.push({ dayKey, name: profile.full_name, kind: "EC", detail: `${formatDuration(stats.realizedMs)} / ${formatDuration(targetMs)}`, source: "pointage" });
           gapAgents.hours.add(profile.id);
         }
-      } else if (working && !dayLeaves.length) {
+      } else if (working && !dayLeaves.length && !plannedAbsence) {
         notes.push("Non pointé");
         logs.push({ dayKey, name: profile.full_name, kind: "AB", detail: "Jour ouvré sans pointage ni demande", source: "écart" });
         gapAgents.missing.add(profile.id);
@@ -7127,10 +7634,13 @@ function buildPlanningModel() {
       }
       const uniqueCodes = [...new Set(codes)];
       const plannedPresence = uniqueCodes.some((code) => code === "PR" || code === "TT" || code === "FER" || code === "DE");
+      const editor = planningSlotsEditor(slots);
+      if (editor.label) notes.push(editor.label);
       cells[dayKey] = {
         codes: plannedPresence ? uniqueCodes.filter((code) => code !== "AB") : uniqueCodes,
         title: notes.join(" · "),
-        off: !working
+        off: !working,
+        edited: Boolean(slots && slots.some((item) => item.source === "manual" || item.source === "assign"))
       };
     });
     return { profile, cells };
@@ -7226,7 +7736,12 @@ async function savePlanningEntries(entries, { replaceFrom, replaceTo, userIds })
         const uid = row.user_id || row.userId;
         return !(ids.includes(uid) && day >= replaceFrom && day <= replaceTo);
       }),
-      ...entries.map((row, index) => ({ ...row, id: `local-pl-${Date.now()}-${index}` }))
+      ...entries.map((row, index) => ({
+        ...row,
+        id: `local-pl-${Date.now()}-${index}`,
+        created_by: session?.user?.id || "",
+        created_at: new Date().toISOString()
+      }))
     ];
     return { imported: entries.length };
   }
@@ -7446,14 +7961,201 @@ function renderPlanningGrid(model) {
                 ${model.days.map((day) => {
                   const cell = row.cells[day];
                   const codes = cell.codes.length ? cell.codes.join("/") : "";
-                  const cls = [cell.off ? "is-off" : "", cell.codes[0] ? `pl-cell--${cell.codes[0]}` : ""].filter(Boolean).join(" ");
-                  return `<td class="${cls}" title="${escapeHtml(cell.title || codes)}">${escapeHtml(codes)}</td>`;
+                  const cls = [
+                    cell.off ? "is-off" : "",
+                    cell.codes[0] ? `pl-cell--${cell.codes[0]}` : "",
+                    "is-editable",
+                    cell.edited ? "is-edited" : ""
+                  ].filter(Boolean).join(" ");
+                  const title = [cell.title || codes, "Cliquer pour modifier"].filter(Boolean).join(" · ");
+                  return `<td class="${cls}">
+                    <button type="button" class="planning-day-btn" data-planning-day="${escapeHtml(day)}" data-planning-user="${escapeHtml(row.profile.id)}" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${row.profile.full_name} · ${formatDate(day)}${codes ? ` · ${codes}` : ""}`)}">${escapeHtml(codes) || "·"}</button>
+                  </td>`;
                 }).join("")}
               </tr>`).join("")}
           </tbody>
         </table>
       </div>
     </article>`;
+}
+
+function closePlanningDayDialog() {
+  document.removeEventListener("keydown", onPlanningDayKeydown);
+  document.getElementById("planning-day-overlay")?.remove();
+}
+
+function onPlanningDayKeydown(event) {
+  if (event.key === "Escape") closePlanningDayDialog();
+}
+
+function planningDayKindDefault(slots, cellCodes) {
+  const fromSlot = slots.find((item) => item.kind && !PLANNING_COMPUTED_CODES.has(item.kind));
+  if (fromSlot) return fromSlot.kind;
+  const fromCell = (cellCodes || []).find((code) => PLANNING_EDIT_CODES.some((item) => item.code === code));
+  return fromCell || "PR";
+}
+
+function openPlanningDayDialog(userId, dayKey) {
+  if (!userId || !dayKey) return;
+  closePlanningDayDialog();
+  const profile = profileById(userId);
+  const slots = planningDaySlots(userId, dayKey);
+  const editor = planningSlotsEditor(slots);
+  const canEdit = canImportPlanning();
+  const kind = planningDayKindDefault(slots, []);
+  const hours = slots.length
+    ? slots.reduce((total, item) => total + Number(item.hours || 0), 0)
+    : (PLANNING_ABSENCE_CODES.has(kind) ? 0 : 8);
+  const coverage = slots.length === 1 && Number(slots[0].slot) === 2
+    ? "afternoon"
+    : (slots.length === 1 && Number(slots[0].hours) > 0 && Number(slots[0].hours) <= 4 ? "morning" : "day");
+  const current = slots.length
+    ? slots
+      .slice()
+      .sort((left, right) => left.slot - right.slot)
+      .map((item) => `${Number(item.slot) === 2 ? "Après-midi" : (slots.length > 1 ? "Matin" : "Journée")} : ${item.kind} (${item.hours}h)`)
+      .join(" · ")
+    : "Aucun créneau saisi (la case peut afficher un congé ou un pointage).";
+  const overlay = document.createElement("div");
+  overlay.id = "planning-day-overlay";
+  overlay.className = "punch-rectify-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-labelledby", "planning-day-title");
+  overlay.innerHTML = `
+    <form id="planning-day-form" class="punch-rectify-card">
+      <h3 id="planning-day-title">Modifier la journée</h3>
+      <p class="hierarchy-meta">${escapeHtml(profile?.full_name || "Collaborateur")} · ${escapeHtml(formatDate(dayKey))}</p>
+      <p class="data-note">${escapeHtml(current)}</p>
+      <p class="data-note">${editor.label ? escapeHtml(editor.label) : "Aucun changement manuel enregistré pour cette journée."}</p>
+      ${canEdit ? `
+      <label>
+        Type
+        <select name="kind">
+          ${PLANNING_EDIT_CODES.map((item) => `<option value="${item.code}"${item.code === kind ? " selected" : ""}>${item.code} · ${escapeHtml(item.label)}</option>`).join("")}
+        </select>
+      </label>
+      <div class="form-row">
+        <label>
+          Période
+          <select name="coverage">
+            <option value="day"${coverage === "day" ? " selected" : ""}>Journée entière</option>
+            <option value="morning"${coverage === "morning" ? " selected" : ""}>Matin</option>
+            <option value="afternoon"${coverage === "afternoon" ? " selected" : ""}>Après-midi</option>
+          </select>
+        </label>
+        <label>
+          Heures
+          <input type="number" name="hours" min="0" max="12" step="0.5" value="${escapeHtml(String(hours))}">
+        </label>
+      </div>
+      <label>Note <input type="text" name="note" maxlength="240" value="${escapeHtml(slots.map((item) => item.note).find(Boolean) || "")}" placeholder="Optionnel"></label>
+      <input type="hidden" name="userId" value="${escapeHtml(userId)}">
+      <input type="hidden" name="dayKey" value="${escapeHtml(dayKey)}">
+      <div class="punch-rectify-actions">
+        <button type="button" class="outline-button" data-planning-day-clear>Effacer</button>
+        <button type="button" class="outline-button" data-planning-day-close>Annuler</button>
+        <button type="submit" class="primary">Enregistrer</button>
+      </div>` : `
+      <p class="data-note">La modification est réservée aux managers et à l’administration RH.</p>
+      <div class="punch-rectify-actions">
+        <button type="button" class="outline-button" data-planning-day-close>Fermer</button>
+      </div>`}
+    </form>`;
+  const close = () => closePlanningDayDialog();
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  overlay.querySelector("[data-planning-day-close]")?.addEventListener("click", close);
+  overlay.querySelector("[name='kind']")?.addEventListener("change", (event) => {
+    const hoursInput = overlay.querySelector("[name='hours']");
+    if (!hoursInput) return;
+    const next = String(event.currentTarget.value || "").toUpperCase();
+    if (PLANNING_ABSENCE_CODES.has(next) && Number(hoursInput.value) > 0) hoursInput.value = "0";
+    if (!PLANNING_ABSENCE_CODES.has(next) && Number(hoursInput.value) === 0) hoursInput.value = "8";
+  });
+  overlay.querySelector("[data-planning-day-clear]")?.addEventListener("click", () => {
+    if (!window.confirm("Effacer le planning saisi pour cette journée ?")) return;
+    withAction(async () => {
+      await applyPlanningDayChange({ userId, dayKey, clear: true });
+      closePlanningDayDialog();
+    });
+  });
+  overlay.querySelector("#planning-day-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!canEdit) return;
+    const data = new FormData(event.currentTarget);
+    withAction(async () => {
+      await applyPlanningDayChange({
+        userId: String(data.get("userId") || ""),
+        dayKey: String(data.get("dayKey") || ""),
+        kind: String(data.get("kind") || "PR"),
+        hours: data.get("hours"),
+        coverage: String(data.get("coverage") || "day"),
+        note: String(data.get("note") || "")
+      });
+      closePlanningDayDialog();
+    });
+  });
+  document.body.appendChild(overlay);
+  overlay.querySelector(canEdit ? "[name='kind']" : "[data-planning-day-close]")?.focus();
+  document.addEventListener("keydown", onPlanningDayKeydown);
+}
+
+async function applyPlanningDayChange({ userId, dayKey, kind, hours, coverage, note, clear }) {
+  if (!canImportPlanning()) throw new Error("Seul un manager ou un administrateur peut modifier une journée.");
+  if (!userId || !/^\d{4}-\d{2}-\d{2}$/.test(String(dayKey || ""))) {
+    throw new Error("Journée invalide.");
+  }
+  const profile = profileById(userId);
+  if (!profile) throw new Error("Collaborateur introuvable.");
+  const existing = getPlanningEntries().filter((row) => (
+    (row.user_id || row.userId) === userId && String(row.work_date || "").slice(0, 10) === dayKey
+  ));
+  let entries = [];
+  if (!clear) {
+    const allowed = Object.fromEntries(PLANNING_EDIT_CODES.map((item) => [item.code, true]));
+    const nextKind = allowed[String(kind || "PR").toUpperCase()] ? String(kind).toUpperCase() : "PR";
+    const nextHours = Math.max(0, Math.min(12, Number(hours)));
+    const slotHours = Number.isFinite(nextHours) ? nextHours : 0;
+    const keepSlot = coverage === "morning" ? 2 : (coverage === "afternoon" ? 1 : 0);
+    const writeSlot = coverage === "afternoon" ? 2 : 1;
+    const kept = keepSlot
+      ? existing.filter((row) => Number(row.slot) === keepSlot).map((row) => ({
+        user_id: userId,
+        work_date: dayKey,
+        slot: Number(row.slot) === 2 ? 2 : 1,
+        kind: String(row.kind || "PR").toUpperCase(),
+        hours: Number(row.hours || 0),
+        department: row.department || profile.department || "",
+        structure: row.structure || "",
+        location: row.location || "",
+        note: row.note || "",
+        source: row.source || "manual",
+        matricule: row.matricule || profile.matricule || ""
+      }))
+      : [];
+    entries = [
+      ...kept,
+      {
+        user_id: userId,
+        work_date: dayKey,
+        slot: writeSlot,
+        kind: nextKind,
+        hours: slotHours,
+        department: profile.department || "",
+        structure: "",
+        location: nextKind === "TT" ? "Télétravail" : "",
+        note: String(note || "").trim().slice(0, 240),
+        source: "manual",
+        matricule: profile.matricule || ""
+      }
+    ];
+  }
+  await savePlanningEntries(entries, { replaceFrom: dayKey, replaceTo: dayKey, userIds: [userId] });
+  planningState.importNotice = clear
+    ? `Planning effacé pour ${profile.full_name} le ${formatDate(dayKey)}.`
+    : `Planning modifié pour ${profile.full_name} le ${formatDate(dayKey)} (${entries[entries.length - 1]?.kind || ""}).`;
 }
 
 function renderPlanningLog(model) {
@@ -8085,7 +8787,7 @@ const PAGE_COLLECTIONS = {
   creator: ["settings"],
   journal: ["org", "journal"],
   "team-punches": ["org", "teamPunches", "gta", "planningEntries"],
-  reports: ["org", "leave", "teamPunches", "planningEntries"],
+  reports: ["org", "leave", "teamPunches", "planningEntries", "edsPayroll"],
   global: ["org", "teamPunches", "planningEntries"],
   planning: ["org", "teamPunches", "planningEntries"],
   privacy: ["punches", "leave", "attestations", "documents"]
@@ -8160,18 +8862,22 @@ async function loadOwnLeave() {
 
 async function loadOwnAttestations() {
   const userId = session.user.id;
-  const attestationRes = await supabaseClient
-    .from("attestation_requests")
-    .select("*")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false });
+  const teamIds = [userId, ...getDirectReportProfiles().map((profile) => profile.id)];
+  const scopeAll = hasOrgWideAccess();
+  const scopeTeam = !scopeAll && hasDirectReports();
+  let attestationQuery = supabaseClient.from("attestation_requests").select("*").order("created_at", { ascending: false });
+  let advanceQuery = supabaseClient.from("salary_advance_requests").select("*").order("created_at", { ascending: false });
+  if (scopeTeam) {
+    attestationQuery = attestationQuery.in("user_id", teamIds);
+    advanceQuery = advanceQuery.in("user_id", teamIds);
+  } else if (!scopeAll) {
+    attestationQuery = attestationQuery.eq("user_id", userId);
+    advanceQuery = advanceQuery.eq("user_id", userId);
+  }
+  const attestationRes = await attestationQuery;
   if (attestationRes.error) throw attestationRes.error;
   appData.attestationRequests = attestationRes.data || [];
-    const advanceRes = await supabaseClient
-      .from("salary_advance_requests")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false });
+    const advanceRes = await advanceQuery;
     if (advanceRes.error) {
       const message = `${advanceRes.error.message || ""} ${advanceRes.error.details || ""}`.toLowerCase();
       if (message.includes("salary_advance") || message.includes("does not exist") || message.includes("schema cache") || message.includes("relation")) {
@@ -8268,8 +8974,9 @@ async function loadCollection(key, { force = false } = {}) {
       }
       break;
     case "teamLeave":
-      if (canViewTeamLeaveCalendar()) await loadTeamLeaveRequests(getLeaveCalendarMonth());
-      else appData.teamLeaveRequests = [];
+      if (canViewTeamLeaveCalendar()) {
+        await loadTeamLeaveRequests(currentPage === "reports" ? getEdsRange() : getLeaveCalendarMonth());
+      } else appData.teamLeaveRequests = [];
       break;
     case "teamPunches":
       if (currentPage === "planning") {
@@ -8278,7 +8985,15 @@ async function loadCollection(key, { force = false } = {}) {
           ...teamPunchFilters,
           start: range.start,
           end: range.end,
-          scope: isAdmin() ? (teamPunchFilters.scope || "all") : "team"
+          scope: hasOrgWideAccess() ? (teamPunchFilters.scope || "all") : "team"
+        };
+      }
+      if (currentPage === "reports") {
+        const range = getEdsRange();
+        teamPunchFilters = {
+          ...teamPunchFilters,
+          start: range.start,
+          end: range.end
         };
       }
       if (canViewTeamPunches()) {
@@ -8298,6 +9013,10 @@ async function loadCollection(key, { force = false } = {}) {
       break;
     case "planningEntries":
       await loadPlanningEntries();
+      break;
+    case "edsPayroll":
+      if (canEditEdsPayroll() || canViewEdsPayrollColumns()) await loadEdsPayroll();
+      else appData.edsPayroll = {};
       break;
     default:
       return;
@@ -8339,7 +9058,7 @@ async function loadGtaCollections(userId) {
   await Promise.all(kinds.map(async ({ table, store }) => {
     try {
       let query = supabaseClient.from(table).select("*").order("created_at", { ascending: false }).limit(200);
-      if (!canViewTeamPunches() && !isAdmin()) {
+      if (!canViewTeamPunches() && !hasOrgWideAccess()) {
         query = query.eq("user_id", userId);
       }
       const { data, error } = await query;
@@ -8711,26 +9430,91 @@ function leaveIsHoursUnit(type) {
   return normalized.includes("retard") || normalized === "depart" || normalized.includes("depart anticipe");
 }
 
-function getLeaveValidatorChain(userId) {
-  const labels = ["Manager N+1", "OPS manager N+2", "Directeur N+3"];
-  const chain = [];
-  let current = profileById(userId) || appData.profile;
+function isDirecteurLike(profile) {
+  if (!profile) return false;
+  const grade = String(profile.leave_grade || "").toLowerCase();
+  const title = foldAbsenceText(profile.job_title || "");
+  return grade === "codir" || title.includes("directeur") || title.includes("directrice") || title.includes("codir");
+}
+
+function getLineManagers(userId) {
+  const managers = [];
   const seen = new Set();
-  for (let index = 0; index < 3; index += 1) {
+  let current = profileById(userId) || appData.profile;
+  for (let index = 0; index < 6; index += 1) {
     const managerId = current?.manager_id;
     if (!managerId || seen.has(managerId)) break;
     const manager = profileById(managerId);
     if (!manager) break;
     seen.add(managerId);
-    chain.push({ step: chain.length + 1, id: manager.id, name: manager.full_name, role: labels[index] });
+    managers.push(manager);
     current = manager;
   }
-  const rh = appData.orgProfiles.find((profile) => profile.role === "admin" || profile.role === "creator")
-    || appData.profile;
-  if (rh && !chain.some((item) => item.id === rh.id)) {
-    chain.push({ step: chain.length + 1, id: rh.id, name: rh.full_name || "RH", role: "RH" });
+  return managers;
+}
+
+function getRhProfiles(excludeId = "") {
+  return (appData.orgProfiles || []).filter((profile) => (
+    isRhRole(profile.role) && profile.id && profile.id !== excludeId
+  ));
+}
+
+function leaveChainLabel(chain) {
+  return (chain || []).map((item) => item.role).join(" → ");
+}
+
+function getLeaveValidatorChain(userId) {
+  const labels = ["Manager N+1", "OPS manager N+2"];
+  const managers = getLineManagers(userId);
+  const line = [];
+  let director = null;
+  managers.forEach((manager, index) => {
+    if (director) return;
+    const isLast = index === managers.length - 1;
+    if (isDirecteurLike(manager) || index >= 2 || (isLast && index >= 1)) {
+      director = manager;
+      return;
+    }
+    line.push(manager);
+  });
+
+  const chain = line.map((manager, index) => ({
+    step: index + 1,
+    id: manager.id,
+    ids: [manager.id],
+    name: manager.full_name,
+    role: labels[index] || `Manager N+${index + 1}`,
+    sharedFinal: false
+  }));
+
+  const finalIds = [...new Set([
+    ...(director ? [director.id] : []),
+    ...getRhProfiles(userId).map((profile) => profile.id)
+  ])].filter(Boolean);
+
+  if (finalIds.length) {
+    const hasDirector = Boolean(director) || finalIds.some((id) => isDirecteurLike(profileById(id)));
+    const hasRh = finalIds.some((id) => isRhRole(profileById(id)?.role));
+    const role = hasDirector && hasRh ? "Directeur / RH" : (hasDirector ? "Directeur" : "RH");
+    chain.push({
+      step: chain.length + 1,
+      id: finalIds[0],
+      ids: finalIds,
+      name: finalIds.map((id) => profileById(id)?.full_name).filter(Boolean).join(" · ") || role,
+      role,
+      sharedFinal: true
+    });
   } else if (!chain.length) {
-    chain.push({ step: 1, id: session?.user?.id, name: "RH", role: "RH" });
+    chain.push({
+      step: 1,
+      id: session?.user?.id,
+      ids: [session?.user?.id].filter(Boolean),
+      name: "RH",
+      role: "RH",
+      sharedFinal: true
+    });
+  } else {
+    chain[chain.length - 1].sharedFinal = true;
   }
   return chain;
 }
@@ -8808,20 +9592,97 @@ function analyzeWorkedDay(row, profile) {
   };
 }
 
-function getEdsRange(fromDate = new Date()) {
-  const year = fromDate.getFullYear();
-  const month = fromDate.getMonth();
-  const start = new Date(year, month - 1, 21);
-  const end = new Date(year, month, 20);
+function edsRangeForPayrollMonth(year, monthIndex) {
+  const start = new Date(year, monthIndex - 1, 21);
+  const end = new Date(year, monthIndex, 20);
   return { start: toDateKey(start), end: toDateKey(end) };
 }
 
+function defaultEdsRange(fromDate = new Date()) {
+  const year = fromDate.getFullYear();
+  const month = fromDate.getMonth();
+  // Cycle 21→20 : à partir du 21, on est déjà dans le mois de paie suivant.
+  const payrollMonth = fromDate.getDate() >= 21 ? month + 1 : month;
+  return edsRangeForPayrollMonth(year, payrollMonth);
+}
+
+function ensureEdsFilters() {
+  if (!edsFilters.start || !edsFilters.end || edsFilters.end < edsFilters.start) {
+    const range = defaultEdsRange();
+    edsFilters.start = range.start;
+    edsFilters.end = range.end;
+  }
+  return edsFilters;
+}
+
+function getEdsRange() {
+  const filters = ensureEdsFilters();
+  return { start: filters.start, end: filters.end };
+}
+
+function edsPeriodLabel(range = getEdsRange()) {
+  return `du ${formatDate(parseLocalDate(range.start))} au ${formatDate(parseLocalDate(range.end))}`;
+}
+
+function edsFilterMarkup() {
+  const range = getEdsRange();
+  const count = getReportProfiles().length;
+  return `
+    <article class="card form-card page-spacer">
+      ${cardHeading("Période du rapport")}
+      <p class="data-note">Retards, absences, jours travaillés et heures supplémentaires sont calculés depuis les pointages, congés et plannings de la période.</p>
+      <form id="eds-filter" class="feature-form team-punches-filter">
+        <div class="form-row">
+          <label>
+            Du
+            <input type="date" name="start" value="${escapeHtml(range.start)}" required>
+          </label>
+          <label>
+            Au
+            <input type="date" name="end" value="${escapeHtml(range.end)}" required>
+          </label>
+        </div>
+        <p class="hierarchy-meta" id="eds-cycle-hint">Période ${edsPeriodLabel(range)} · ${count} collaborateur${count > 1 ? "s" : ""}.</p>
+        <div class="team-punches-actions">
+          <button type="submit" class="primary">Actualiser</button>
+        </div>
+      </form>
+    </article>`;
+}
+
+function applyEdsFilterFromForm(form) {
+  const data = new FormData(form);
+  const start = String(data.get("start") || "");
+  const end = String(data.get("end") || "");
+  if (!start || !end) {
+    alert("Indiquez une date de début et une date de fin.");
+    return false;
+  }
+  if (end < start) {
+    alert("La date de fin doit être postérieure à la date de début.");
+    return false;
+  }
+  const span = (parseLocalDate(end) - parseLocalDate(start)) / 86400000;
+  if (span > 366) {
+    alert("L'intervalle ne peut pas dépasser 12 mois.");
+    return false;
+  }
+  edsFilters = { start, end };
+  return true;
+}
+
 function canValidateLeave(request) {
-  if (isAdmin()) return true;
-  const chain = getLeaveValidatorChain(request.userId || request.user_id || session?.user?.id);
+  const owner = request.userId || request.user_id;
+  const me = session?.user?.id;
+  if (owner && me && owner === me) return isAdmin();
+  const chain = getLeaveValidatorChain(owner || me);
   const step = Number(request.workflowStep || request.workflow_step || 1);
   const current = chain[Math.max(0, step - 1)];
-  return current?.id === session?.user?.id;
+  if (!current) return false;
+  const ids = current.ids || (current.id ? [current.id] : []);
+  if (me && ids.includes(me)) return true;
+  if (current.sharedFinal && isHr()) return true;
+  return isAdmin();
 }
 
 function pendingLeaveForValidator() {
@@ -9322,6 +10183,21 @@ function bindPageEvents() {
     button.addEventListener("click", () => advanceLeave(button.dataset.leaveId, true));
   });
 
+  const edsFilter = document.querySelector("#eds-filter");
+  if (edsFilter) {
+    edsFilter.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!applyEdsFilterFromForm(edsFilter)) return;
+      const range = getEdsRange();
+      teamPunchFilters = { ...teamPunchFilters, start: range.start, end: range.end };
+      teamPunchesInitialLoadDone = false;
+      withAction(async () => {});
+    });
+  }
+
+  document.querySelector("#eds-payroll-open")?.addEventListener("click", () => {
+    openEdsPayrollDialog("one");
+  });
   document.querySelector("#export-eds")?.addEventListener("click", () => {
     const rows = buildEdsRows();
     const range = getEdsRange();
@@ -9331,8 +10207,11 @@ function bindPageEvents() {
       rows.map((row) => edsRowCells(row, columns)));
   });
   document.querySelector("#export-absences")?.addEventListener("click", () => {
-    const requests = [...getLeaveRequests(), ...(appData.teamLeaveRequests || [])];
-    downloadCsv("absences.csv", ["Nom", "Type", "Début", "Fin", "Durée", "Statut"],
+    const range = getEdsRange();
+    const requests = [...getLeaveRequests(), ...(appData.teamLeaveRequests || [])]
+      .map((row) => (row.type ? row : normalizeTeamLeaveRequest(row)))
+      .filter((item) => edsLeaveOverlaps(item, range));
+    downloadCsv(`absences_${range.start}_${range.end}.csv`, ["Nom", "Type", "Début", "Fin", "Durée", "Statut"],
       requests.map((item) => [item.name || getUserName(), item.type, item.start, item.end, item.days || item.hours, item.status]));
   });
   document.querySelector("#export-retards")?.addEventListener("click", () => {
@@ -9535,6 +10414,12 @@ function bindPageEvents() {
     })();
   });
   refreshAssignPreview();
+
+  document.querySelectorAll("[data-planning-day]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openPlanningDayDialog(button.dataset.planningUser, button.dataset.planningDay);
+    });
+  });
 
   document.querySelector("#planning-import")?.addEventListener("change", (event) => {
     const input = event.currentTarget;
@@ -9806,7 +10691,7 @@ function bindPageEvents() {
       alert("Les absences ne peuvent pas se chevaucher.");
       return;
     }
-    if (seniorityMonths() < 6 && !isAdmin() && leaveTypeKey(type) === "cp") {
+    if (seniorityMonths() < 6 && !hasOrgWideAccess() && leaveTypeKey(type) === "cp") {
       alert("Une ancienneté minimale de 6 mois est requise pour poser des congés payés, sauf dérogation RH.");
       return;
     }
@@ -9895,7 +10780,7 @@ function bindPageEvents() {
         if (error) throw error;
       } else {
         const requests = loadStore("salaryAdvanceRequests", []);
-        requests.unshift({ id: Date.now(), ...payload, created: new Date().toISOString() });
+        requests.unshift({ id: Date.now(), userId: session?.user?.id, ...payload, created: new Date().toISOString() });
         saveStore("salaryAdvanceRequests", requests);
       }
 
@@ -9926,13 +10811,37 @@ function bindPageEvents() {
         if (error) throw error;
       } else {
         const requests = loadStore("attestationRequests", []);
-        requests.unshift({ id: Date.now(), ...payload, created: new Date().toISOString() });
+        requests.unshift({ id: Date.now(), userId: session?.user?.id, ...payload, created: new Date().toISOString() });
         saveStore("attestationRequests", requests);
       }
 
       form.reset();
       currentPage = "attestations";
     });
+  });
+
+  const settleHrItem = (kind, itemId, refuse) => {
+    const table = kind === "advance" ? "salary_advance_requests" : "attestation_requests";
+    const store = kind === "advance" ? "salaryAdvanceRequests" : "attestationRequests";
+    withAction(async () => {
+      const status = refuse ? "Refuse" : "Approuve";
+      if (usesDatabase()) {
+        const { error } = await supabaseClient.from(table).update({ status }).eq("id", itemId);
+        if (error) throw error;
+      } else {
+        saveStore(store, loadStore(store, []).map((item) => (
+          String(item.id) === String(itemId) ? { ...item, status } : item
+        )));
+      }
+      currentPage = "attestations";
+    });
+  };
+
+  document.querySelectorAll(".hr-approve").forEach((button) => {
+    button.addEventListener("click", () => settleHrItem(button.dataset.hrKind, button.dataset.hrId, false));
+  });
+  document.querySelectorAll(".hr-reject").forEach((button) => {
+    button.addEventListener("click", () => settleHrItem(button.dataset.hrKind, button.dataset.hrId, true));
   });
 
   document.querySelector("#admin-hr-doc-form")?.addEventListener("submit", (event) => {
@@ -10153,6 +11062,7 @@ function bindAppEvents() {
     journalColumnFilters = {};
     journalOpenColumn = "";
     leaveCalendarMonth = null;
+    edsFilters = { start: "", end: "" };
     appData = {
       loading: false,
       error: "",
@@ -10181,7 +11091,8 @@ function bindAppEvents() {
       eventEditingId: "",
       eventDetailId: "",
       adminEditingId: "",
-      adminEditingInviteId: ""
+      adminEditingInviteId: "",
+      edsPayroll: {}
     };
     if (mpaMode) {
       window.location.href = loginHref();
@@ -10394,7 +11305,7 @@ function hydrateDemoWorkspace() {
     { id: "u-camille", email: "camille.moreau@humaine.fr", full_name: "Camille Moreau", job_title: "Directrice RH", department: "Ressources humaines", role: "creator", manager_id: "", matricule: "HUM-1001", leave_grade: "codir", shift_code: "cs", hired_at: "2018-03-01", leave_balance_cp: 30, leave_balance_rtt: 8 },
     { id: "u-thomas", email: "thomas.bernard@humaine.fr", full_name: "Thomas Bernard", job_title: "Responsable opérations", department: "Opérations", role: "manager", manager_id: "u-camille", matricule: "HUM-1042", leave_grade: "manager", shift_code: "cs", hired_at: "2020-01-15", leave_balance_cp: 24, leave_balance_rtt: 6 },
     { id: "u-sarah", email: "sarah.nguyen@humaine.fr", full_name: "Sarah Nguyen", job_title: "Responsable commercial", department: "Commercial", role: "manager", manager_id: "u-camille", matricule: "HUM-1088", leave_grade: "manager", shift_code: "cs", hired_at: "2019-09-01", leave_balance_cp: 24, leave_balance_rtt: 8 },
-    { id: "u-lea", email: "lea.martin@humaine.fr", full_name: "Léa Martin", job_title: "Chargée de paie", department: "Ressources humaines", role: "employee", manager_id: "u-thomas", matricule: "HUM-1214", leave_grade: "employee", shift_code: "cs", hired_at: "2024-01-08", leave_balance_cp: 18, leave_balance_rtt: 5 },
+    { id: "u-lea", email: "lea.martin@humaine.fr", full_name: "Léa Martin", job_title: "Chargée de paie", department: "Ressources humaines", role: "rh", manager_id: "u-thomas", matricule: "HUM-1214", leave_grade: "employee", shift_code: "cs", hired_at: "2024-01-08", leave_balance_cp: 18, leave_balance_rtt: 5 },
     { id: "u-hugo", email: "hugo.petit@humaine.fr", full_name: "Hugo Petit", job_title: "Ingénieur R&D", department: "R&D", role: "employee", manager_id: "u-thomas", matricule: "HUM-1307", leave_grade: "employee", shift_code: "rnd", hired_at: "2023-06-12", leave_balance_cp: 18, leave_balance_rtt: 8 },
     { id: "u-nina", email: "nina.rossi@humaine.fr", full_name: "Nina Rossi", job_title: "Commerciale", department: "CES", role: "employee", manager_id: "u-sarah", matricule: "HUM-1420", leave_grade: "employee", shift_code: "ces", hired_at: "2025-11-02", leave_balance_cp: 4, leave_balance_rtt: 2 }
   ];
@@ -10412,6 +11323,7 @@ function hydrateDemoWorkspace() {
   appData.companyTimezone = loadStore("companyTimezone", "GMT+1") === "GMT" ? "GMT" : "GMT+1";
   appData.shiftHours = normalizeShiftHours(loadStore("shiftHours", defaultShiftHours()));
   appData.planningEntries = [];
+  appData.edsPayroll = loadStore("edsPayroll", {});
   const punches = [];
   profiles.forEach((profile, index) => {
     for (let daysAgo = 2; daysAgo >= 0; daysAgo -= 1) {
@@ -10482,6 +11394,15 @@ function hydrateDemoWorkspace() {
     hours: 1,
     category: "Formation",
     comment: "Onboarding produit",
+    status: "A valider",
+    created: new Date().toISOString()
+  }]);
+  saveStore("attestationRequests", [{
+    id: "att-demo-1",
+    userId: "u-hugo",
+    kind: "attestation",
+    type: "Attestation employeur",
+    reason: "Dossier de location",
     status: "A valider",
     created: new Date().toISOString()
   }]);

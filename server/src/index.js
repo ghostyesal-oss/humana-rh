@@ -15,8 +15,8 @@ import {
   signUser,
   startMicrosoftLogin
 } from "./auth.js";
+import csrf from "csurf";
 import { rateLimit } from "./rate-limit.js";
-import { csrfProtection } from "./csrf.js";
 import { runQuery } from "./query.js";
 import { runRpc } from "./rpc.js";
 import { publicUrl, readFile, removeFile, saveFile, assertCanReadStorage } from "./storage.js";
@@ -75,7 +75,34 @@ function sameOrigin(req, res, next) {
   next();
 }
 
+function readQueryRequest(body) {
+  const input = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+  return {
+    table: String(input.table || ""),
+    op: String(input.op || "select"),
+    select: input.select == null ? "*" : String(input.select),
+    filters: Array.isArray(input.filters) ? input.filters : [],
+    payload: input.payload,
+    order: input.order && typeof input.order === "object"
+      ? { column: String(input.order.column || ""), ascending: input.order.ascending !== false }
+      : null,
+    limit: Number(input.limit) || 0,
+    onConflict: String(input.onConflict || "id"),
+    maybeSingle: Boolean(input.maybeSingle),
+    single: Boolean(input.single)
+  };
+}
+
 app.use("/api", sameOrigin);
+app.use("/api", csrf({
+  cookie: {
+    key: "_csrf",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.COOKIE_SECURE !== "false",
+    path: "/"
+  }
+}));
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, name: "auth" });
 const writeLimiter = rateLimit({ windowMs: 60 * 1000, max: 90, name: "write" });
@@ -85,7 +112,7 @@ app.use("/api", (req, res, next) => {
   return apiLimiter(req, res, next);
 });
 
-app.get("/api/auth/csrf", authLimiter, csrfProtection, (req, res) => {
+app.get("/api/auth/csrf", authLimiter, (req, res) => {
   res.json({ csrfToken: req.csrfToken() });
 });
 
@@ -106,14 +133,14 @@ app.get("/api/auth/session", async (req, res) => {
   res.json({ data: { session: sessionPayload(user, profile) }, error: null });
 });
 
-app.post("/api/auth/logout", csrfProtection, async (req, res) => {
+app.post("/api/auth/logout", async (req, res) => {
   const user = readToken(req);
   if (user?.sub) await bumpSessionEpoch(user.sub).catch(() => {});
   clearSessionCookie(res);
   res.json({ error: null });
 });
 
-app.post("/api/auth/refresh", csrfProtection, async (req, res) => {
+app.post("/api/auth/refresh", async (req, res) => {
   const user = readToken(req);
   if (!user) return res.status(401).json({ data: { session: null }, error: { message: "Session expirée." } });
   const profile = await loadProfile(user.sub);
@@ -126,9 +153,9 @@ app.post("/api/auth/refresh", csrfProtection, async (req, res) => {
   res.json({ data: { session: sessionPayload({ ...user, epoch: profile.session_epoch }, profile) }, error: null });
 });
 
-app.post("/api/db", csrfProtection, requireAuth, writeLimiter, async (req, res) => {
+app.post("/api/db", requireAuth, writeLimiter, async (req, res) => {
   try {
-    const result = await runQuery(req.user, req.body || {});
+    const result = await runQuery(req.user, readQueryRequest(req.body));
     const status = result.error ? (result.error.code === "PGRST116" ? 406 : 400) : 200;
     res.status(status).json(result);
   } catch (error) {
@@ -137,7 +164,7 @@ app.post("/api/db", csrfProtection, requireAuth, writeLimiter, async (req, res) 
   }
 });
 
-app.post("/api/rpc/:name", csrfProtection, requireAuth, writeLimiter, async (req, res) => {
+app.post("/api/rpc/:name", requireAuth, writeLimiter, async (req, res) => {
   try {
     const result = await runRpc(req.user, String(req.params.name || ""), req.body || {});
     res.json(result);
@@ -146,7 +173,7 @@ app.post("/api/rpc/:name", csrfProtection, requireAuth, writeLimiter, async (req
   }
 });
 
-app.post("/api/storage/:bucket", csrfProtection, requireAuth, upload.single("file"), async (req, res) => {
+app.post("/api/storage/:bucket", requireAuth, upload.single("file"), async (req, res) => {
   try {
     if (!["admin", "creator"].includes(req.user.role)) {
       return res.status(403).json({ data: null, error: { message: "Accès refusé." } });
@@ -185,7 +212,7 @@ app.get("/api/storage/:bucket", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/api/storage/:bucket/signed-url", csrfProtection, requireAuth, async (req, res) => {
+app.post("/api/storage/:bucket/signed-url", requireAuth, async (req, res) => {
   try {
     const filePath = await assertCanReadStorage(
       req.user,
@@ -201,7 +228,7 @@ app.post("/api/storage/:bucket/signed-url", csrfProtection, requireAuth, async (
   }
 });
 
-app.post("/api/storage/:bucket/remove", csrfProtection, requireAuth, async (req, res) => {
+app.post("/api/storage/:bucket/remove", requireAuth, async (req, res) => {
   try {
     if (!["admin", "creator"].includes(req.user.role)) {
       return res.status(403).json({ data: null, error: { message: "Accès refusé." } });

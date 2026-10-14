@@ -23,43 +23,109 @@
     </nav>
   </header>
   <main class="legal-doc">
-    <p class="legal-disclaimer">Document descriptif du produit Daylyx. L’identité du responsable de traitement, le contact DPO et les durées exactes de conservation doivent être complétés et validés par l’organisation utilisatrice.</p>
     <h1>Politique de confidentialité</h1>
-    <p class="legal-updated">Mise à jour : 13 octobre 2026</p>
+    <p class="legal-updated">Mise à jour : 14 octobre 2026</p>
 
     <h2>Qui traite vos données</h2>
-    <p>Daylyx est un outil de gestion des ressources humaines. Lorsque l’application est mise à disposition d’une entreprise, <strong>cette entreprise est responsable de traitement</strong> des données de ses salariés. L’éditeur technique de Daylyx agit alors comme sous-traitant, sur instruction de l’employeur.</p>
+    <p>Daylyx est un outil de gestion des ressources humaines. <strong>L’employeur qui met l’application à disposition de ses salariés est responsable de traitement</strong>. L’éditeur technique de Daylyx agit comme sous-traitant, sur instruction de cet employeur.</p>
+    <dl class="legal-id">
+      <dt>Responsable de traitement</dt>
+      <dd data-legal="publisherName">L’employeur utilisateur de Daylyx</dd>
+      <dt>Délégué à la protection des données (DPO) ou référent RGPD</dt>
+      <dd data-legal="dpoName">Administration RH de l’employeur</dd>
+      <dt>Contact données personnelles</dt>
+      <dd data-legal="dpoEmail">Onglet Mes données, ou administration RH</dd>
+    </dl>
     <p>La connexion s’effectue via Microsoft Entra (compte professionnel). Microsoft traite les données d’authentification selon sa propre politique.</p>
 
     <h2>Données concernées</h2>
     <ul>
       <li>Identité professionnelle : nom, e-mail, matricule, poste, service, téléphone, manager.</li>
-      <li>Temps de travail : pointages, lieu de travail, éventuellement coordonnées GPS, adresse IP et informations techniques du navigateur.</li>
+      <li>Temps de travail : pointages, lieu de travail. Les colonnes GPS et l’adresse IP des pointages ne sont pas exploitées dans Daylyx.</li>
       <li>Absences et demandes RH : congés, attestations, avances sur salaire, justificatifs.</li>
       <li>Documents RH et bulletins lorsqu’ils sont déposés dans l’espace.</li>
       <li>Notifications push, si vous les activez sur votre appareil.</li>
     </ul>
 
     <h2>Pourquoi</h2>
-    <p>Ces données servent à gérer le quotidien RH : présence, congés, documents, organisation, et à sécuriser l’accès. Pour un salarié, la base n’est en général pas un « consentement » au login, mais le <strong>contrat de travail</strong> et des <strong>obligations légales</strong> (temps de travail, paie, droit social).</p>
+    <p>Ces données servent à gérer le quotidien RH : présence, congés, documents, organisation, et à sécuriser l’accès. Pour un salarié, la base n’est en général pas un « consentement » au login, mais le <strong>contrat de travail</strong> et des <strong>obligations légales</strong> (temps de travail, paie, droit social) — articles 6.1.b et 6.1.c du RGPD.</p>
     <p>Le consentement n’est demandé que pour des options non indispensables, par exemple les notifications du navigateur.</p>
 
     <h2>Destinataires et hébergement</h2>
     <ul>
       <li>Personnes habilitées de l’entreprise (RH, managers selon les droits, administrateurs).</li>
-      <li>Hébergement applicatif et base de données : serveur OVH en France.</li>
+      <li>Hébergement applicatif et base de données : OVH SAS, France (voir mentions légales).</li>
       <li>Authentification : Microsoft Entra (login.microsoftonline.com).</li>
     </ul>
 
     <h2>Durées de conservation</h2>
-    <p>Les durées suivent les obligations de l’employeur (notamment le code du travail). Les pointages et éléments utiles à la paie ne peuvent pas toujours être effacés sur simple demande. Les durées précises sont à fixer par l’organisation.</p>
+    <p>Les durées ci-dessous s’appliquent à Daylyx. Elles suivent le code du travail et le référentiel CNIL relatif aux traitements RH. L’employeur peut en retenir de plus longues si une procédure ou un contrôle l’exige.</p>
+    <div class="legal-table-wrap">
+      <table class="legal-table">
+        <thead>
+          <tr>
+            <th>Données</th>
+            <th>Durée</th>
+            <th>Base</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Identité, contrat, dossier administratif</td>
+            <td>Durée du contrat, puis 5 ans après la sortie</td>
+            <td>Référentiel CNIL RH</td>
+          </tr>
+          <tr>
+            <td>Pointages et éléments utiles à la paie</td>
+            <td>5 ans</td>
+            <td>C. trav. L. 3243-4</td>
+          </tr>
+          <tr>
+            <td>Détail quotidien des horaires (contrôle inspection du travail)</td>
+            <td>1 an</td>
+            <td>C. trav. D. 3171-8</td>
+          </tr>
+          <tr>
+            <td>Congés, absences, justificatifs</td>
+            <td>5 ans (et au plus tard 5 ans après la sortie)</td>
+            <td>Référentiel CNIL RH</td>
+          </tr>
+          <tr>
+            <td>Bulletins et documents de paie déposés</td>
+            <td>5 ans</td>
+            <td>C. trav. L. 3243-4</td>
+          </tr>
+          <tr>
+            <td>Attestations, avances sur salaire</td>
+            <td>5 ans</td>
+            <td>Paie / obligations sociales</td>
+          </tr>
+          <tr>
+            <td>Journaux techniques, adresse IP</td>
+            <td>6 mois, lorsqu’ils sont collectés. Daylyx n’enregistre pas l’IP des pointages.</td>
+            <td>Recommandation CNIL (logs)</td>
+          </tr>
+          <tr>
+            <td>Cookies de session</td>
+            <td>Durée de la session (12 h par défaut)</td>
+            <td>Nécessité de connexion</td>
+          </tr>
+          <tr>
+            <td>Notifications push</td>
+            <td>Jusqu’à désactivation sur l’appareil</td>
+            <td>Consentement</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <h2>Vos droits</h2>
-    <p>Vous pouvez accéder à vos données, les faire rectifier, demander une limitation, vous opposer pour certains traitements, et demander une portabilité. L’effacement peut être refusé lorsqu’une conservation légale s’applique.</p>
-    <p>Dans Daylyx, l’onglet <a href="/privacy">Mes données</a> permet de consulter et d’exporter votre dossier. Pour une rectification ou une suppression, contactez l’administration RH. Vous pouvez aussi saisir la CNIL (<a href="https://www.cnil.fr">cnil.fr</a>).</p>
+    <p>Vous pouvez accéder à vos données, les faire rectifier, demander une limitation, vous opposer pour certains traitements, et demander une portabilité. L’effacement peut être refusé lorsqu’une conservation légale s’applique (paie, temps de travail).</p>
+    <p>Dans Daylyx, l’onglet <a href="/privacy">Mes données</a> permet de consulter et d’exporter votre dossier. Pour une rectification ou une suppression, contactez le DPO ou l’administration RH (<span data-legal="dpoEmail">via l’application</span>). Vous pouvez aussi saisir la CNIL (<a href="https://www.cnil.fr">cnil.fr</a>).</p>
 
     <a class="legal-back" href="/">Retour à la connexion</a>
   </main>
+  <script src="config.js"></script>
   <script src="legal.js"></script>
 </body>
 </html>

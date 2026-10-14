@@ -34,6 +34,7 @@ services:
       HUMANA_DOMAIN: ${HUMANA_DOMAIN}
       APP_ORIGIN: ${APP_ORIGIN}
       BOOTSTRAP_CREATOR_EMAILS: ${BOOTSTRAP_CREATOR_EMAILS:-}
+      PAYROLL_EMAILS: ${PAYROLL_EMAILS:-}
     volumes:
       - storage:/data/storage
     depends_on:
@@ -63,6 +64,12 @@ services:
       REDIRECT_URL: ${APP_ORIGIN}
       PAYROLL_EMAILS: ${PAYROLL_EMAILS:-}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      LEGAL_PUBLISHER_NAME: ${LEGAL_PUBLISHER_NAME:-}
+      LEGAL_PUBLISHER_ADDRESS: ${LEGAL_PUBLISHER_ADDRESS:-}
+      LEGAL_SIRET: ${LEGAL_SIRET:-}
+      LEGAL_PUBLICATION_DIRECTOR: ${LEGAL_PUBLICATION_DIRECTOR:-}
+      LEGAL_DPO_NAME: ${LEGAL_DPO_NAME:-}
+      LEGAL_DPO_EMAIL: ${LEGAL_DPO_EMAIL:-}
     volumes:
       - caddy_data:/data
       - caddy_config:/config

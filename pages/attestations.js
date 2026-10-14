@@ -11,9 +11,10 @@
       return `<article class="card"><p class="empty-state">L'onglet Demande RH n'est pas disponible pour votre profil.</p></article>`;
     }
 
-    const requests = getHrRequests();
+    const requests = getOwnHrRequests();
 
     return `
+      ${renderHrValidationInbox()}
       <div class="feature-grid">
         <article class="card form-card">
           ${cardHeading("Avance sur salaire")}

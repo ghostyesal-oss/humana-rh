@@ -1839,6 +1839,130 @@ button.brand:focus-visible {
   color: #fff6c2;
 }
 
+.eds-payroll-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 860;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px 16px;
+  overflow: auto;
+  background: rgba(2, 35, 65, 0.48);
+  backdrop-filter: blur(4px);
+}
+
+.eds-payroll-card {
+  display: grid;
+  gap: 16px;
+  width: min(920px, 100%);
+  margin: auto;
+  padding: 24px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--line, rgba(15, 23, 42, 0.08));
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.22);
+}
+
+.eds-payroll-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.eds-payroll-head h3 {
+  margin: 0 0 6px;
+  color: var(--brand, #1b4f72);
+}
+
+.eds-payroll-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.eds-payroll-tab {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  border-radius: var(--radius-pill);
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.eds-payroll-tab.is-active {
+  background: var(--brand, #1b4f72);
+  border-color: var(--brand, #1b4f72);
+  color: #fff;
+}
+
+.eds-payroll-org-filters {
+  margin: 0;
+}
+
+.eds-payroll-org-filters label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.eds-payroll-mass-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.eds-payroll-mass-tools input[type="search"] {
+  flex: 1 1 220px;
+}
+
+.eds-payroll-people {
+  display: grid;
+  gap: 6px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.eds-payroll-person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+
+.eds-payroll-person small {
+  display: block;
+  color: var(--text-tertiary);
+}
+
+.eds-payroll-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.eds-payroll-fields label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.eds-payroll-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .table-wrap {
   overflow-x: auto;
   overflow-y: auto;
@@ -2973,6 +3097,10 @@ tbody tr:hover td { background: var(--surface-2); }
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--s4);
+}
+
+.form-row[hidden] {
+  display: none;
 }
 
 .form-card { padding: var(--s4); }
@@ -6928,6 +7056,33 @@ small { font-size: 11px; }
 .planning-grid thead .planning-name { z-index: 4; background: var(--table-head); }
 .planning-grid .planning-name small { display: block; font-weight: 500; color: var(--text-tertiary); }
 .planning-grid .is-off { background: var(--surface-2); color: var(--text-tertiary); }
+.planning-grid td.is-editable {
+  padding: 0;
+  cursor: pointer;
+}
+.planning-day-btn {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 4px 3px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.planning-day-btn:hover,
+.planning-day-btn:focus-visible {
+  background: color-mix(in srgb, #0046fe 14%, transparent);
+}
+.planning-day-btn:focus-visible {
+  outline: 2px solid var(--brand, #0046fe);
+  outline-offset: -2px;
+}
+.planning-grid td.is-edited .planning-day-btn {
+  font-weight: 700;
+}
 .pl-cell--PR { background: #dbeafe; }
 .pl-cell--TT { background: #fde68a; }
 .pl-cell--RE { background: #fed7aa; }
@@ -7400,6 +7555,67 @@ a.primary:active {
 .legal-doc ul {
   margin: 0 0 16px;
   padding-left: 20px;
+}
+
+.legal-id {
+  display: grid;
+  grid-template-columns: minmax(140px, 220px) 1fr;
+  gap: 8px 16px;
+  margin: 0 0 16px;
+}
+
+.legal-id dt {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+}
+
+.legal-id dd {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .legal-id {
+    grid-template-columns: 1fr;
+    gap: 4px 0;
+  }
+
+  .legal-id dt + dd {
+    margin-bottom: 10px;
+  }
+}
+
+.legal-table-wrap {
+  overflow-x: auto;
+  margin: 0 0 16px;
+}
+
+.legal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.legal-table th,
+.legal-table td {
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.legal-table th {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+}
+
+.legal-table td {
+  color: var(--text-secondary);
 }
 
 .legal-back {

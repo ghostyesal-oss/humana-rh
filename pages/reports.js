@@ -12,18 +12,21 @@
     }
     const rows = buildEdsRows();
     const columns = visibleEdsColumns();
+    const range = getEdsRange();
     return `
       ${renderGtaTeamInbox()}
+      ${edsFilterMarkup()}
       <article class="card form-card page-spacer">
         ${cardHeading("Exports")}
         <div class="team-punches-actions">
-          <button type="button" id="export-eds" class="primary">Export EDS consolide</button>
+          ${canEditEdsPayroll() ? `<button type="button" id="eds-payroll-open" class="primary">Éléments de paie</button>` : ""}
+          <button type="button" id="export-eds" class="${canEditEdsPayroll() ? "outline-button" : "primary"}">Export EDS consolidé</button>
           <button type="button" id="export-absences" class="outline-button">Absences / congés</button>
           <button type="button" id="export-retards" class="outline-button">Retards et heures manquantes</button>
         </div>
       </article>
       <article class="card table-card page-spacer">
-        <div class="toolbar"><h3>Aperçu EDS</h3></div>
+        <div class="toolbar"><h3>Aperçu EDS ${escapeHtml(edsPeriodLabel(range))}</h3></div>
         <div class="table-wrap eds-table-wrap">
           <table class="eds-table">
             <thead><tr>${columns.map((col) => `<th${col.payroll ? " class=\"eds-payroll\"" : ""}>${escapeHtml(col.label)}</th>`).join("")}</tr></thead>

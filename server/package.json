@@ -12,9 +12,13 @@
   "dependencies": {
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "csurf": "^1.11.0",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
     "pg": "^8.14.1"
+  },
+  "overrides": {
+    "cookie": "^0.7.2"
   }
 }

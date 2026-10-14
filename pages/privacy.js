@@ -93,6 +93,19 @@
     );
   }
 
+  function dpoContactMarkup() {
+    const cfg = window.HUMANA_CONFIG || {};
+    const name = String(cfg.LEGAL_DPO_NAME || "").trim();
+    const email = String(cfg.LEGAL_DPO_EMAIL || "").trim();
+    const bits = [];
+    if (name) bits.push(escapeHtml(name));
+    if (email && /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(email)) {
+      bits.push(`<a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a>`);
+    }
+    if (bits.length) return bits.join(" — ");
+    return "l’administration RH";
+  }
+
   function privacyPage() {
     const profile = appData.profile || {};
     const pack = privacyPack();
@@ -128,7 +141,7 @@
         </article>
         <article class="card">
           ${cardHeading("Vos droits")}
-          <p>Vous pouvez consulter et récupérer les informations ci-dessus. Pour une correction ou une suppression, contactez l’administration RH : certaines données (pointages, éléments de paie) doivent être conservées.</p>
+          <p>Vous pouvez consulter et récupérer les informations ci-dessus. Pour une correction ou une suppression, contactez ${dpoContactMarkup()} : certaines données (pointages, éléments de paie) sont conservées 5 ans (paie) ou 1 an (détail quotidien des horaires).</p>
           <ul class="privacy-legal-links">
             <li><a href="/confidentialite">Confidentialité</a></li>
             <li><a href="/mentions-legales">Mentions légales</a></li>

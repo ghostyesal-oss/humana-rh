@@ -150,6 +150,20 @@ const STATUS_FIELDS = new Set(["status", "workflow_step"]);
 
 const EMPLOYEE_PROFILE_FIELDS = new Set(["id", "email", "full_name", "avatar_url", "phone"]);
 const PUBLIC_APP_SETTING_KEYS = ["nav_visibility", "company_timezone", "gta_shifts"];
+const EDS_PAYROLL_SETTING_KEY = "eds_payroll";
+
+function payrollEmails() {
+  return String(process.env.PAYROLL_EMAILS || "")
+    .split(/[,;\s]+/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function canManageEdsPayroll(user) {
+  if (isAdmin(user)) return true;
+  const email = String(user?.email || "").trim().toLowerCase();
+  return Boolean(email && payrollEmails().includes(email));
+}
 
 /*
  * Phase 2 option A : API (ce fichier) + RLS Postgres (auth.uid() via withUser).
@@ -213,9 +227,40 @@ function resolveLogicalTable(requested) {
 }
 
 function colSql(name) {
-  const key = Object.keys(COLUMN_SQL).find((item) => item === name);
-  if (!key) throw denied(`Colonne non autorisée: ${name}`, 400);
-  return COLUMN_SQL[key];
+  for (const key of Object.keys(COLUMN_SQL)) {
+    if (key === name) return COLUMN_SQL[key];
+  }
+  throw denied(`Colonne non autorisée: ${name}`, 400);
+}
+
+function requestedColumnSet(raw) {
+  const wanted = new Set();
+  for (const item of String(raw || "").split(",")) {
+    const key = item.trim();
+    if (key) wanted.add(key);
+  }
+  return wanted;
+}
+
+function sqlFromAllowlist(wanted) {
+  const sql = [];
+  for (const key of Object.keys(COLUMN_SQL)) {
+    if (wanted.has(key)) sql.push(COLUMN_SQL[key]);
+  }
+  return sql;
+}
+
+function upsertConflictClause(rawConflict, keys) {
+  const wanted = requestedColumnSet(rawConflict || "id");
+  const conflict = sqlFromAllowlist(wanted);
+  if (!conflict.length) throw denied("Conflit upsert invalide.", 400);
+  const updates = [];
+  for (const key of keys) {
+    if (wanted.has(key)) continue;
+    updates.push(`${COLUMN_SQL[key]} = excluded.${COLUMN_SQL[key]}`);
+  }
+  const fallback = `${COLUMN_SQL[keys[0]]} = excluded.${COLUMN_SQL[keys[0]]}`;
+  return ` on conflict (${conflict.join(",")}) do update set ${updates.join(",") || fallback}`;
 }
 
 function columnsFromList(raw) {
@@ -245,8 +290,12 @@ function isAdmin(user) {
   return user?.role === "admin" || user?.role === "creator";
 }
 
+function isHr(user) {
+  return isAdmin(user) || user?.role === "rh";
+}
+
 function isManager(user) {
-  return isAdmin(user) || user?.role === "manager";
+  return isHr(user) || user?.role === "manager";
 }
 
 async function reportIds(userId) {
@@ -265,6 +314,7 @@ function isPendingStatus(status) {
 async function canApproveTarget(user, targetUserId) {
   if (isAdmin(user)) return true;
   if (!targetUserId || targetUserId === user.sub) return false;
+  if (isHr(user)) return true;
   if (!isManager(user)) return false;
   const reports = await reportIds(user.sub);
   return reports.includes(targetUserId);
@@ -276,12 +326,16 @@ async function teamScopeIds(user) {
 
 async function applyReadScope(table, user, filters) {
   const admin = isAdmin(user);
+  const hr = isHr(user);
   if (table === "app_settings") {
     if (admin) return filters;
+    if (canManageEdsPayroll(user)) {
+      return [...filters, { op: "in", column: "key", value: [...PUBLIC_APP_SETTING_KEYS, EDS_PAYROLL_SETTING_KEY] }];
+    }
     return [...filters, { op: "in", column: "key", value: PUBLIC_APP_SETTING_KEYS }];
   }
   if (table === "company_events" || table === "hr_documents") {
-    if (admin) return filters;
+    if (hr) return filters;
     const managerish = isManager(user) || (await reportIds(user.sub)).length > 0;
     if (managerish) {
       return [...filters, { op: "in", column: "visibility", value: ["all", "managers"] }];
@@ -293,17 +347,17 @@ async function applyReadScope(table, user, filters) {
     return filters;
   }
   if (table === "profiles" || table === "profiles_directory") {
-    if (admin) return filters;
+    if (hr) return filters;
     if (isManager(user)) {
       return [...filters, { op: "in", column: "id", value: await teamScopeIds(user) }];
     }
     return [...filters, { op: "eq", column: "id", value: user.sub }];
   }
-  if (table === "payslips" && !admin) {
+  if (table === "payslips" && !hr) {
     return [...filters, { op: "eq", column: "user_id", value: user.sub }];
   }
   const userCol = ownerColumn(table);
-  if (admin) return filters;
+  if (hr) return filters;
   if (PERSONAL_TABLES.has(table) && isManager(user)) {
     return [...filters, { op: "in", column: userCol, value: await teamScopeIds(user) }];
   }
@@ -423,7 +477,14 @@ async function prepareWriteRows(table, user, rows) {
 
 async function assertWriteAllowed(table, fromSql, user, op, payload, filters, onConflict) {
   if (ADMIN_WRITE_TABLES.has(table) && !isAdmin(user)) {
-    throw denied("Accès refusé.");
+    if (table === "app_settings" && canManageEdsPayroll(user)) {
+      const keys = payloadRows(payload).map((row) => row?.key);
+      if (!keys.length || keys.some((key) => key !== EDS_PAYROLL_SETTING_KEY)) {
+        throw denied("Accès refusé.");
+      }
+    } else {
+      throw denied("Accès refusé.");
+    }
   }
 
   const rows = payloadRows(payload);
@@ -676,9 +737,12 @@ export async function runQuery(user, body) {
   }
 }
 
+const QUERY_OPS = new Set(["select", "insert", "update", "delete", "upsert"]);
+
 async function executeQuery(user, body) {
   const { table, fromSql } = resolveLogicalTable(String(body.table || ""));
-  const op = body.op || "select";
+  const op = QUERY_OPS.has(body.op) ? body.op : (body.op ? "" : "select");
+  if (!op) return { data: null, error: { message: `Opération inconnue: ${body.op}` } };
   const parsed = parseSelect(body.select);
 
   const filters = await applyReadScope(table, user, Array.isArray(body.filters) ? body.filters : []);
@@ -707,7 +771,7 @@ async function executeQuery(user, body) {
       params.push(Number(body.limit));
       text += ` limit $${params.length}`;
     }
-    const adminDirectory = isAdmin(user) && (table === "profiles" || table === "profiles_directory");
+    const adminDirectory = isHr(user) && (table === "profiles" || table === "profiles_directory");
     const result = adminDirectory ? await adminQuery(text, params) : await dbQuery(text, params);
     const data = await embedProfiles(result.rows, parsed.embed);
     await auditRead(user, table, data);
@@ -735,13 +799,7 @@ async function executeQuery(user, body) {
     });
     let text = `insert into public.${fromSql} (${keys.map((key) => COLUMN_SQL[key]).join(",")}) values ${tuples.join(",")}`;
     if (op === "upsert") {
-      const conflictCols = String(body.onConflict || "id").split(",").map((item) => item.trim());
-      const conflict = Object.keys(COLUMN_SQL).filter((key) => conflictCols.includes(key)).map((key) => COLUMN_SQL[key]);
-      if (!conflict.length) throw denied("Conflit upsert invalide.", 400);
-      const updates = keys
-        .filter((key) => !conflictCols.includes(key))
-        .map((key) => `${COLUMN_SQL[key]} = excluded.${COLUMN_SQL[key]}`);
-      text += ` on conflict (${conflict.join(",")}) do update set ${updates.join(",") || `${COLUMN_SQL[keys[0]]} = excluded.${COLUMN_SQL[keys[0]]}`}`;
+      text += upsertConflictClause(body.onConflict, keys);
     }
     text += ` returning ${returningColumns(body.select || "*")}`;
     let result;

@@ -20,7 +20,7 @@
 
     return `
       ${carryFlag ? `<p class="data-note">Alerte de report : plus de 3 jours de CP restants au 31/12. Le solde non consommé est reportable une seule année.</p>` : ""}
-      ${months < 6 && !isAdmin() ? `<p class="data-note">Ancienneté : ${months} mois. La durée légale requise est de 6 mois, sauf dérogation RH.</p>` : ""}
+      ${months < 6 && !hasOrgWideAccess() ? `<p class="data-note">Ancienneté : ${months} mois. La durée légale requise est de 6 mois, sauf dérogation RH.</p>` : ""}
       <section class="balance-grid">
         ${balances.map((balance) => balanceCard(balance)).join("")}
       </section>
@@ -28,7 +28,7 @@
       ${pending.length ? `
       <article class="card table-card page-spacer">
         <div class="toolbar"><h3>Demandes à valider</h3></div>
-        <p class="hierarchy-meta">Circuit : ${chain.map((item) => item.role).join(" → ")}</p>
+        <p class="hierarchy-meta">Après le N+1 (et le N+2 s'il existe), le Directeur ou le RH valide — un seul visa suffit.</p>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Collaborateur</th><th>Type</th><th>Période</th><th>Statut</th><th></th></tr></thead>
@@ -97,7 +97,7 @@
             </label>
             <button type="submit" class="primary">Envoyer la demande</button>
           </form>
-          <p class="hierarchy-meta">Validation : ${chain.map((item) => escapeHtml(item.role)).join(" → ")}. Les absences ne peuvent pas se chevaucher.</p>
+          <p class="hierarchy-meta">Validation : ${escapeHtml(leaveChainLabel(chain) || "N+1 → Directeur / RH")}. Directeur et RH sont interchangeables. Les absences ne peuvent pas se chevaucher.</p>
         </article>
         <article class="card table-card">
           <div class="toolbar"><h3>Mes demandes</h3></div>

@@ -1,6 +1,8 @@
-/* Bandeau d'information cookies (cookies techniques uniquement, pas de mur de consentement). */
+/* Bandeau cookies + identité légale (SIRET / DPO depuis HUMANA_CONFIG). */
 (function () {
   var noticeFlag = "daylyx-cookie-notice";
+  var EMAIL_RE = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i;
+  var MAX_LEGAL = 220;
 
   function alreadySeen() {
     try {
@@ -57,9 +59,51 @@
     document.body.appendChild(bar);
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", mount, { once: true });
-  } else {
+  function cleanLegal(value, max) {
+    return String(value || "")
+      .replace(/[\u0000-\u001F\u007F]/g, "")
+      .trim()
+      .slice(0, max || MAX_LEGAL);
+  }
+
+  function fillLegal() {
+    var cfg = window.HUMANA_CONFIG || {};
+    var fields = {
+      publisherName: cleanLegal(cfg.LEGAL_PUBLISHER_NAME),
+      publisherAddress: cleanLegal(cfg.LEGAL_PUBLISHER_ADDRESS),
+      siret: cleanLegal(cfg.LEGAL_SIRET, 20).replace(/[^\d\s]/g, ""),
+      director: cleanLegal(cfg.LEGAL_PUBLICATION_DIRECTOR),
+      dpoName: cleanLegal(cfg.LEGAL_DPO_NAME),
+      dpoEmail: cleanLegal(cfg.LEGAL_DPO_EMAIL, 120)
+    };
+    Object.keys(fields).forEach(function (key) {
+      var val = fields[key];
+      if (!val) return;
+      if (key === "dpoEmail" && !EMAIL_RE.test(val)) return;
+      var nodes = document.querySelectorAll('[data-legal="' + key + '"]');
+      for (var i = 0; i < nodes.length; i += 1) {
+        var node = nodes[i];
+        node.textContent = "";
+        if (key === "dpoEmail") {
+          var link = document.createElement("a");
+          link.href = "mailto:" + val;
+          link.textContent = val;
+          node.appendChild(link);
+        } else {
+          node.textContent = val;
+        }
+      }
+    });
+  }
+
+  function boot() {
+    fillLegal();
     mount();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot, { once: true });
+  } else {
+    boot();
   }
 })();
