@@ -867,14 +867,12 @@ function usesDatabase() {
 }
 
 function isCreator() {
-  if (demoMode) return true;
   if (appData.profile?.role === "creator") return true;
   const email = session?.user?.email?.toLowerCase();
   return Boolean(email && getStudioCreatorEmails().includes(email));
 }
 
 function isAdmin() {
-  if (demoMode) return true;
   const role = appData.profile?.role;
   return role === "admin" || role === "creator";
 }
@@ -913,6 +911,7 @@ function renderUserRolePills() {
   if (appData.profile?.role === "rh" || (isHr() && !isAdmin() && !isCreator())) {
     pills.push(`<span class="admin-pill">RH</span>`);
   }
+  if (appData.profile?.role === "manager") pills.push(`<span class="admin-pill">Manager</span>`);
   if (isAdmin()) pills.push(`<span class="admin-pill">Admin</span>`);
   if (isCreator()) pills.push(`<span class="creator-pill">Créateur</span>`);
   return pills.join("");
@@ -1107,12 +1106,14 @@ function canViewJournal() {
 
 function canViewTeamPunches() {
   return isNavPageVisible("team-punches")
-    && (demoMode || (usesDatabase() && (hasOrgWideAccess() || hasDirectReports())));
+    && (demoMode || usesDatabase())
+    && (hasOrgWideAccess() || hasDirectReports());
 }
 
 function canViewGlobal() {
   return isNavPageVisible("global")
-    && (demoMode || (usesDatabase() && (hasOrgWideAccess() || hasDirectReports())));
+    && (demoMode || usesDatabase())
+    && (hasOrgWideAccess() || hasDirectReports());
 }
 
 function canViewReports() {
@@ -1124,13 +1125,16 @@ function canViewPlanning() {
 }
 
 function canImportPlanning() {
-  if (demoMode) return true;
   const role = String(appData.profile?.role || "").toLowerCase();
   return role === "admin" || role === "creator" || role === "rh" || role === "manager";
 }
 
+function canViewPrivacy() {
+  return Boolean(session?.user) && !demoMode;
+}
+
 function canAccessPage(pageId) {
-  if (pageId === "privacy") return true;
+  if (pageId === "privacy") return canViewPrivacy();
   if (pageId === "creator") return isCreator();
   if (pageId === "admin") return isAdmin() && isNavPageVisible("admin");
   if (pageId === "global") return canViewGlobal();
@@ -2528,7 +2532,9 @@ function getNavigationItems() {
     const after = teamIndex >= 0 ? teamIndex : items.findIndex(([pageId]) => pageId === "pointeuse");
     items.splice((after >= 0 ? after : items.length - 1) + 1, 0, ["reports", "Rapports EDS"]);
   }
-  items.push(["privacy", "Mes données"]);
+  if (canViewPrivacy()) {
+    items.push(["privacy", "Mes données"]);
+  }
   if (canViewJournal()) {
     items.push(["journal", "Journal"]);
   }
@@ -5893,7 +5899,7 @@ function payrollEmails() {
 }
 
 function canViewEdsPayrollColumns() {
-  if (demoMode || isAdmin()) return true;
+  if (isAdmin()) return true;
   return payrollEmails().includes(currentUserEmail());
 }
 
@@ -11309,17 +11315,19 @@ function hydrateDemoWorkspace() {
     { id: "u-hugo", email: "hugo.petit@humaine.fr", full_name: "Hugo Petit", job_title: "Ingénieur R&D", department: "R&D", role: "employee", manager_id: "u-thomas", matricule: "HUM-1307", leave_grade: "employee", shift_code: "rnd", hired_at: "2023-06-12", leave_balance_cp: 18, leave_balance_rtt: 8 },
     { id: "u-nina", email: "nina.rossi@humaine.fr", full_name: "Nina Rossi", job_title: "Commerciale", department: "CES", role: "employee", manager_id: "u-sarah", matricule: "HUM-1420", leave_grade: "employee", shift_code: "ces", hired_at: "2025-11-02", leave_balance_cp: 4, leave_balance_rtt: 2 }
   ];
+  const me = profiles.find((profile) => profile.id === "u-thomas") || profiles[1];
   session = {
     user: {
-      id: "u-camille",
-      email: "camille.moreau@humaine.fr",
-      user_metadata: { full_name: "Camille Moreau", name: "Camille Moreau" }
+      id: me.id,
+      email: me.email,
+      user_metadata: { full_name: me.full_name, name: me.full_name }
     }
   };
-  appData.profile = profiles[0];
+  appData.profile = me;
   appData.orgProfiles = profiles;
   appData.navVisibility = normalizeNavVisibility(loadStore("navVisibility", null));
-  appData.studioCreators = normalizeStudioCreators(loadStore("studioCreators", [session.user.email]));
+  appData.studioCreators = normalizeStudioCreators(loadStore("studioCreators", ["camille.moreau@humaine.fr"]));
+  teamPunchFilters = { start: "", end: "", userId: "", scope: "team" };
   appData.companyTimezone = loadStore("companyTimezone", "GMT+1") === "GMT" ? "GMT" : "GMT+1";
   appData.shiftHours = normalizeShiftHours(loadStore("shiftHours", defaultShiftHours()));
   appData.planningEntries = [];
@@ -11337,13 +11345,20 @@ function hydrateDemoWorkspace() {
       punches.push({ id: `${profile.id}-in-${daysAgo}`, user_id: profile.id, punch_type: "in", punched_at: stamp(profile.shift_code === "rnd" ? 9 : 8, 45), work_location: daysAgo === 1 ? "remote" : "onsite", profiles: { full_name: profile.full_name, email: profile.email } });
       punches.push({ id: `${profile.id}-b-${daysAgo}`, user_id: profile.id, punch_type: "break_start", punched_at: stamp(12, 10), profiles: { full_name: profile.full_name } });
       punches.push({ id: `${profile.id}-r-${daysAgo}`, user_id: profile.id, punch_type: "break_end", punched_at: stamp(13, 5), profiles: { full_name: profile.full_name } });
-      if (daysAgo !== 0 || profile.id !== "u-camille") {
+      if (daysAgo !== 0 || profile.id !== me.id) {
         punches.push({ id: `${profile.id}-out-${daysAgo}`, user_id: profile.id, punch_type: "out", punched_at: stamp(18, 5), profiles: { full_name: profile.full_name } });
       }
     }
   });
-  appData.teamPunches = punches;
-  appData.journalPunches = punches;
+  const teamIds = new Set([me.id, ...profiles.filter((profile) => profile.manager_id === me.id).map((profile) => profile.id)]);
+  appData.teamPunches = punches.filter((row) => teamIds.has(row.user_id));
+  appData.journalPunches = appData.teamPunches;
+  appData.punches = punches.filter((row) => row.user_id === me.id);
+  saveStore("punches", appData.punches.map((row) => ({
+    type: row.punch_type,
+    time: row.punched_at,
+    workLocation: row.work_location || null
+  })));
   saveStore("leaveRequests", [{
     id: "leave-demo-1",
     userId: "u-lea",
