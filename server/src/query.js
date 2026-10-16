@@ -108,7 +108,8 @@ const COLUMN_SQL = Object.freeze({
   period_label: '"period_label"',
   created_by: '"created_by"',
   slot: '"slot"',
-  structure: '"structure"'
+  structure: '"structure"',
+  delay_min: '"delay_min"'
 });
 
 const DIRECTORY_COLUMNS = [
@@ -134,7 +135,8 @@ const PERSONAL_TABLES = new Set([
   "attestation_requests",
   "push_subscriptions",
   "hr_alerts",
-  "planning_entries"
+  "planning_entries",
+  "delay_reviews"
 ]);
 
 const REQUEST_TABLES = new Set([
@@ -190,6 +192,7 @@ function canManageEdsPayroll(user) {
  * hr_alerts                | destinataire / admin           | soi / admin / RPC             | destinataire (lu) / admin           | destinataire / admin
  * push_subscriptions       | soi / admin                    | soi                           | soi                                 | soi
  * planning_entries         | soi / équipe / admin           | RPC import (manager/admin)    | RPC import                          | RPC import
+ * delay_reviews            | soi / équipe / admin           | manager d'équipe (pas soi)    | manager d'équipe (pas soi)          | admin
  */
 
 function denied(message, status = 403) {
@@ -222,6 +225,7 @@ function resolveLogicalTable(requested) {
   else if (requested === "payslips") { table = "payslips"; fromSql = '"payslips"'; }
   else if (requested === "app_settings") { table = "app_settings"; fromSql = '"app_settings"'; }
   else if (requested === "planning_entries") { table = "planning_entries"; fromSql = '"planning_entries"'; }
+  else if (requested === "delay_reviews") { table = "delay_reviews"; fromSql = '"delay_reviews"'; }
   if (!table || !fromSql) throw denied(`Table non autorisée: ${requested}`, 400);
   return { table, fromSql };
 }
@@ -531,6 +535,38 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters, on
 
   if (table === "planning_entries" && op !== "select") {
     throw denied("Utilisez l'import planning.");
+  }
+
+  if (table === "delay_reviews" && op !== "select") {
+    if (op === "delete" && !isAdmin(user)) {
+      throw denied("Seul un administrateur peut supprimer une revue de retard.");
+    }
+    if (!isManager(user)) {
+      throw denied("Seul un manager, RH ou administrateur peut traiter un retard.");
+    }
+    const reviewRows = op === "update" || op === "delete"
+      ? await loadScopedRows(fromSql, filters)
+      : rows;
+    for (const row of reviewRows) {
+      if (!row) continue;
+      const owner = row.user_id || user.sub;
+      if (!(await canApproveTarget(user, owner))) {
+        throw denied("Vous ne pouvez traiter que les retards de votre équipe.");
+      }
+    }
+    for (const row of rows) {
+      if (!row) continue;
+      if (row.status && !["Confirme", "Rectifie"].includes(String(row.status))) {
+        throw denied("Statut de retard invalide.");
+      }
+      if (row.delay_min != null) {
+        const minutes = Number(row.delay_min);
+        if (!Number.isFinite(minutes) || minutes < 0 || minutes > 1440) {
+          throw denied("Durée de retard invalide.");
+        }
+        row.delay_min = Math.round(minutes);
+      }
+    }
   }
 
   if (table === "time_punches" && (op === "insert" || op === "upsert") && !isAdmin(user)) {

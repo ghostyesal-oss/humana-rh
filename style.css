@@ -4173,6 +4173,13 @@ tbody tr:hover td { background: var(--surface-2); }
   cursor: not-allowed;
 }
 
+.delay-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  justify-content: flex-end;
+}
+
 .punch-rectify-btn {
   white-space: nowrap;
   padding: 6px 10px;
@@ -4341,6 +4348,11 @@ tbody tr:hover td { background: var(--surface-2); }
   font-weight: 800;
   color: var(--text);
   line-height: 1.3;
+}
+
+.home-shift-item strong[data-break-live],
+[data-break-duration-live] {
+  font-variant-numeric: tabular-nums;
 }
 
 .home-hours-today {

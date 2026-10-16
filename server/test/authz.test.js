@@ -24,6 +24,7 @@ const mgr = { sub: M, role: "manager", email: "mgr@authz.test" };
 const admin = { sub: AD, role: "admin", email: "admin@authz.test" };
 
 async function reset() {
+  await adminQuery("delete from public.delay_reviews where user_id = any($1::uuid[])", [[A, B, M, AD]]);
   await adminQuery("delete from public.planning_entries where user_id = any($1::uuid[])", [[A, B, M, AD]]);
   await adminQuery("delete from public.audit_log where actor_email like '%@authz.test'");
   await adminQuery("delete from public.payslips where id = $1", [PAY_B]);
@@ -511,5 +512,49 @@ test("authz: salarié, manager, admin", async (t) => {
     const janati = await adminQuery("select id from public.profiles where matricule = $1", ["21002"]);
     assert.equal(linked.rows[0].manager_id, janati.rows[0].id);
     await adminQuery("delete from public.profiles where matricule = any($1::text[])", [["20999", "21001", "21002"]]);
+  });
+
+  await t.test("API: le manager confirme le retard d'un N-1, pas le sien", async () => {
+    const ok = await runQuery(mgr, {
+      table: "delay_reviews",
+      op: "upsert",
+      onConflict: "user_id,work_date",
+      payload: {
+        user_id: A,
+        work_date: "2026-09-15",
+        delay_min: 12,
+        status: "Confirme"
+      }
+    });
+    assert.equal(ok.data?.[0]?.status, "Confirme");
+    assert.equal(ok.data?.[0]?.delay_min, 12);
+
+    await assert.rejects(
+      () => runQuery(empA, {
+        table: "delay_reviews",
+        op: "insert",
+        payload: {
+          user_id: A,
+          work_date: "2026-09-16",
+          delay_min: 5,
+          status: "Confirme"
+        }
+      }),
+      (error) => error.status === 403
+    );
+
+    await assert.rejects(
+      () => runQuery(mgr, {
+        table: "delay_reviews",
+        op: "insert",
+        payload: {
+          user_id: M,
+          work_date: "2026-09-15",
+          delay_min: 8,
+          status: "Confirme"
+        }
+      }),
+      (error) => error.status === 403
+    );
   });
 });

@@ -24,7 +24,7 @@
       </article>
       <section class="hours-grid page-spacer">
         ${hoursCard("Aujourd'hui", hours.today)}
-        ${hoursCard("Pause dej", breakDuration)}
+        ${hoursCard("Pause dej", breakDuration, { liveBreak: true })}
         ${hoursCard("Cette semaine", hours.week)}
       </section>
       <section class="clock-grid page-spacer">
@@ -44,7 +44,7 @@
                     <span class="punch-type ${punch.type}">${punchTypeLabel(punch.type)}</span>
                     ${punch.type === "in" ? renderWorkLocationBadge(punch.workLocation) : ""}
                   </div>
-                  <strong>${formatTime(punch.time)}</strong>
+                  <strong>${punch.type === "break_start" || punch.type === "break_end" ? formatTimeSeconds(punch.time) : formatTime(punch.time)}</strong>
                 </div>`).join("")
               : `<p class="empty-state">Aucun pointage aujourd'hui.</p>`}
           </div>

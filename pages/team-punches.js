@@ -33,7 +33,7 @@
     const directReports = getDirectReportProfiles();
 
     return `
-      <p class="data-note">Périmètre : ${scopeLabel} · ${profiles.length} collaborateur${profiles.length > 1 ? "s" : ""}. Un manager, HR ou la Direction peut rectifier l'entrée, la pause et la sortie si le retard affiché n'est pas réel.</p>
+      <p class="data-note">Périmètre : ${scopeLabel} · ${profiles.length} collaborateur${profiles.length > 1 ? "s" : ""}. Un manager, HR ou la Direction peut valider un retard ou rectifier l'entrée, la pause et la sortie. Sans action, le retard reste compté.</p>
       <article class="card form-card page-spacer">
         ${cardHeading("Filtres")}
         <form id="team-punches-filter" class="feature-form team-punches-filter">
@@ -71,6 +71,7 @@
           </div>
         </form>
       </article>
+      ${renderPendingDelayInbox(dailyRows)}
       <section class="team-punches-summary page-spacer">
         ${summary.length
           ? summary.map((item, index) => `
@@ -126,7 +127,7 @@
                     <td>${row.breakDurationMs ? formatDuration(row.breakDurationMs) : "—"}</td>
                     <td>${formatDuration(stats.plannedMs)}</td>
                     <td><strong>${formatDuration(stats.realizedMs)}</strong></td>
-                    <td>${stats.delayMin ? `${stats.delayMin} min` : "—"}</td>
+                    <td>${formatDelayCell(row.userId, row.dayKey, stats.delayMin, canRectify)}</td>
                     <td>${stats.missingMs ? formatDuration(stats.missingMs) : "—"}</td>
                     <td>${stats.payableOtMs ? formatDuration(stats.payableOtMs) : "—"}</td>
                     <td>${formatDayPunchLog(row)}</td>

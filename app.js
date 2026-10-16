@@ -173,7 +173,8 @@ let appData = {
   shiftHours: null,
   planningEntries: [],
   employeeImportNotice: "",
-  edsPayroll: {}
+  edsPayroll: {},
+  delayReviews: []
 };
 
 const roleLabels = {
@@ -846,6 +847,7 @@ function renderProfilePyramidCard(profile, index, options = {}) {
 function badge(value) {
   const normalized = (value || "").toLowerCase();
   const tone = normalized.includes("approuv") || normalized.includes("pret") || normalized.includes("termine")
+    || normalized.includes("confirm") || normalized.includes("rectif")
     ? "success"
     : normalized.includes("valid") || normalized.includes("cours") || normalized.includes("attente")
       ? "warning"
@@ -853,7 +855,9 @@ function badge(value) {
   const displayValue = String(value || "")
     .replace(/^A valider\b/, "À valider")
     .replace(/^Approuve\b/, "Approuvé")
-    .replace(/^Refuse\b/, "Refusé");
+    .replace(/^Refuse\b/, "Refusé")
+    .replace(/^Confirme\b/, "Confirmé")
+    .replace(/^Rectifie\b/, "Rectifié");
   return `<span class="badge ${tone}">${escapeHtml(displayValue)}</span>`;
 }
 
@@ -1346,7 +1350,8 @@ const HR_DOCUMENT_OPTIONAL_FIELDS = ["visibility"];
 const GTA_KINDS = {
   corrections: { store: "punchCorrections", table: "punch_corrections" },
   overtime: { store: "overtimeRequests", table: "overtime_requests" },
-  activity: { store: "activityEntries", table: "activity_entries" }
+  activity: { store: "activityEntries", table: "activity_entries" },
+  delayReviews: { store: "delayReviews", table: "delay_reviews" }
 };
 
 function isMissingDbObjectError(error) {
@@ -1479,6 +1484,142 @@ function canRectifyCollaboratorPunches(userId) {
   if (!userId) return false;
   if (!canViewTeamPunches() && !isAdmin()) return false;
   return canManageGtaItem({ user_id: userId });
+}
+
+function getDelayReviews() {
+  if (usesDatabase()) return appData.delayReviews || [];
+  return loadStore("delayReviews", []);
+}
+
+function delayReviewUserId(row) {
+  return row?.user_id || row?.userId || "";
+}
+
+function delayReviewDate(row) {
+  return String(row?.work_date || row?.workDate || row?.date || "").slice(0, 10);
+}
+
+function delayReviewRecord(userId, dayKey) {
+  const dateKey = String(dayKey || "").slice(0, 10);
+  return getDelayReviews().find((row) => delayReviewUserId(row) === userId && delayReviewDate(row) === dateKey) || null;
+}
+
+function pendingDelayItems(dailyRows) {
+  return (dailyRows || []).reduce((list, row) => {
+    if (!canRectifyCollaboratorPunches(row.userId)) return list;
+    if (delayReviewRecord(row.userId, row.dayKey)) return list;
+    const profile = profileById(row.userId) || { full_name: row.name, id: row.userId };
+    const stats = analyzeWorkedDay(row, profile);
+    if (!stats.delayMin) return list;
+    list.push({ row, profile, stats });
+    return list;
+  }, []);
+}
+
+function countPendingDelays() {
+  if (!canViewTeamPunches()) return 0;
+  const range = teamPunchFilters.start && teamPunchFilters.end
+    ? teamPunchFilters
+    : getDefaultTeamPunchRange();
+  const dailyRows = summarizeTeamPunchesByDay(appData.teamPunches || [], range.start, range.end);
+  return pendingDelayItems(dailyRows).length;
+}
+
+function formatDelayCell(userId, dayKey, delayMin, canManage) {
+  if (!delayMin) return "—";
+  const review = delayReviewRecord(userId, dayKey);
+  const minutes = `${delayMin} min`;
+  if (review) return `${minutes} ${badge(review.status)}`;
+  if (canManage) return `${minutes} ${badge("A valider")}`;
+  return minutes;
+}
+
+async function upsertDelayReview({ userId, dayKey, delayMin, status }) {
+  if (!canRectifyCollaboratorPunches(userId)) {
+    throw new Error("Seul le manager, RH ou la Direction peut traiter le retard d'un collaborateur.");
+  }
+  const nextStatus = status === "Rectifie" ? "Rectifie" : "Confirme";
+  const minutes = Math.max(0, Math.min(1440, Math.round(Number(delayMin) || 0)));
+  const payload = {
+    user_id: userId,
+    work_date: dayKey,
+    delay_min: minutes,
+    status: nextStatus,
+    reviewed_by: session?.user?.id || null,
+    reviewed_at: new Date().toISOString()
+  };
+  if (usesDatabase()) {
+    const { error } = await supabaseClient.from("delay_reviews").upsert(payload, { onConflict: "user_id,work_date" });
+    if (error) {
+      if (isMissingDbObjectError(error)) {
+        throw new Error("La revue des retards n'est pas encore déployée. Relancez les migrations, puis réessayez.");
+      }
+      throw error;
+    }
+    const rows = [...getDelayReviews().filter((row) => !(delayReviewUserId(row) === userId && delayReviewDate(row) === dayKey)), payload];
+    appData.delayReviews = rows;
+    return;
+  }
+  const rows = loadStore("delayReviews", []);
+  const next = {
+    id: `${userId}-${dayKey}`,
+    userId,
+    workDate: dayKey,
+    delayMin: minutes,
+    status: nextStatus,
+    reviewedBy: session?.user?.id,
+    reviewedByName: getUserName(),
+    reviewedAt: payload.reviewed_at
+  };
+  const index = rows.findIndex((row) => delayReviewUserId(row) === userId && delayReviewDate(row) === dayKey);
+  if (index >= 0) rows[index] = { ...rows[index], ...next };
+  else rows.unshift(next);
+  saveStore("delayReviews", rows);
+  appData.delayReviews = rows;
+}
+
+function renderPendingDelayInbox(dailyRows) {
+  const pending = pendingDelayItems(dailyRows);
+  return `
+    <article class="card table-card page-spacer">
+      <div class="toolbar">
+        <h3>Retards à valider</h3>
+        <span class="hierarchy-result-count">${pending.length} retard${pending.length > 1 ? "s" : ""}</span>
+      </div>
+      <p class="hierarchy-meta">Validez le retard, rectifiez l'heure d'arrivée, ou ne faites rien : sans action, le retard reste compté dans EDS.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Collaborateur</th>
+              <th>Date</th>
+              <th>Arrivée</th>
+              <th>Heure max</th>
+              <th>Retard</th>
+              <th>Statut</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${pending.length
+              ? pending.map(({ row, stats }) => `
+                <tr>
+                  <td><strong>${escapeHtml(row.name)}</strong></td>
+                  <td>${formatDate(row.dayKey)}</td>
+                  <td>${row.startTime ? formatTime(row.startTime) : "—"}</td>
+                  <td>${escapeHtml(String(stats.shift?.lateAfter || "").replace(":", "h") || "—")}</td>
+                  <td><strong>${stats.delayMin} min</strong></td>
+                  <td>${badge("A valider")}</td>
+                  <td class="delay-review-actions">
+                    <button type="button" class="primary" data-delay-confirm data-user-id="${escapeHtml(row.userId)}" data-day-key="${escapeHtml(row.dayKey)}" data-delay-min="${stats.delayMin}">Valider</button>
+                    <button type="button" class="outline-button punch-rectify-btn" data-punch-rectify data-user-id="${escapeHtml(row.userId)}" data-day-key="${escapeHtml(row.dayKey)}">Rectifier</button>
+                  </td>
+                </tr>`).join("")
+              : `<tr><td colspan="7" class="empty-cell">Aucun retard à valider sur cette période.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </article>`;
 }
 
 function sanitizePunchReason(value) {
@@ -1650,6 +1791,32 @@ async function rectifyCollaboratorPunchDay({ userId, dayKey, times, reason }) {
       time: item.time,
       reason: motif
     });
+  }
+  const refreshed = await loadPunchesForUserDay(userId, dayKey);
+  const punches = refreshed.map((row) => ({
+    type: row.punch_type || row.type,
+    time: row.punched_at || row.time,
+    workLocation: row.work_location || row.workLocation || null
+  }));
+  const summary = getDayShiftSummaryFromPunches(punches);
+  const profile = profileById(userId);
+  const stats = analyzeWorkedDay({
+    ...summary,
+    userId,
+    dayKey,
+    punches
+  }, profile);
+  try {
+    await upsertDelayReview({
+      userId,
+      dayKey,
+      delayMin: stats.delayMin,
+      status: "Rectifie"
+    });
+  } catch (error) {
+    if (!isMissingDbObjectError(error) && !String(error.message || "").includes("n'est pas encore déployée")) {
+      throw error;
+    }
   }
 }
 
@@ -3207,6 +3374,10 @@ function navBadge(page) {
   }
   if (page === "leave" && countPendingLeave()) return `<span class="nav-badge">${countPendingLeave()}</span>`;
   if (page === "attestations" && countPendingHrRequests()) return `<span class="nav-badge">${countPendingHrRequests()}</span>`;
+  if (page === "team-punches") {
+    const pendingDelays = countPendingDelays();
+    if (pendingDelays) return `<span class="nav-badge">${pendingDelays}</span>`;
+  }
   return "";
 }
 
@@ -3383,6 +3554,18 @@ function updateElapsedClocks() {
   const label = formatElapsedHms(getTodayElapsedMs());
   document.querySelectorAll("[data-elapsed-clock]").forEach((el) => {
     el.textContent = label;
+  });
+
+  const breakLive = document.querySelectorAll("[data-break-live], [data-break-duration-live]");
+  if (!breakLive.length) return;
+
+  const summary = getTodayShiftSummary();
+  const now = new Date();
+  document.querySelectorAll("[data-break-live]").forEach((el) => {
+    el.textContent = formatBreakSummary(summary, now);
+  });
+  document.querySelectorAll("[data-break-duration-live]").forEach((el) => {
+    el.textContent = formatElapsedHms(Number(summary.breakDurationMs) || 0);
   });
 }
 
@@ -3628,22 +3811,46 @@ function computeBreakDuration(punches, fromTime = null) {
   return total;
 }
 
+function lastMeaningfulPunch(sorted) {
+  return [...sorted].reverse().find((punch) => punch.type !== "status_change") || null;
+}
+
+function latestBreakInterval(sorted) {
+  let breakStart = null;
+  let breakEnd = null;
+  sorted.forEach((punch) => {
+    if (punch.type === "break_start") {
+      breakStart = punch.time;
+      breakEnd = null;
+      return;
+    }
+    if (punch.type === "break_end" && breakStart) {
+      breakEnd = punch.time;
+    }
+  });
+  const last = lastMeaningfulPunch(sorted);
+  return {
+    breakStart,
+    breakEnd,
+    onBreak: last?.type === "break_start"
+  };
+}
+
 function getTodayShiftSummary(punches = getPunches()) {
   const todayPunches = getTodayPunches(punches);
   const sorted = [...todayPunches].sort((a, b) => new Date(a.time) - new Date(b.time));
   const startPunch = sorted.find((punch) => punch.type === "in");
-  const breakStartPunch = sorted.find((punch) => punch.type === "break_start");
-  const breakEndPunch = sorted.find((punch) => punch.type === "break_end");
+  const breakInterval = latestBreakInterval(sorted);
   const endPunch = [...sorted].reverse().find((punch) => punch.type === "out");
-  const lastToday = sorted[sorted.length - 1];
+  const lastToday = lastMeaningfulPunch(sorted);
 
   return {
     startTime: startPunch?.time || null,
-    breakStart: breakStartPunch?.time || null,
-    breakEnd: breakEndPunch?.time || null,
+    breakStart: breakInterval.breakStart,
+    breakEnd: breakInterval.breakEnd,
     endTime: endPunch?.time || null,
     breakDurationMs: computeBreakDuration(todayPunches),
-    onBreak: lastToday?.type === "break_start",
+    onBreak: breakInterval.onBreak,
     isWorking: lastToday?.type === "in" || lastToday?.type === "break_end",
     isDayClosed: lastToday?.type === "out",
     hasStarted: Boolean(startPunch)
@@ -3654,10 +3861,28 @@ function formatShiftTime(value) {
   return value ? formatTime(value) : "—";
 }
 
-function formatBreakSummary(summary) {
+function formatBreakSummary(summary, now = new Date()) {
   if (!summary.breakStart) return "—";
-  if (summary.onBreak) return `${formatTime(summary.breakStart)} - en cours`;
-  if (summary.breakEnd) return `${formatTime(summary.breakStart)} - ${formatTime(summary.breakEnd)}`;
+  const startMs = new Date(summary.breakStart).getTime();
+  if (Number.isNaN(startMs)) return "—";
+
+  if (summary.onBreak) {
+    const elapsed = Math.max(0, now.getTime() - startMs);
+    return `${formatTime(summary.breakStart)} – en cours · ${formatElapsedHms(elapsed)}`;
+  }
+
+  if (summary.breakEnd) {
+    const endMs = new Date(summary.breakEnd).getTime();
+    const elapsed = Math.max(0, Number.isNaN(endMs) ? 0 : endMs - startMs);
+    const sameMinute = formatTime(summary.breakStart) === formatTime(summary.breakEnd);
+    const startLabel = sameMinute ? formatTimeSeconds(summary.breakStart) : formatTime(summary.breakStart);
+    const endLabel = sameMinute ? formatTimeSeconds(summary.breakEnd) : formatTime(summary.breakEnd);
+    if (elapsed < 120000) {
+      return `${startLabel} – ${endLabel} · ${formatElapsedHms(elapsed)}`;
+    }
+    return `${startLabel} – ${endLabel}`;
+  }
+
   return formatTime(summary.breakStart);
 }
 
@@ -3678,7 +3903,7 @@ function renderHomeShiftSummary(punches = getPunches()) {
       </div>
       <div class="home-shift-item">
         <span>Pause déjeuner</span>
-        <strong>${formatBreakSummary(summary)}</strong>
+        <strong data-break-live>${formatBreakSummary(summary)}</strong>
       </div>
       <div class="home-shift-item">
         <span>Fin de service</span>
@@ -3879,8 +4104,11 @@ function renderDayTimeline(punches, profile, options = {}) {
     const label = `${Math.floor(min / 60)}h`;
     return `<div class="dtl-limit" ${pctProps({ l: toPercent(min) })} data-label="${label}" title="Limite ${label}"></div>`;
   }).join("");
+  const liveLunchMs = computeBreakDuration(sorted);
   const lateBlock  = lateMin > 0 ? `<div class="dtl-stat dtl-stat--late">Retard : <strong>${fmtMs(lateMs)}</strong></div>` : "";
-  const lunchBlock = lunchMs > 0 ? `<div class="dtl-stat dtl-stat--lunch">Durée pause déjeuner : <strong>${fmtMs(lunchMs)}</strong></div>` : "";
+  const lunchBlock = (liveLunchMs > 0 || lunchMs > 0)
+    ? `<div class="dtl-stat dtl-stat--lunch">Durée pause déjeuner : <strong data-break-duration-live>${formatElapsedHms(liveLunchMs)}</strong></div>`
+    : "";
   const workBlock  = workMs > 0  ? `<div class="dtl-stat">Durée de travail <strong>${fmtMs(workMs)}</strong></div>` : "";
 
   if (compact || variant === "compact") {
@@ -4173,11 +4401,14 @@ function balanceCard(balance) {
     </article>`;
 }
 
-function hoursCard(label, value) {
+function hoursCard(label, value, options = {}) {
+  const liveBreak = Boolean(options.liveBreak);
+  const text = liveBreak ? formatElapsedHms(value) : formatDuration(value);
+  const attr = liveBreak ? " data-break-duration-live" : "";
   return `
     <article class="hours-card">
       <span class="hours-label">${label}</span>
-      <strong>${formatDuration(value)}</strong>
+      <strong${attr}>${text}</strong>
     </article>`;
 }
 
@@ -10458,6 +10689,21 @@ function bindPageEvents() {
     });
   });
 
+  document.querySelectorAll("[data-delay-confirm]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const userId = button.dataset.userId;
+      const dayKey = button.dataset.dayKey;
+      const delayMin = Number(button.dataset.delayMin) || 0;
+      withAction(async () => {
+        await upsertDelayReview({ userId, dayKey, delayMin, status: "Confirme" });
+        if (usesDatabase()) {
+          dataStamp.gta = 0;
+          dataStamp.teamPunches = 0;
+        }
+      });
+    });
+  });
+
   const journalFilter = document.querySelector("#journal-filter");
   if (journalFilter) {
     if (!journalFilters.start || !journalFilters.end) {
@@ -11098,7 +11344,8 @@ function bindAppEvents() {
       eventDetailId: "",
       adminEditingId: "",
       adminEditingInviteId: "",
-      edsPayroll: {}
+      edsPayroll: {},
+      delayReviews: []
     };
     if (mpaMode) {
       window.location.href = loginHref();
@@ -11332,6 +11579,8 @@ function hydrateDemoWorkspace() {
   appData.shiftHours = normalizeShiftHours(loadStore("shiftHours", defaultShiftHours()));
   appData.planningEntries = [];
   appData.edsPayroll = loadStore("edsPayroll", {});
+  appData.delayReviews = [];
+  saveStore("delayReviews", []);
   const punches = [];
   profiles.forEach((profile, index) => {
     for (let daysAgo = 2; daysAgo >= 0; daysAgo -= 1) {
