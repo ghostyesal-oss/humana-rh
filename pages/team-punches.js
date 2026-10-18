@@ -82,68 +82,7 @@
             </article>`).join("")
           : `<article class="card"><p class="empty-state">Aucun collaborateur dans votre périmètre.</p></article>`}
       </section>
-      <article class="card table-card page-spacer">
-        <div class="toolbar">
-          <h3>Détail des pointages</h3>
-          <span class="hierarchy-result-count">${dailyRows.length} jour${dailyRows.length > 1 ? "s" : ""}</span>
-        </div>
-        ${showLocationHint ? `<p class="data-note">Le lieu n'est renseigné que sur les pointages d'entrée. S'il reste vide après un nouveau pointage, redémarrez l'API pour appliquer les migrations.</p>` : ""}
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Collaborateur</th>
-                <th>Date</th>
-                <th>Lieu</th>
-                <th>Début</th>
-                <th>Fin</th>
-                <th>Pause déjeuner</th>
-                <th>Heures planifiées</th>
-                <th>Heures réalisées</th>
-                <th>Retard</th>
-                <th>Heures manquantes</th>
-                <th>HS payables</th>
-                <th>Journal du service</th>
-                <th>Heure rectifiée</th>
-                <th>Modifié par</th>
-                <th>Motif</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              ${dailyRows.length
-                ? dailyRows.map((row) => {
-                    const profile = profileById(row.userId) || { full_name: row.name, id: row.userId };
-                    const stats = analyzeWorkedDay(row, profile);
-                    const correction = formatDayCorrectionSummary(row.userId, row.dayKey);
-                    const canRectify = canRectifyCollaboratorPunches(row.userId);
-                    return `
-                  <tr>
-                    <td><strong>${escapeHtml(row.name)}</strong></td>
-                    <td>${formatDate(row.dayKey)}</td>
-                    <td>${resolveWorkLocationLabel(row)}</td>
-                    <td>${row.startTime ? formatTime(row.startTime) : "—"}</td>
-                    <td>${formatDayEndTime(row)}</td>
-                    <td>${row.breakDurationMs ? formatDuration(row.breakDurationMs) : "—"}</td>
-                    <td>${formatDuration(stats.plannedMs)}</td>
-                    <td><strong>${formatDuration(stats.realizedMs)}</strong></td>
-                    <td>${formatDelayCell(row.userId, row.dayKey, stats.delayMin, canRectify)}</td>
-                    <td>${stats.missingMs ? formatDuration(stats.missingMs) : "—"}</td>
-                    <td>${stats.payableOtMs ? formatDuration(stats.payableOtMs) : "—"}</td>
-                    <td>${formatDayPunchLog(row)}</td>
-                    <td>${correction.rectified === "Oui" ? badge("Oui") : escapeHtml(correction.rectified)}</td>
-                    <td>${escapeHtml(correction.who)}</td>
-                    <td>${escapeHtml(correction.motif)}</td>
-                    <td>${canRectify
-                      ? `<button type="button" class="outline-button punch-rectify-btn" data-punch-rectify data-user-id="${escapeHtml(row.userId)}" data-day-key="${escapeHtml(row.dayKey)}">Rectifier</button>`
-                      : ""}</td>
-                  </tr>`;
-                  }).join("")
-                : `<tr><td colspan="16" class="empty-cell">Aucun pointage pour cette période. Ajustez les filtres, puis actualisez.</td></tr>`}
-            </tbody>
-          </table>
-        </div>
-      </article>`;
+      ${renderTeamPunchDetailCard(dailyRows, { showLocationHint })}`;
   }
 
   (window.Humana = window.Humana || {});

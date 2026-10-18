@@ -148,6 +148,11 @@ const REQUEST_TABLES = new Set([
   "activity_entries"
 ]);
 
+const HR_REQUEST_TABLES = new Set([
+  "attestation_requests",
+  "salary_advance_requests"
+]);
+
 const STATUS_FIELDS = new Set(["status", "workflow_step"]);
 
 const EMPLOYEE_PROFILE_FIELDS = new Set(["id", "email", "full_name", "avatar_url", "phone"]);
@@ -174,8 +179,8 @@ function canManageEdsPayroll(user) {
  * Table                    | select                         | insert/upsert                 | update                              | delete
  * -------------------------|--------------------------------|-------------------------------|-------------------------------------|--------------------------------
  * leave_requests           | soi / équipe / admin           | soi, statut forcé "A valider" | salarié : hors statut, si "A valider"| salarié : si "A valider"
- * attestation_requests     |                                | manager : équipe (pas soi)    | manager : équipe, pas auto-validation| manager : équipe
- * salary_advance_requests  |                                | admin : tout                  | admin : tout                        | admin : tout
+ * attestation_requests     | soi / équipe / admin / RH      | soi, statut "A valider"       | RH/admin (pas soi, pas manager)     | soi si pending / RH / admin
+ * salary_advance_requests  |                                | RH/admin : équipe             |                                     |
  * punch_corrections        |                                |                               |                                     |
  * overtime_requests        |                                |                               |                                     |
  * activity_entries         |                                |                               |                                     |
@@ -324,6 +329,12 @@ async function canApproveTarget(user, targetUserId) {
   return reports.includes(targetUserId);
 }
 
+function canApproveHrTarget(user, targetUserId) {
+  if (!isHr(user)) return false;
+  if (!targetUserId || targetUserId === user.sub) return false;
+  return true;
+}
+
 async function teamScopeIds(user) {
   return [user.sub, ...(await reportIds(user.sub))];
 }
@@ -468,7 +479,10 @@ async function prepareWriteRows(table, user, rows) {
     }
     if (REQUEST_TABLES.has(table)) {
       const owner = row.user_id || user.sub;
-      if (await canApproveTarget(user, owner)) continue;
+      const privileged = HR_REQUEST_TABLES.has(table)
+        ? canApproveHrTarget(user, owner)
+        : await canApproveTarget(user, owner);
+      if (privileged) continue;
       if (row.user_id && row.user_id !== user.sub) {
         throw denied("Impossible de créer une demande pour un autre collaborateur.");
       }
@@ -608,7 +622,10 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters, on
         if (row[ownerCol] && row[ownerCol] !== user.sub) throw denied("Accès refusé.");
         row[ownerCol] = user.sub;
       } else if (row[ownerCol] && row[ownerCol] !== user.sub) {
-        if (!(await canApproveTarget(user, row[ownerCol]))) throw denied("Accès refusé.");
+        const allowed = HR_REQUEST_TABLES.has(table)
+          ? canApproveHrTarget(user, row[ownerCol])
+          : await canApproveTarget(user, row[ownerCol]);
+        if (!allowed) throw denied("Accès refusé.");
       } else if (!row[ownerCol]) {
         row[ownerCol] = user.sub;
       }
@@ -620,7 +637,10 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters, on
   if (op === "insert" || (op === "upsert" && !upsertExisting.length)) {
     for (const row of rows) {
       if (!row) continue;
-      if (!(await canApproveTarget(user, row.user_id || user.sub)) && !isPendingStatus(row.status)) {
+      const privileged = HR_REQUEST_TABLES.has(table)
+        ? canApproveHrTarget(user, row.user_id || user.sub)
+        : await canApproveTarget(user, row.user_id || user.sub);
+      if (!privileged && !isPendingStatus(row.status)) {
         throw denied("Impossible de créer une demande déjà validée.");
       }
     }
@@ -631,6 +651,13 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters, on
   if (op === "delete") {
     if (isAdmin(user)) return;
     for (const row of existing) {
+      if (HR_REQUEST_TABLES.has(table)) {
+        if (canApproveHrTarget(user, row.user_id)) continue;
+        if (row.user_id !== user.sub || !isPendingStatus(row.status)) {
+          throw denied("Impossible de supprimer une demande déjà traitée.");
+        }
+        continue;
+      }
       if (isManager(user) && row.user_id !== user.sub) {
         if (!(await canApproveTarget(user, row.user_id))) throw denied("Accès refusé.");
         continue;
@@ -656,6 +683,12 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters, on
   const touchesStatus = payloadHasStatus(payload);
   if (touchesStatus) {
     for (const row of existing) {
+      if (HR_REQUEST_TABLES.has(table)) {
+        if (!canApproveHrTarget(user, row.user_id)) {
+          throw denied("Seul un RH ou un administrateur peut valider ou refuser cette demande.");
+        }
+        continue;
+      }
       if (!(await canApproveTarget(user, row.user_id))) {
         throw denied("Seul un manager ou un administrateur peut valider ou refuser cette demande.");
       }
@@ -666,7 +699,9 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters, on
   if (!isAdmin(user)) {
     for (const row of existing) {
       const ownPending = row.user_id === user.sub && isPendingStatus(row.status);
-      const managing = await canApproveTarget(user, row.user_id);
+      const managing = HR_REQUEST_TABLES.has(table)
+        ? canApproveHrTarget(user, row.user_id)
+        : await canApproveTarget(user, row.user_id);
       if (!ownPending && !managing) {
         throw denied("Cette demande ne peut plus être modifiée.");
       }

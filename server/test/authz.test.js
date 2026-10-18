@@ -11,6 +11,8 @@ const B = "a0000000-0000-4000-8000-000000000002";
 const M = "a0000000-0000-4000-8000-000000000003";
 const AD = "a0000000-0000-4000-8000-000000000004";
 const LEAVE_A = "b0000000-0000-4000-8000-000000000001";
+const ATT_A = "b0000000-0000-4000-8000-000000000011";
+const ADV_A = "b0000000-0000-4000-8000-000000000012";
 const PAY_B = "c0000000-0000-4000-8000-000000000002";
 const PUNCH_A = "d0000000-0000-4000-8000-000000000001";
 const DOC = "e0000000-0000-4000-8000-000000000001";
@@ -29,6 +31,8 @@ async function reset() {
   await adminQuery("delete from public.audit_log where actor_email like '%@authz.test'");
   await adminQuery("delete from public.payslips where id = $1", [PAY_B]);
   await adminQuery("delete from public.leave_requests where id = $1", [LEAVE_A]);
+  await adminQuery("delete from public.attestation_requests where id = $1", [ATT_A]);
+  await adminQuery("delete from public.salary_advance_requests where id = $1", [ADV_A]);
   await adminQuery("delete from public.time_punches where id = $1", [PUNCH_A]);
   await adminQuery("delete from public.hr_documents where id = any($1::uuid[])", [[DOC, DOC_ADMIN]]);
   await adminQuery("delete from public.company_events where id = any($1::uuid[])", [[EVT_ADMIN, EVT_MGR]]);
@@ -51,6 +55,16 @@ async function seed() {
     `insert into public.leave_requests (id, user_id, leave_type, status, start_date, end_date, days)
      values ($1, $2, 'CP', 'A valider', current_date, current_date, 1)`,
     [LEAVE_A, A]
+  );
+  await adminQuery(
+    `insert into public.attestation_requests (id, user_id, document_type, reason, status)
+     values ($1, $2, 'Attestation employeur', 'Dossier de location', 'A valider')`,
+    [ATT_A, A]
+  );
+  await adminQuery(
+    `insert into public.salary_advance_requests (id, user_id, amount, reason, status)
+     values ($1, $2, 1500, 'Urgence familiale', 'A valider')`,
+    [ADV_A, A]
   );
   await adminQuery(
     `insert into public.payslips (id, user_id, period_year, period_month, period_label)
@@ -213,6 +227,52 @@ test("authz: salarié, manager, admin", async (t) => {
       (error) => error.status === 403
     );
     await adminQuery("delete from public.leave_requests where id = $1", [ownId]);
+  });
+
+  await t.test("API: le manager lit les demandes RH de son équipe, sans les valider", async () => {
+    const seen = await runQuery(mgr, {
+      table: "attestation_requests",
+      op: "select",
+      filters: [{ op: "eq", column: "id", value: ATT_A }]
+    });
+    assert.equal(seen.data?.[0]?.id, ATT_A);
+
+    const own = await runQuery(mgr, {
+      table: "salary_advance_requests",
+      op: "insert",
+      payload: { amount: 800, reason: "Demande manager", status: "A valider" }
+    });
+    assert.equal(own.data?.[0]?.user_id, M);
+    assert.match(String(own.data?.[0]?.status || ""), /a valider/i);
+
+    await assert.rejects(
+      () => runQuery(mgr, {
+        table: "attestation_requests",
+        op: "update",
+        filters: [{ op: "eq", column: "id", value: ATT_A }],
+        payload: { status: "Approuve" }
+      }),
+      (error) => error.status === 403
+    );
+    await assert.rejects(
+      () => runQuery(mgr, {
+        table: "salary_advance_requests",
+        op: "update",
+        filters: [{ op: "eq", column: "id", value: ADV_A }],
+        payload: { status: "Refuse" }
+      }),
+      (error) => error.status === 403
+    );
+
+    const approved = await runQuery(admin, {
+      table: "attestation_requests",
+      op: "update",
+      filters: [{ op: "eq", column: "id", value: ATT_A }],
+      payload: { status: "Approuve" }
+    });
+    assert.equal(approved.data[0].status, "Approuve");
+    await adminQuery("update public.attestation_requests set status = 'A valider' where id = $1", [ATT_A]);
+    await adminQuery("delete from public.salary_advance_requests where user_id = $1", [M]);
   });
 
   await t.test("API: l'admin lit tous les bulletins", async () => {

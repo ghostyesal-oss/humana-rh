@@ -15,6 +15,7 @@
 
     return `
       ${renderHrValidationInbox()}
+      ${renderHrTeamFollowup()}
       <div class="feature-grid">
         <article class="card form-card">
           ${cardHeading("Avance sur salaire")}

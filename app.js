@@ -122,7 +122,7 @@ if (typeof window !== "undefined" && !window.__humanaPopstateBound) {
 let bootstrapInFlight = null;
 let hierarchySearch = "";
 const collapsedOrgNodes = new Set();
-let teamPunchFilters = { start: "", end: "", userId: "", scope: "all" };
+let teamPunchFilters = { start: "", end: "", userId: "", scope: "all", detailView: "punches" };
 let edsFilters = { start: "", end: "" };
 let teamPunchesInitialLoadDone = false;
 let journalFilters = { start: "", end: "", userId: "", query: "" };
@@ -514,7 +514,8 @@ const WORK_STATUSES = [
   { value: "production",  label: "Production",  color: "#1e3a8a" },
   { value: "reunion",     label: "Réunion",     color: "#7c3aed" },
   { value: "formation",   label: "Formation",   color: "#0891b2" },
-  { value: "coaching",    label: "Coaching",     color: "#059669" }
+  { value: "coaching",    label: "Coaching",     color: "#059669" },
+  { value: "break",       label: "Break",       color: "#ea580c" }
 ];
 
 function getCurrentWorkStatus() {
@@ -1442,6 +1443,7 @@ function normalizeTeamPunchRow(row) {
     time,
     punchDate: row.punch_date ? String(row.punch_date).slice(0, 10) : (time ? companyDateKey(time) : ""),
     workLocation: row.work_location || row.workLocation || null,
+    workStatus: row.work_status || row.workStatus || null,
     name: profile?.full_name || "Collaborateur",
     email: profile?.email || ""
   };
@@ -2002,7 +2004,8 @@ function summarizeTeamPunchesByDay(teamPunchesRows, startStr, endStr) {
       id: normalized.id,
       type: normalized.type,
       time: normalized.time,
-      workLocation: normalized.workLocation
+      workLocation: normalized.workLocation,
+      workStatus: normalized.workStatus
     });
   });
 
@@ -2054,6 +2057,26 @@ function exportTeamPunchesCsv() {
   const dailyRows = summarizeTeamPunchesByDay(appData.teamPunches, range.start, range.end);
   if (!dailyRows.length) {
     alert("Aucun pointage à exporter pour cette période.");
+    return;
+  }
+
+  if (getTeamPunchDetailView() === "status") {
+    downloadCsv(
+      `statuts-equipe_${range.start}_${range.end}.csv`,
+      ["Matricule", "Nom", "E-mail", "Date", ...WORK_STATUSES.map((status) => status.label), "Pause déjeuner", "Durée totale"],
+      dailyRows.map((row) => {
+        const durations = computeDayStatusDurations(row.punches, row.dayKey);
+        return [
+          row.matricule,
+          row.name,
+          row.email,
+          formatDate(row.dayKey),
+          ...WORK_STATUSES.map((status) => formatDuration(durations[status.value] || 0)),
+          formatDuration(durations.lunch || 0),
+          formatDuration(totalStatusDurationMs(durations))
+        ];
+      })
+    );
     return;
   }
 
@@ -3350,10 +3373,24 @@ function getOwnHrRequests() {
 }
 
 function canValidateHrRequest(request) {
+  if (!isHr()) return false;
   const userId = request?.userId;
-  if (!userId || userId === session?.user?.id) return false;
-  if (hasOrgWideAccess()) return true;
-  return getDirectReportProfiles().some((profile) => profile.id === userId);
+  return Boolean(userId && userId !== session?.user?.id);
+}
+
+function getTeamHrRequests() {
+  const me = session?.user?.id;
+  const reportIds = new Set(getDirectReportProfiles().map((profile) => profile.id));
+  return getHrRequests().filter((request) => {
+    const userId = request?.userId;
+    if (!userId || userId === me) return false;
+    if (hasOrgWideAccess()) return true;
+    return reportIds.has(userId);
+  });
+}
+
+function canFollowTeamHrRequests() {
+  return hasDirectReports() && !isHr();
 }
 
 function pendingHrForValidator() {
@@ -3809,6 +3846,282 @@ function computeBreakDuration(punches, fromTime = null) {
 
   if (breakStart !== null) total += now - breakStart;
   return total;
+}
+
+function emptyStatusDurations() {
+  const totals = { lunch: 0 };
+  WORK_STATUSES.forEach((status) => {
+    totals[status.value] = 0;
+  });
+  return totals;
+}
+
+function resolvePunchWorkStatus(punch, fallback = "production") {
+  const value = String(punch?.workStatus || punch?.work_status || "").trim().toLowerCase();
+  if (WORK_STATUSES.some((status) => status.value === value)) return value;
+  return fallback;
+}
+
+function computeDayStatusDurations(punches, dayKey) {
+  const totals = emptyStatusDurations();
+  const sorted = [...(punches || [])].sort((a, b) => new Date(a.time) - new Date(b.time));
+  if (!sorted.length) return totals;
+
+  const isToday = companyDateKey(dayKey) === companyDateKey();
+  const lastTime = new Date(sorted[sorted.length - 1].time).getTime();
+  const cap = isToday ? Date.now() : lastTime;
+  let workStart = null;
+  let lunchStart = null;
+  let currentStatus = "production";
+
+  const closeWork = (at) => {
+    if (workStart == null) return;
+    const end = Math.max(workStart, Number(at) || workStart);
+    totals[currentStatus] = (Number(totals[currentStatus]) || 0) + Math.max(0, end - workStart);
+    workStart = null;
+  };
+  const closeLunch = (at) => {
+    if (lunchStart == null) return;
+    const end = Math.max(lunchStart, Number(at) || lunchStart);
+    totals.lunch += Math.max(0, end - lunchStart);
+    lunchStart = null;
+  };
+
+  sorted.forEach((punch) => {
+    const time = new Date(punch.time).getTime();
+    if (!Number.isFinite(time)) return;
+    if (punch.type === "in") {
+      closeLunch(time);
+      currentStatus = resolvePunchWorkStatus(punch, "production");
+      workStart = time;
+      return;
+    }
+    if (punch.type === "status_change") {
+      if (workStart != null) {
+        closeWork(time);
+        currentStatus = resolvePunchWorkStatus(punch, currentStatus);
+        workStart = time;
+      } else {
+        currentStatus = resolvePunchWorkStatus(punch, currentStatus);
+      }
+      return;
+    }
+    if (punch.type === "break_start") {
+      closeWork(time);
+      lunchStart = time;
+      return;
+    }
+    if (punch.type === "break_end") {
+      closeLunch(time);
+      currentStatus = resolvePunchWorkStatus(punch, currentStatus);
+      workStart = time;
+      return;
+    }
+    if (punch.type === "out") {
+      closeLunch(time);
+      closeWork(time);
+    }
+  });
+
+  closeLunch(cap);
+  closeWork(cap);
+  return totals;
+}
+
+function formatStatusDurationCell(ms) {
+  return Number(ms) > 0 ? formatDuration(ms) : "—";
+}
+
+function totalStatusDurationMs(durations) {
+  const workMs = WORK_STATUSES.reduce((sum, status) => sum + (Number(durations?.[status.value]) || 0), 0);
+  return workMs + (Number(durations?.lunch) || 0);
+}
+
+function formatDayStatusLog(punches, dayKey) {
+  const sorted = [...(punches || [])].sort((a, b) => new Date(a.time) - new Date(b.time));
+  if (!sorted.length) return "—";
+  const isToday = companyDateKey(dayKey) === companyDateKey();
+  const cap = isToday ? new Date() : new Date(sorted[sorted.length - 1].time);
+  const lines = [];
+  let cursor = null;
+  let kind = "work";
+  let status = "production";
+
+  const pushLine = (end) => {
+    if (!cursor) return;
+    const endDate = end instanceof Date ? end : new Date(end);
+    const label = kind === "lunch" ? "Pause déjeuner" : workStatusDef(status).label;
+    lines.push(`<span><b>${escapeHtml(label)}</b> ${formatTime(cursor)}–${formatTime(endDate)}</span>`);
+  };
+
+  sorted.forEach((punch) => {
+    const time = punch.time;
+    if (punch.type === "in") {
+      cursor = time;
+      kind = "work";
+      status = resolvePunchWorkStatus(punch, "production");
+      return;
+    }
+    if (punch.type === "status_change" && cursor && kind === "work") {
+      pushLine(time);
+      cursor = time;
+      status = resolvePunchWorkStatus(punch, status);
+      return;
+    }
+    if (punch.type === "break_start" && cursor) {
+      pushLine(time);
+      cursor = time;
+      kind = "lunch";
+      return;
+    }
+    if (punch.type === "break_end") {
+      pushLine(time);
+      cursor = time;
+      kind = "work";
+      status = resolvePunchWorkStatus(punch, status);
+      return;
+    }
+    if (punch.type === "out") {
+      pushLine(time);
+      cursor = null;
+    }
+  });
+  if (cursor) pushLine(cap);
+  return lines.length ? `<div class="punch-log">${lines.join("")}</div>` : "—";
+}
+
+function getTeamPunchDetailView() {
+  return teamPunchFilters.detailView === "status" ? "status" : "punches";
+}
+
+function renderTeamPunchDetailViewToggle() {
+  const view = getTeamPunchDetailView();
+  return `
+    <div class="segmented team-detail-toggle" role="tablist" aria-label="Type de détail">
+      <button type="button" class="planning-tab${view === "punches" ? " is-active" : ""}" data-team-detail-view="punches" role="tab" aria-selected="${view === "punches" ? "true" : "false"}">Détail des pointages</button>
+      <button type="button" class="planning-tab${view === "status" ? " is-active" : ""}" data-team-detail-view="status" role="tab" aria-selected="${view === "status" ? "true" : "false"}">Détail des statuts</button>
+    </div>`;
+}
+
+function renderTeamPunchRows(dailyRows) {
+  if (!dailyRows.length) {
+    return `<tr><td colspan="16" class="empty-cell">Aucun pointage pour cette période. Ajustez les filtres, puis actualisez.</td></tr>`;
+  }
+  return dailyRows.map((row) => {
+    const profile = profileById(row.userId) || { full_name: row.name, id: row.userId };
+    const stats = analyzeWorkedDay(row, profile);
+    const correction = formatDayCorrectionSummary(row.userId, row.dayKey);
+    const canRectify = canRectifyCollaboratorPunches(row.userId);
+    return `
+      <tr>
+        <td><strong>${escapeHtml(row.name)}</strong></td>
+        <td>${formatDate(row.dayKey)}</td>
+        <td>${resolveWorkLocationLabel(row)}</td>
+        <td>${row.startTime ? formatTime(row.startTime) : "—"}</td>
+        <td>${formatDayEndTime(row)}</td>
+        <td>${row.breakDurationMs ? formatDuration(row.breakDurationMs) : "—"}</td>
+        <td>${formatDuration(stats.plannedMs)}</td>
+        <td><strong>${formatDuration(stats.realizedMs)}</strong></td>
+        <td>${formatDelayCell(row.userId, row.dayKey, stats.delayMin, canRectify)}</td>
+        <td>${stats.missingMs ? formatDuration(stats.missingMs) : "—"}</td>
+        <td>${stats.payableOtMs ? formatDuration(stats.payableOtMs) : "—"}</td>
+        <td>${formatDayPunchLog(row)}</td>
+        <td>${correction.rectified === "Oui" ? badge("Oui") : escapeHtml(correction.rectified)}</td>
+        <td>${escapeHtml(correction.who)}</td>
+        <td>${escapeHtml(correction.motif)}</td>
+        <td>${canRectify
+          ? `<button type="button" class="outline-button punch-rectify-btn" data-punch-rectify data-user-id="${escapeHtml(row.userId)}" data-day-key="${escapeHtml(row.dayKey)}">Rectifier</button>`
+          : ""}</td>
+      </tr>`;
+  }).join("");
+}
+
+function renderTeamStatusRows(dailyRows) {
+  const statusCols = WORK_STATUSES.length + 6;
+  if (!dailyRows.length) {
+    return `<tr><td colspan="${statusCols}" class="empty-cell">Aucun statut pour cette période. Ajustez les filtres, puis actualisez.</td></tr>`;
+  }
+  return dailyRows.map((row) => {
+    const durations = computeDayStatusDurations(row.punches, row.dayKey);
+    return `
+      <tr>
+        <td><strong>${escapeHtml(row.name)}</strong></td>
+        <td>${formatDate(row.dayKey)}</td>
+        ${WORK_STATUSES.map((status) => `<td>${formatStatusDurationCell(durations[status.value])}</td>`).join("")}
+        <td>${formatStatusDurationCell(durations.lunch)}</td>
+        <td><strong>${formatStatusDurationCell(totalStatusDurationMs(durations))}</strong></td>
+        <td>${formatDayStatusLog(row.punches, row.dayKey)}</td>
+      </tr>`;
+  }).join("");
+}
+
+function renderTeamPunchDetailCard(dailyRows, options = {}) {
+  const view = getTeamPunchDetailView();
+  const showLocationHint = Boolean(options.showLocationHint);
+  if (view === "status") {
+    return `
+      <article class="card table-card page-spacer">
+        <div class="toolbar">
+          <h3>Détail des statuts</h3>
+          <div class="toolbar-actions">
+            ${renderTeamPunchDetailViewToggle()}
+            <span class="hierarchy-result-count">${dailyRows.length} jour${dailyRows.length > 1 ? "s" : ""}</span>
+          </div>
+        </div>
+        <p class="hierarchy-meta">Temps passé en production, réunion, formation, coaching, break et pause déjeuner, d'après les pointages et les changements d'activité.</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Collaborateur</th>
+                <th>Date</th>
+                ${WORK_STATUSES.map((status) => `<th>${escapeHtml(status.label)}</th>`).join("")}
+                <th>Pause déjeuner</th>
+                <th>Durée totale</th>
+                <th>Journal des statuts</th>
+              </tr>
+            </thead>
+            <tbody>${renderTeamStatusRows(dailyRows)}</tbody>
+          </table>
+        </div>
+      </article>`;
+  }
+  return `
+    <article class="card table-card page-spacer">
+      <div class="toolbar">
+        <h3>Détail des pointages</h3>
+        <div class="toolbar-actions">
+          ${renderTeamPunchDetailViewToggle()}
+          <span class="hierarchy-result-count">${dailyRows.length} jour${dailyRows.length > 1 ? "s" : ""}</span>
+        </div>
+      </div>
+      ${showLocationHint ? `<p class="data-note">Le lieu n'est renseigné que sur les pointages d'entrée. S'il reste vide après un nouveau pointage, redémarrez l'API pour appliquer les migrations.</p>` : ""}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Collaborateur</th>
+              <th>Date</th>
+              <th>Lieu</th>
+              <th>Début</th>
+              <th>Fin</th>
+              <th>Pause déjeuner</th>
+              <th>Heures planifiées</th>
+              <th>Heures réalisées</th>
+              <th>Retard</th>
+              <th>Heures manquantes</th>
+              <th>HS payables</th>
+              <th>Journal du service</th>
+              <th>Heure rectifiée</th>
+              <th>Modifié par</th>
+              <th>Motif</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>${renderTeamPunchRows(dailyRows)}</tbody>
+        </table>
+      </div>
+    </article>`;
 }
 
 function lastMeaningfulPunch(sorted) {
@@ -5887,13 +6200,30 @@ function hrRequestRows(requests) {
   }).join("");
 }
 
+function hrTeamRequestRows(requests) {
+  if (!requests.length) {
+    return `<tr><td colspan="5" class="empty-cell">Aucune demande RH d'équipe pour le moment.</td></tr>`;
+  }
+  return requests.map((request) => {
+    const isAdvance = request.kind === "advance";
+    return `
+    <tr>
+      <td>${escapeHtml(profileById(request.userId)?.full_name || "Collaborateur")}</td>
+      <td><strong>${isAdvance ? "Avance sur salaire" : "Attestation"}</strong></td>
+      <td>${escapeHtml(hrRequestDetail(request))}</td>
+      <td>${formatDate(request.created)}</td>
+      <td>${badge(request.status)}</td>
+    </tr>`;
+  }).join("");
+}
+
 function renderHrValidationInbox() {
   const pending = pendingHrForValidator();
   if (!pending.length) return "";
   return `
     <article class="card table-card page-spacer">
       <div class="toolbar"><h3>Demandes RH à valider</h3></div>
-      <p class="hierarchy-meta">Le Directeur ou le RH peut valider — un seul visa suffit.</p>
+      <p class="hierarchy-meta">Seul le RH ou un administrateur peut valider ou refuser. Un seul visa suffit.</p>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Collaborateur</th><th>Type</th><th>Détail</th><th>Statut</th><th></th></tr></thead>
@@ -5913,6 +6243,22 @@ function renderHrValidationInbox() {
                 </tr>`;
             }).join("")}
           </tbody>
+        </table>
+      </div>
+    </article>`;
+}
+
+function renderHrTeamFollowup() {
+  if (!canFollowTeamHrRequests()) return "";
+  const requests = getTeamHrRequests();
+  return `
+    <article class="card table-card page-spacer">
+      <div class="toolbar"><h3>Demandes de l'équipe</h3></div>
+      <p class="hierarchy-meta">Suivi des avances et attestations de votre équipe. La validation et le refus sont réservés au RH.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Collaborateur</th><th>Type</th><th>Détail</th><th>Date</th><th>Statut</th></tr></thead>
+          <tbody>${hrTeamRequestRows(requests)}</tbody>
         </table>
       </div>
     </article>`;
@@ -7897,7 +8243,10 @@ function planningAssignScopeLists() {
   const managers = profiles
     .filter((profile) => reportIds.has(profile.id))
     .sort((left, right) => String(left.full_name || "").localeCompare(String(right.full_name || ""), "fr"));
-  return { departments, managers };
+  const people = [...profiles].sort((left, right) =>
+    String(left.full_name || "").localeCompare(String(right.full_name || ""), "fr")
+  );
+  return { departments, managers, people };
 }
 
 function resolvePlanningAssignProfiles(data) {
@@ -7913,6 +8262,10 @@ function resolvePlanningAssignProfiles(data) {
   }
   if (scope === "manager") {
     return all.filter((profile) => profile.manager_id === value);
+  }
+  if (scope === "collaborator") {
+    if (!value) return [];
+    return all.filter((profile) => profile.id === value);
   }
   return all;
 }
@@ -8095,6 +8448,13 @@ function renderPlanningAssignPanel() {
     valueOptions = lists.departments.length
       ? lists.departments.map((item) => `<option value="${escapeHtml(item)}"${item === scopeValue ? " selected" : ""}>${escapeHtml(item)}</option>`).join("")
       : `<option value="">Aucune équipe</option>`;
+  } else if (scope === "collaborator") {
+    const selectedPerson = lists.people.some((item) => item.id === scopeValue)
+      ? scopeValue
+      : (lists.people[0]?.id || "");
+    valueOptions = lists.people.length
+      ? lists.people.map((item) => `<option value="${item.id}"${item.id === selectedPerson ? " selected" : ""}>${escapeHtml(item.full_name || "Collaborateur")}</option>`).join("")
+      : `<option value="">Aucun collaborateur</option>`;
   } else {
     valueOptions = lists.managers.length
       ? lists.managers.map((item) => `<option value="${item.id}"${item.id === scopeValue ? " selected" : ""}>${escapeHtml(item.full_name)}</option>`).join("")
@@ -8111,10 +8471,11 @@ function renderPlanningAssignPanel() {
               <option value="shift"${scope === "shift" ? " selected" : ""}>Vacation (CS / CES / R&amp;D)</option>
               <option value="department"${scope === "department" ? " selected" : ""}>Équipe (département)</option>
               <option value="manager"${scope === "manager" ? " selected" : ""}>Équipe d'un manager</option>
+              <option value="collaborator"${scope === "collaborator" ? " selected" : ""}>Collaborateur</option>
             </select>
           </label>
           <label>
-            Cible
+            ${scope === "collaborator" ? "Collaborateur" : "Cible"}
             <select name="scope_value" id="planning-assign-value">${valueOptions}</select>
           </label>
         </div>
@@ -10493,6 +10854,7 @@ function bindPageEvents() {
   if (teamPunchesFilter) {
     if (!teamPunchFilters.start || !teamPunchFilters.end) {
       teamPunchFilters = {
+        ...teamPunchFilters,
         ...getDefaultTeamPunchRange(),
         userId: teamPunchFilters.userId || "",
         scope: teamPunchFilters.scope || "all"
@@ -10502,6 +10864,7 @@ function bindPageEvents() {
       event.preventDefault();
       const data = new FormData(event.currentTarget);
       teamPunchFilters = {
+        ...teamPunchFilters,
         start: data.get("start"),
         end: data.get("end"),
         userId: data.get("userId") || "",
@@ -10548,6 +10911,7 @@ function bindPageEvents() {
       event.preventDefault();
       const data = new FormData(event.currentTarget);
       teamPunchFilters = {
+        ...teamPunchFilters,
         start: data.get("start"),
         end: data.get("end"),
         userId: teamPunchFilters.userId || "",
@@ -10681,6 +11045,13 @@ function bindPageEvents() {
 
   document.querySelector("#team-punches-export")?.addEventListener("click", () => {
     exportTeamPunchesCsv();
+  });
+
+  document.querySelectorAll("[data-team-detail-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      teamPunchFilters.detailView = button.dataset.teamDetailView === "status" ? "status" : "punches";
+      renderApp();
+    });
   });
 
   document.querySelectorAll("[data-punch-rectify]").forEach((button) => {
@@ -11075,6 +11446,8 @@ function bindPageEvents() {
   const settleHrItem = (kind, itemId, refuse) => {
     const table = kind === "advance" ? "salary_advance_requests" : "attestation_requests";
     const store = kind === "advance" ? "salaryAdvanceRequests" : "attestationRequests";
+    const current = getHrRequests().find((item) => String(item.id) === String(itemId) && item.kind === (kind === "advance" ? "advance" : "attestation"));
+    if (!current || !canValidateHrRequest(current)) return;
     withAction(async () => {
       const status = refuse ? "Refuse" : "Approuve";
       if (usesDatabase()) {
@@ -11574,7 +11947,7 @@ function hydrateDemoWorkspace() {
   appData.orgProfiles = profiles;
   appData.navVisibility = normalizeNavVisibility(loadStore("navVisibility", null));
   appData.studioCreators = normalizeStudioCreators(loadStore("studioCreators", ["camille.moreau@humaine.fr"]));
-  teamPunchFilters = { start: "", end: "", userId: "", scope: "team" };
+  teamPunchFilters = { start: "", end: "", userId: "", scope: "team", detailView: "punches" };
   appData.companyTimezone = loadStore("companyTimezone", "GMT+1") === "GMT" ? "GMT" : "GMT+1";
   appData.shiftHours = normalizeShiftHours(loadStore("shiftHours", defaultShiftHours()));
   appData.planningEntries = [];
@@ -11591,9 +11964,21 @@ function hydrateDemoWorkspace() {
         value.setHours(hour, minute + index, 0, 0);
         return value.toISOString();
       };
-      punches.push({ id: `${profile.id}-in-${daysAgo}`, user_id: profile.id, punch_type: "in", punched_at: stamp(profile.shift_code === "rnd" ? 9 : 8, 45), work_location: daysAgo === 1 ? "remote" : "onsite", profiles: { full_name: profile.full_name, email: profile.email } });
+      punches.push({ id: `${profile.id}-in-${daysAgo}`, user_id: profile.id, punch_type: "in", punched_at: stamp(profile.shift_code === "rnd" ? 9 : 8, 45), work_location: daysAgo === 1 ? "remote" : "onsite", work_status: "production", profiles: { full_name: profile.full_name, email: profile.email } });
+      if (profile.id === "u-lea") {
+        punches.push({ id: `${profile.id}-s1-${daysAgo}`, user_id: profile.id, punch_type: "status_change", punched_at: stamp(10, 20), work_status: "reunion", profiles: { full_name: profile.full_name } });
+        punches.push({ id: `${profile.id}-s2-${daysAgo}`, user_id: profile.id, punch_type: "status_change", punched_at: stamp(11, 5), work_status: "production", profiles: { full_name: profile.full_name } });
+      }
+      if (profile.id === "u-hugo") {
+        punches.push({ id: `${profile.id}-s1-${daysAgo}`, user_id: profile.id, punch_type: "status_change", punched_at: stamp(14, 10), work_status: "coaching", profiles: { full_name: profile.full_name } });
+        punches.push({ id: `${profile.id}-s2-${daysAgo}`, user_id: profile.id, punch_type: "status_change", punched_at: stamp(15, 40), work_status: "production", profiles: { full_name: profile.full_name } });
+      }
+      if (profile.id === "u-thomas") {
+        punches.push({ id: `${profile.id}-s1-${daysAgo}`, user_id: profile.id, punch_type: "status_change", punched_at: stamp(16, 0), work_status: "break", profiles: { full_name: profile.full_name } });
+        punches.push({ id: `${profile.id}-s2-${daysAgo}`, user_id: profile.id, punch_type: "status_change", punched_at: stamp(16, 15), work_status: "production", profiles: { full_name: profile.full_name } });
+      }
       punches.push({ id: `${profile.id}-b-${daysAgo}`, user_id: profile.id, punch_type: "break_start", punched_at: stamp(12, 10), profiles: { full_name: profile.full_name } });
-      punches.push({ id: `${profile.id}-r-${daysAgo}`, user_id: profile.id, punch_type: "break_end", punched_at: stamp(13, 5), profiles: { full_name: profile.full_name } });
+      punches.push({ id: `${profile.id}-r-${daysAgo}`, user_id: profile.id, punch_type: "break_end", punched_at: stamp(13, 5), work_status: "production", profiles: { full_name: profile.full_name } });
       if (daysAgo !== 0 || profile.id !== me.id) {
         punches.push({ id: `${profile.id}-out-${daysAgo}`, user_id: profile.id, punch_type: "out", punched_at: stamp(18, 5), profiles: { full_name: profile.full_name } });
       }
@@ -11606,7 +11991,8 @@ function hydrateDemoWorkspace() {
   saveStore("punches", appData.punches.map((row) => ({
     type: row.punch_type,
     time: row.punched_at,
-    workLocation: row.work_location || null
+    workLocation: row.work_location || null,
+    workStatus: row.work_status || null
   })));
   saveStore("leaveRequests", [{
     id: "leave-demo-1",
@@ -11667,6 +12053,16 @@ function hydrateDemoWorkspace() {
     kind: "attestation",
     type: "Attestation employeur",
     reason: "Dossier de location",
+    status: "A valider",
+    created: new Date().toISOString()
+  }]);
+  saveStore("salaryAdvanceRequests", [{
+    id: "adv-demo-1",
+    userId: "u-lea",
+    kind: "advance",
+    amount: 2000,
+    reason: "Urgence familiale",
+    requestedDate: toDateKey(new Date()),
     status: "A valider",
     created: new Date().toISOString()
   }]);
