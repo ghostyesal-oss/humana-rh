@@ -1879,7 +1879,10 @@ function openPunchRectifyDialog(userId, dayKey) {
         <label>Début pause <input type="time" name="break_start" value="${escapeHtml(times.break_start)}"></label>
         <label>Fin pause <input type="time" name="break_end" value="${escapeHtml(times.break_end)}"></label>
       </div>
-      <label>Motif <textarea name="reason" rows="2" required minlength="4" maxlength="400" placeholder="Ex. : arrivée à l'heure, oubli de pointer"></textarea></label>
+      <label class="popup-comment-field">
+        Commentaire
+        <textarea name="reason" rows="6" required minlength="4" maxlength="400" placeholder="Ex. : arrivée à l'heure, oubli de pointer"></textarea>
+      </label>
       <input type="hidden" name="userId" value="${escapeHtml(userId)}">
       <input type="hidden" name="dayKey" value="${escapeHtml(dayKey)}">
       <div class="punch-rectify-actions">
@@ -8373,7 +8376,10 @@ function openJustifyAbsenceDialog(userId, dayKey) {
       <h3 id="justify-absence-title">Justifier l'absence</h3>
       <p class="hierarchy-meta">${escapeHtml(profile?.full_name || "Collaborateur")} · ${escapeHtml(formatDate(dayKey))}</p>
       <p class="data-note">Le jour passe d'absence injustifiée (AI) à absence justifiée (AJ). Le commentaire est obligatoire ; une pièce jointe peut être jointe si elle est disponible.</p>
-      <label>Commentaire <textarea name="comment" rows="3" required minlength="4" maxlength="400" placeholder="Motif de la justification"></textarea></label>
+      <label class="popup-comment-field">
+        Commentaire
+        <textarea name="comment" rows="6" required minlength="4" maxlength="400" placeholder="Motif de la justification"></textarea>
+      </label>
       <label>Pièce jointe <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/*"></label>
       <input type="hidden" name="userId" value="${escapeHtml(userId)}">
       <input type="hidden" name="dayKey" value="${escapeHtml(dayKey)}">
@@ -9015,7 +9021,10 @@ function openPlanningDayDialog(userId, dayKey) {
           <input type="number" name="hours" min="0" max="12" step="0.5" value="${escapeHtml(String(hours))}">
         </label>
       </div>
-      <label>Note <input type="text" name="note" maxlength="240" value="${escapeHtml(slots.map((item) => item.note).find(Boolean) || "")}" placeholder="Optionnel"></label>
+      <label class="popup-comment-field">
+        Commentaire
+        <textarea name="note" rows="5" maxlength="240" placeholder="Optionnel">${escapeHtml(slots.map((item) => item.note).find(Boolean) || "")}</textarea>
+      </label>
       <input type="hidden" name="userId" value="${escapeHtml(userId)}">
       <input type="hidden" name="dayKey" value="${escapeHtml(dayKey)}">
       <div class="punch-rectify-actions">
