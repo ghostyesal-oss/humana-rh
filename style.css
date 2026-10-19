@@ -1508,6 +1508,14 @@ button.brand:focus-visible {
   flex-shrink: 0;
 }
 
+.work-status-picker.is-disabled {
+  opacity: 0.6;
+}
+
+.work-status-picker.is-disabled select {
+  cursor: not-allowed;
+}
+
 .work-status-picker select {
   background: transparent;
   border: none;
@@ -7101,6 +7109,10 @@ small { font-size: 11px; }
   outline: 2px solid var(--brand, #0046fe);
   outline-offset: -2px;
 }
+.planning-grid td.is-unjustified .planning-day-btn {
+  font-weight: 700;
+}
+
 .planning-grid td.is-edited .planning-day-btn {
   font-weight: 700;
 }

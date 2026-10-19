@@ -523,7 +523,13 @@ function getCurrentWorkStatus() {
 }
 
 function setCurrentWorkStatus(value) {
-  try { sessionStorage.setItem("humana_work_status", value); } catch (_) { /* ignore */ }
+  const next = WORK_STATUSES.some((status) => status.value === value) ? value : "production";
+  try { sessionStorage.setItem("humana_work_status", next); } catch (_) { /* ignore */ }
+  return next;
+}
+
+function canChangeWorkStatus() {
+  return Boolean(getClockState().isWorking);
 }
 
 function pctN(value) {
@@ -543,13 +549,17 @@ function topbarTimelineMarkup() {
 }
 
 function workStatusPickerMarkup() {
-  const current = workStatusDef(getCurrentWorkStatus());
+  const enabled = canChangeWorkStatus();
+  const current = workStatusDef(enabled ? getCurrentWorkStatus() : "production");
   const options = WORK_STATUSES.map((s) =>
     `<option value="${s.value}" ${s.value === current.value ? "selected" : ""}>${s.label}</option>`
   ).join("");
-  return `<div class="work-status-picker">
+  const title = enabled
+    ? "Production démarre à J'arrive et s'arrête à Je pars. Les autres statuts s'intercalent pendant le service."
+    : "Le statut Production démarre lorsque vous cliquez sur J'arrive.";
+  return `<div class="work-status-picker${enabled ? "" : " is-disabled"}" title="${escapeHtml(title)}">
     <span class="work-status-dot work-status-dot--${current.value}"></span>
-    <select id="work-status-select" aria-label="Statut de travail">${options}</select>
+    <select id="work-status-select" aria-label="Statut de travail"${enabled ? "" : " disabled"}>${options}</select>
   </div>`;
 }
 
@@ -560,29 +570,39 @@ function bindWorkStatusPicker() {
   select.addEventListener("change", () => {
     const newStatus = select.value;
     const oldStatus = getCurrentWorkStatus();
-    setCurrentWorkStatus(newStatus);
-    const def = workStatusDef(newStatus);
-    const dot = select.closest(".work-status-picker")?.querySelector(".work-status-dot");
-    if (dot) {
-      dot.className = `work-status-dot work-status-dot--${def.value}`;
+    if (!canChangeWorkStatus()) {
+      select.value = "production";
+      return;
     }
-    switchStatusClock(newStatus);
-
-    const { isWorking } = getClockState();
-    if (isWorking && newStatus !== oldStatus) {
-      const punchData = { type: "status_change", time: new Date().toISOString(), workStatus: newStatus, prevWorkStatus: oldStatus };
+    if (newStatus === oldStatus) return;
+    withAction(async () => {
+      setCurrentWorkStatus(newStatus);
+      switchStatusClock(newStatus);
+      const punchData = {
+        type: "status_change",
+        time: new Date().toISOString(),
+        workStatus: newStatus,
+        prevWorkStatus: oldStatus
+      };
       if (usesDatabase()) {
-        const rows = loadStore("workStatusPunches", []);
-        rows.push(punchData);
-        saveStore("workStatusPunches", rows);
+        await insertTimePunch({
+          user_id: session.user.id,
+          punch_type: "status_change",
+          punched_at: punchData.time,
+          work_status: newStatus
+        });
+        appData.punches = [...(appData.punches || []), {
+          user_id: session.user.id,
+          punch_type: "status_change",
+          punched_at: punchData.time,
+          work_status: newStatus
+        }];
       } else {
         const punches = loadStore("punches", []);
         punches.push(punchData);
         saveStore("punches", punches);
       }
-    }
-    updateElapsedClocks();
-    bindElapsedClock();
+    });
   });
 }
 const PUNCH_CORRECTION_QUOTA = 3;
@@ -3415,6 +3435,10 @@ function navBadge(page) {
     const pendingDelays = countPendingDelays();
     if (pendingDelays) return `<span class="nav-badge">${pendingDelays}</span>`;
   }
+  if (page === "planning") {
+    const pendingAbsences = countPendingUnjustifiedAbsences();
+    if (pendingAbsences) return `<span class="nav-badge">${pendingAbsences}</span>`;
+  }
   return "";
 }
 
@@ -3566,18 +3590,73 @@ function pauseStatusClock() {
   writeStatusClock({ totals, status: data.status || getCurrentWorkStatus(), start: null, running: false });
 }
 
-function switchStatusClock(newStatus) {
+function switchStatusClock(newStatus, startedAt = Date.now()) {
   const status = String(newStatus || getCurrentWorkStatus() || "production");
   const data = readStatusClock() || { totals: {} };
   const totals = { ...(data.totals || {}) };
   if (data.running && data.start && data.status) {
     totals[data.status] = (Number(totals[data.status]) || 0) + Math.max(0, Date.now() - Number(data.start));
   }
-  writeStatusClock({ totals, status, start: Date.now(), running: true });
+  const start = Number(startedAt);
+  writeStatusClock({
+    totals,
+    status,
+    start: Number.isFinite(start) ? start : Date.now(),
+    running: true
+  });
+}
+
+function lastOpenWorkSegmentStartMs() {
+  const sorted = [...getTodayPunches()].sort((a, b) => new Date(a.time) - new Date(b.time));
+  let start = null;
+  sorted.forEach((punch) => {
+    const time = new Date(punch.time).getTime();
+    if (!Number.isFinite(time)) return;
+    if (punch.type === "in" || punch.type === "break_end" || punch.type === "status_change") start = time;
+    if (punch.type === "break_start" || punch.type === "out") start = null;
+  });
+  return start;
+}
+
+function activeWorkStatusFromPunches() {
+  const sorted = [...getTodayPunches()].sort((a, b) => new Date(a.time) - new Date(b.time));
+  let status = "production";
+  sorted.forEach((punch) => {
+    if (punch.type === "in" || punch.type === "status_change" || punch.type === "break_end") {
+      status = resolvePunchWorkStatus(punch, status);
+    }
+  });
+  return status;
+}
+
+function ensureStatusClockFromShift() {
+  const { isWorking, onBreak, isOut } = getClockState();
+  if (isOut) {
+    const data = readStatusClock();
+    if (data?.running) pauseStatusClock();
+    setCurrentWorkStatus("production");
+    return;
+  }
+  if (onBreak) {
+    const data = readStatusClock();
+    if (data?.running) pauseStatusClock();
+    return;
+  }
+  if (!isWorking) return;
+  const status = activeWorkStatusFromPunches();
+  setCurrentWorkStatus(status);
+  const data = readStatusClock();
+  if (data?.running && String(data.status) === status) return;
+  switchStatusClock(status, lastOpenWorkSegmentStartMs() || Date.now());
 }
 
 function getTodayElapsedMs() {
   const status = String(getCurrentWorkStatus() || "production");
+  const punches = getTodayPunches();
+  if (punches.length) {
+    const durations = computeDayStatusDurations(punches, companyDateKey());
+    return Number(durations?.[status]) || 0;
+  }
   const data = readStatusClock();
   if (!data) return 0;
   let ms = Number(data.totals?.[status]) || 0;
@@ -3607,6 +3686,7 @@ function updateElapsedClocks() {
 }
 
 function bindElapsedClock() {
+  ensureStatusClockFromShift();
   updateElapsedClocks();
   if (window.__humanaElapsedClock) return;
   window.__humanaElapsedClock = setInterval(updateElapsedClocks, 200);
@@ -3764,17 +3844,23 @@ function buildClockPunchPayload(punchType) {
     punch_type: punchType,
     punched_at: new Date().toISOString()
   };
-  if (punchType === "in") payload.work_location = getPreferredWorkLocation();
-  // Toujours sauvegarder le statut de travail actif
-  payload.work_status = getCurrentWorkStatus();
+  if (punchType === "in") {
+    payload.work_location = getPreferredWorkLocation();
+    payload.work_status = "production";
+  } else {
+    payload.work_status = getCurrentWorkStatus();
+  }
   return payload;
 }
 
 function buildDemoClockPunch(punchType) {
   const punch = { type: punchType, time: new Date().toISOString() };
-  if (punchType === "in") punch.workLocation = getPreferredWorkLocation();
-  // Toujours sauvegarder le statut de travail actif
-  punch.workStatus = getCurrentWorkStatus();
+  if (punchType === "in") {
+    punch.workLocation = getPreferredWorkLocation();
+    punch.workStatus = "production";
+  } else {
+    punch.workStatus = getCurrentWorkStatus();
+  }
   return punch;
 }
 
@@ -5227,11 +5313,15 @@ function getClockStatusCopy() {
   }
 
   if (isWorking) {
+    const status = workStatusDef(getCurrentWorkStatus());
+    const inProduction = status.value === "production";
     return {
-      title: "Vous êtes en poste",
-      hint: "Bonne journée, vous êtes bien enregistré.",
+      title: inProduction ? "Vous êtes en production" : `Vous êtes en ${status.label.toLowerCase()}`,
+      hint: inProduction
+        ? "Le statut Production a commencé à l'arrivée. Il s'arrête lorsque vous cliquez sur « Je pars »."
+        : "Vous pouvez revenir en Production à tout moment, jusqu'à la fin de service.",
       tone: "in",
-      homeLine: "Vous êtes en poste"
+      homeLine: inProduction ? "Vous êtes en production" : `En ${status.label.toLowerCase()}`
     };
   }
 
@@ -6440,6 +6530,26 @@ function edsDescription(items) {
   }).filter(Boolean).join(" | ");
 }
 
+function countComputedUnjustifiedDays(profile, range, daily, leaves) {
+  let qty = 0;
+  const labels = [];
+  const start = parseLocalDate(range?.start);
+  const end = parseLocalDate(range?.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return { qty: 0, desc: "" };
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    const key = toDateKey(cursor);
+    const dayRow = (daily || []).find((row) => row.userId === profile.id && row.dayKey === key) || null;
+    const dayLeaves = (leaves || []).filter((item) => leaveCoversPlanningDay(item, key));
+    if (isUnjustifiedAbsenceDay(profile, key, { dayRow, dayLeaves })) {
+      qty += 1;
+      labels.push(formatDate(key));
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return { qty, desc: labels.join(" | ") };
+}
+
 function edsBucketForLeave(type) {
   const normalized = foldAbsenceText(type);
   if (normalized.includes("accident")) return "accident";
@@ -6970,7 +7080,12 @@ function buildEdsRows() {
 
     const lateLeave = pack("late", "hours");
     const earlyLeave = pack("early", "hours");
-    const unjust = pack("unjustified");
+    const unjustLeave = pack("unjustified");
+    const computedUnjust = countComputedUnjustifiedDays(profile, range, days, mine);
+    const unjust = {
+      qty: edsQty(unjustLeave.qty + computedUnjust.qty),
+      desc: [unjustLeave.desc, computedUnjust.desc].filter(Boolean).join(" | ")
+    };
     const just = pack("justified");
     const accident = pack("accident");
     const cp = pack("cp");
@@ -8122,6 +8237,233 @@ function leaveCoversPlanningDay(item, dayKey) {
   return Boolean(start && end && dayKey >= start && dayKey <= end);
 }
 
+function isClosedPlanningDay(dayKey) {
+  return String(dayKey || "").slice(0, 10) < companyDateKey();
+}
+
+function canJustifyAbsence(userId) {
+  if (!userId) return false;
+  if (userId === session?.user?.id) return isAdmin();
+  if (isHr()) return true;
+  return getDirectReportProfiles().some((profile) => profile.id === userId);
+}
+
+function hasPunchOnPlanningDay(userId, dayKey) {
+  const key = String(dayKey || "").slice(0, 10);
+  const match = (row) => {
+    const normalized = normalizeTeamPunchRow(row);
+    return normalized.userId === userId && normalized.punchDate === key;
+  };
+  if ((appData.teamPunches || []).some(match)) return true;
+  return (appData.punches || []).some(match);
+}
+
+function isUnjustifiedAbsenceDay(profile, dayKey, options = {}) {
+  if (!profile?.id || !isClosedPlanningDay(dayKey)) return false;
+  let slots = options.slots;
+  if (slots === undefined) {
+    const found = planningDaySlots(profile.id, dayKey);
+    slots = found.length ? found : null;
+  } else if (Array.isArray(slots) && !slots.length) {
+    slots = null;
+  }
+  if (!slots) return false;
+  const plannedHours = slots.reduce((total, item) => total + Number(item.hours || 0), 0);
+  const plannedAbsence = Boolean(slots.some((item) => PLANNING_ABSENCE_CODES.has(item.kind)));
+  if (!(plannedHours > 0) || plannedAbsence) return false;
+  const dayLeaves = options.dayLeaves !== undefined
+    ? options.dayLeaves
+    : getPlanningLeaves().filter((item) => (
+      (item.userId || item.user_id) === profile.id && leaveCoversPlanningDay(item, dayKey)
+    ));
+  if (dayLeaves.length) return false;
+  if (Object.prototype.hasOwnProperty.call(options, "dayRow")) {
+    if (options.dayRow) return false;
+  } else if (hasPunchOnPlanningDay(profile.id, dayKey)) {
+    return false;
+  }
+  return true;
+}
+
+function listUnjustifiedAbsencesFromModel(model) {
+  const items = [];
+  (model?.rows || []).forEach((row) => {
+    if (!canJustifyAbsence(row.profile.id)) return;
+    (model.days || []).forEach((dayKey) => {
+      if (row.cells?.[dayKey]?.unjustifiedPending) {
+        items.push({
+          userId: row.profile.id,
+          name: row.profile.full_name,
+          dayKey,
+          title: row.cells[dayKey].title || "Absence injustifiée"
+        });
+      }
+    });
+  });
+  items.sort((a, b) => String(b.dayKey).localeCompare(String(a.dayKey)) || String(a.name).localeCompare(String(b.name), "fr"));
+  return items;
+}
+
+function countPendingUnjustifiedAbsences() {
+  if (!canViewPlanning()) return 0;
+  if (!(isHr() || hasDirectReports())) return 0;
+  return listUnjustifiedAbsencesFromModel(buildPlanningModel()).length;
+}
+
+function renderUnjustifiedAbsenceInbox(model) {
+  if (!(isHr() || hasDirectReports())) return "";
+  const pending = listUnjustifiedAbsencesFromModel(model);
+  return `
+    <article class="card table-card page-spacer">
+      <div class="toolbar">
+        <h3>Absences injustifiées à justifier</h3>
+        <span class="hierarchy-result-count">${pending.length} absence${pending.length > 1 ? "s" : ""}</span>
+      </div>
+      <p class="hierarchy-meta">Un collaborateur planifié sans pointage reste en <strong>absence injustifiée (AI)</strong> jusqu'à validation par le traffic manager (N+1) ou le RH. La validation passe le jour en <strong>absence justifiée (AJ)</strong>.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Collaborateur</th>
+              <th>Date</th>
+              <th>Statut</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${pending.length
+              ? pending.map((item) => `
+                <tr>
+                  <td><strong>${escapeHtml(item.name)}</strong></td>
+                  <td>${formatDate(item.dayKey)}</td>
+                  <td>${badge("Absence injustifiée")}</td>
+                  <td class="delay-review-actions">
+                    <button type="button" class="primary" data-absence-justify data-user-id="${escapeHtml(item.userId)}" data-day-key="${escapeHtml(item.dayKey)}">Justifier</button>
+                  </td>
+                </tr>`).join("")
+              : `<tr><td colspan="4" class="empty-cell">Aucune absence injustifiée à justifier sur ce mois.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </article>`;
+}
+
+function closeJustifyAbsenceDialog() {
+  document.removeEventListener("keydown", onJustifyAbsenceKeydown);
+  document.getElementById("justify-absence-overlay")?.remove();
+}
+
+function onJustifyAbsenceKeydown(event) {
+  if (event.key === "Escape") closeJustifyAbsenceDialog();
+}
+
+function openJustifyAbsenceDialog(userId, dayKey) {
+  if (!canJustifyAbsence(userId) || !dayKey) return;
+  closeJustifyAbsenceDialog();
+  closePlanningDayDialog();
+  const profile = profileById(userId);
+  const overlay = document.createElement("div");
+  overlay.id = "justify-absence-overlay";
+  overlay.className = "punch-rectify-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-labelledby", "justify-absence-title");
+  overlay.innerHTML = `
+    <form id="justify-absence-form" class="punch-rectify-card">
+      <h3 id="justify-absence-title">Justifier l'absence</h3>
+      <p class="hierarchy-meta">${escapeHtml(profile?.full_name || "Collaborateur")} · ${escapeHtml(formatDate(dayKey))}</p>
+      <p class="data-note">Le jour passe d'absence injustifiée (AI) à absence justifiée (AJ). Le commentaire est obligatoire ; une pièce jointe peut être jointe si elle est disponible.</p>
+      <label>Commentaire <textarea name="comment" rows="3" required minlength="4" maxlength="400" placeholder="Motif de la justification"></textarea></label>
+      <label>Pièce jointe <input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/*"></label>
+      <input type="hidden" name="userId" value="${escapeHtml(userId)}">
+      <input type="hidden" name="dayKey" value="${escapeHtml(dayKey)}">
+      <div class="punch-rectify-actions">
+        <button type="button" class="outline-button" data-justify-absence-close>Annuler</button>
+        <button type="submit" class="primary">Valider en AJ</button>
+      </div>
+    </form>`;
+  const close = () => closeJustifyAbsenceDialog();
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  overlay.querySelector("[data-justify-absence-close]")?.addEventListener("click", close);
+  overlay.querySelector("#justify-absence-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    withAction(async () => {
+      await submitJustifyAbsence({
+        userId: String(data.get("userId") || ""),
+        dayKey: String(data.get("dayKey") || ""),
+        comment: String(data.get("comment") || ""),
+        attachmentName: data.get("file")?.name || ""
+      });
+      closeJustifyAbsenceDialog();
+    });
+  });
+  document.body.appendChild(overlay);
+  overlay.querySelector("[name='comment']")?.focus();
+  document.addEventListener("keydown", onJustifyAbsenceKeydown);
+}
+
+async function submitJustifyAbsence({ userId, dayKey, comment, attachmentName }) {
+  if (!canJustifyAbsence(userId)) {
+    throw new Error("Seul le traffic manager ou le RH peut justifier cette absence.");
+  }
+  const dateKey = String(dayKey || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) throw new Error("Journée invalide.");
+  if (!isClosedPlanningDay(dateKey)) {
+    throw new Error("La justification n'est possible que pour une journée close.");
+  }
+  const note = sanitizePunchReason(comment);
+  if (note.length < 4) throw new Error("Indiquez un commentaire de justification (4 caractères minimum).");
+  const profile = profileById(userId);
+  const chain = typeof getLeaveValidatorChain === "function" ? getLeaveValidatorChain(userId) : [];
+  const payload = {
+    userId,
+    type: "ABS JUSTTIFIER",
+    start: dateKey,
+    end: dateKey,
+    days: 1,
+    hours: null,
+    unit: "days",
+    halfDay: "",
+    motif: "Absence justifiée",
+    attachmentName: String(attachmentName || "").replace(/[\u0000-\u001F\u007F]/g, " ").trim().slice(0, 180),
+    comment: note,
+    workflowStep: Math.max(chain.length, 1),
+    status: "Approuve",
+    name: profile?.full_name || "",
+    created: new Date().toISOString()
+  };
+  if (usesDatabase()) {
+    await insertLeaveRequestRow({
+      user_id: userId,
+      leave_type: payload.type,
+      start_date: payload.start,
+      end_date: payload.end,
+      days: payload.days,
+      hours: payload.hours,
+      unit: payload.unit,
+      half_day: null,
+      motif: payload.motif,
+      attachment_name: payload.attachmentName || null,
+      workflow_step: payload.workflowStep,
+      comment: payload.comment,
+      status: payload.status
+    });
+    dataStamp.leave = 0;
+    dataStamp.teamLeave = 0;
+    await loadOwnLeave();
+    if (canViewTeamLeaveCalendar()) {
+      await loadTeamLeaveRequests(currentPage === "planning" ? planningMonthRange() : getLeaveCalendarMonth());
+    }
+    return;
+  }
+  const requests = loadStore("leaveRequests", []);
+  requests.unshift({ id: Date.now(), ...payload });
+  saveStore("leaveRequests", requests);
+}
+
 function buildPlanningModel() {
   const cursor = getPlanningCursor();
   const range = planningMonthRange(cursor);
@@ -8208,6 +8550,12 @@ function buildPlanningModel() {
           logs.push({ dayKey, name: profile.full_name, kind: "EC", detail: `${formatDuration(stats.realizedMs)} / ${formatDuration(targetMs)}`, source: "pointage" });
           gapAgents.hours.add(profile.id);
         }
+      } else if (isUnjustifiedAbsenceDay(profile, dayKey, { slots, dayRow: dayRow || null, dayLeaves })) {
+        codes.length = 0;
+        codes.push("AI");
+        notes.push("Absence injustifiée — en attente de justification par le manager ou le RH");
+        logs.push({ dayKey, name: profile.full_name, kind: "AI", detail: "Jour ouvré sans pointage ni demande validée", source: "écart" });
+        gapAgents.unjustified.add(profile.id);
       } else if (working && !dayLeaves.length && !plannedAbsence) {
         notes.push("Non pointé");
         logs.push({ dayKey, name: profile.full_name, kind: "AB", detail: "Jour ouvré sans pointage ni demande", source: "écart" });
@@ -8215,15 +8563,27 @@ function buildPlanningModel() {
         const planned = slots && plannedHours > 0;
         if (!planned) codes.push("AB");
       }
+      const unjustifiedPending = isUnjustifiedAbsenceDay(profile, dayKey, { slots, dayRow: dayRow || null, dayLeaves });
       const uniqueCodes = [...new Set(codes)];
+      const leaveAbsence = uniqueCodes.some((code) => (
+        PLANNING_ABSENCE_CODES.has(code) && code !== "FER" && code !== "DE"
+      ));
       const plannedPresence = uniqueCodes.some((code) => code === "PR" || code === "TT" || code === "FER" || code === "DE");
       const editor = planningSlotsEditor(slots);
       if (editor.label) notes.push(editor.label);
+      const displayCodes = unjustifiedPending
+        ? ["AI"]
+        : uniqueCodes.filter((code) => {
+          if (leaveAbsence && (code === "PR" || code === "TT")) return false;
+          if (plannedPresence && code === "AB") return false;
+          return true;
+        });
       cells[dayKey] = {
-        codes: plannedPresence ? uniqueCodes.filter((code) => code !== "AB") : uniqueCodes,
+        codes: displayCodes,
         title: notes.join(" · "),
         off: !working,
-        edited: Boolean(slots && slots.some((item) => item.source === "manual" || item.source === "assign"))
+        edited: Boolean(slots && slots.some((item) => item.source === "manual" || item.source === "assign")),
+        unjustifiedPending
       };
     });
     return { profile, cells };
@@ -8563,7 +8923,8 @@ function renderPlanningGrid(model) {
                     cell.off ? "is-off" : "",
                     cell.codes[0] ? `pl-cell--${cell.codes[0]}` : "",
                     "is-editable",
-                    cell.edited ? "is-edited" : ""
+                    cell.edited ? "is-edited" : "",
+                    cell.unjustifiedPending ? "is-unjustified" : ""
                   ].filter(Boolean).join(" ");
                   const title = [cell.title || codes, "Cliquer pour modifier"].filter(Boolean).join(" · ");
                   return `<td class="${cls}">
@@ -8620,12 +8981,19 @@ function openPlanningDayDialog(userId, dayKey) {
   overlay.setAttribute("role", "dialog");
   overlay.setAttribute("aria-modal", "true");
   overlay.setAttribute("aria-labelledby", "planning-day-title");
+  const unjustifiedPending = isUnjustifiedAbsenceDay(profile, dayKey);
+  const canJustify = canJustifyAbsence(userId) && unjustifiedPending;
   overlay.innerHTML = `
     <form id="planning-day-form" class="punch-rectify-card">
       <h3 id="planning-day-title">Modifier la journée</h3>
       <p class="hierarchy-meta">${escapeHtml(profile?.full_name || "Collaborateur")} · ${escapeHtml(formatDate(dayKey))}</p>
       <p class="data-note">${escapeHtml(current)}</p>
       <p class="data-note">${editor.label ? escapeHtml(editor.label) : "Aucun changement manuel enregistré pour cette journée."}</p>
+      ${unjustifiedPending ? `<p class="data-note">Cette journée est une <strong>absence injustifiée (AI)</strong> tant qu'elle n'est pas validée par le traffic manager ou le RH.</p>` : ""}
+      ${canJustify ? `
+      <div class="punch-rectify-actions">
+        <button type="button" class="primary" data-absence-justify data-user-id="${escapeHtml(userId)}" data-day-key="${escapeHtml(dayKey)}">Justifier (AI → AJ)</button>
+      </div>` : ""}
       ${canEdit ? `
       <label>
         Type
@@ -8665,6 +9033,9 @@ function openPlanningDayDialog(userId, dayKey) {
     if (event.target === overlay) close();
   });
   overlay.querySelector("[data-planning-day-close]")?.addEventListener("click", close);
+  overlay.querySelector("[data-absence-justify]")?.addEventListener("click", () => {
+    openJustifyAbsenceDialog(userId, dayKey);
+  });
   overlay.querySelector("[name='kind']")?.addEventListener("change", (event) => {
     const hoursInput = overlay.querySelector("[name='hours']");
     if (!hoursInput) return;
@@ -9385,9 +9756,9 @@ const PAGE_COLLECTIONS = {
   creator: ["settings"],
   journal: ["org", "journal"],
   "team-punches": ["org", "teamPunches", "gta", "planningEntries"],
-  reports: ["org", "leave", "teamPunches", "planningEntries", "edsPayroll"],
+  reports: ["org", "leave", "teamLeave", "teamPunches", "planningEntries", "edsPayroll"],
   global: ["org", "teamPunches", "planningEntries"],
-  planning: ["org", "teamPunches", "planningEntries"],
+  planning: ["org", "teamPunches", "planningEntries", "leave", "teamLeave"],
   privacy: ["punches", "leave", "attestations", "documents"]
 };
 
@@ -9573,7 +9944,13 @@ async function loadCollection(key, { force = false } = {}) {
       break;
     case "teamLeave":
       if (canViewTeamLeaveCalendar()) {
-        await loadTeamLeaveRequests(currentPage === "reports" ? getEdsRange() : getLeaveCalendarMonth());
+        await loadTeamLeaveRequests(
+          currentPage === "reports"
+            ? getEdsRange()
+            : currentPage === "planning"
+              ? planningMonthRange()
+              : getLeaveCalendarMonth()
+        );
       } else appData.teamLeaveRequests = [];
       break;
     case "teamPunches":
@@ -9856,6 +10233,7 @@ function playViewAnimations() {
 function renderApp() {
   if (!ensureAccessiblePage()) return;
   clearJournalFsRoot();
+  if (session?.user) ensureStatusClockFromShift();
   if (session?.user && !lateReminderWatcher && !portalMode) {
     startLateReminderWatcher();
   }
@@ -10595,10 +10973,12 @@ function bindPageEvents() {
         saveStore("punches", punches);
       }
       if (starting) {
-        switchStatusClock(getCurrentWorkStatus());
+        setCurrentWorkStatus("production");
+        switchStatusClock("production");
         notifyLateArrivalIfNeeded();
       } else {
         pauseStatusClock();
+        setCurrentWorkStatus("production");
         notifyOvertimeOnExitIfNeeded();
       }
     });
@@ -11072,6 +11452,12 @@ function bindPageEvents() {
           dataStamp.teamPunches = 0;
         }
       });
+    });
+  });
+
+  document.querySelectorAll("[data-absence-justify]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openJustifyAbsenceDialog(button.dataset.userId, button.dataset.dayKey);
     });
   });
 
@@ -11954,11 +12340,28 @@ function hydrateDemoWorkspace() {
   appData.edsPayroll = loadStore("edsPayroll", {});
   appData.delayReviews = [];
   saveStore("delayReviews", []);
+  let demoNoShowKey = "";
+  for (let daysAgo = 1; daysAgo <= 14; daysAgo += 1) {
+    const probe = new Date();
+    probe.setDate(probe.getDate() - daysAgo);
+    const key = toDateKey(probe);
+    if (isWorkingDayKey(key)) {
+      demoNoShowKey = key;
+      break;
+    }
+  }
+  if (demoNoShowKey) {
+    appData.planningEntries = [
+      { id: "pl-demo-lea", user_id: "u-lea", work_date: demoNoShowKey, slot: 1, hours: 8, kind: "PR", source: "assign", created_by: "u-thomas", created_at: new Date().toISOString() },
+      { id: "pl-demo-hugo", user_id: "u-hugo", work_date: demoNoShowKey, slot: 1, hours: 8, kind: "PR", source: "assign", created_by: "u-thomas", created_at: new Date().toISOString() }
+    ];
+  }
   const punches = [];
   profiles.forEach((profile, index) => {
     for (let daysAgo = 2; daysAgo >= 0; daysAgo -= 1) {
       const day = new Date();
       day.setDate(day.getDate() - daysAgo);
+      if ((profile.id === "u-lea" || profile.id === "u-hugo") && demoNoShowKey && toDateKey(day) === demoNoShowKey) continue;
       const stamp = (hour, minute) => {
         const value = new Date(day);
         value.setHours(hour, minute + index, 0, 0);

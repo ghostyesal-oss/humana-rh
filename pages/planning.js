@@ -40,7 +40,8 @@
       </div>
       ${planningState.importNotice ? `<p class="planning-import-notice">${escapeHtml(planningState.importNotice)}</p>` : ""}
       ${renderPlanningAssignPanel()}
-      <p class="planning-hint">${escapeHtml(PLANNING_DEPTS.find((item) => item.id === model.dept)?.hint || "")} Cliquez une journée pour la modifier (présent, télétravail, congé…) et voir qui a fait le dernier changement. L’import Cegid et l’affectation par équipe restent disponibles.</p>
+      ${renderUnjustifiedAbsenceInbox(model)}
+      <p class="planning-hint">${escapeHtml(PLANNING_DEPTS.find((item) => item.id === model.dept)?.hint || "")} Cliquez une journée pour la modifier (présent, télétravail, congé…). Une absence planifiée sans pointage s’affiche en AI jusqu’à justification par le traffic manager ou le RH. L’import Cegid et l’affectation par équipe restent disponibles.</p>
       ${planningState.tab === "log" ? renderPlanningLog(model)
         : planningState.tab === "gaps" ? renderPlanningGaps(model)
         : renderPlanningGrid(model)}`;
