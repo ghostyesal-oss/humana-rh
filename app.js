@@ -4026,59 +4026,6 @@ function totalStatusDurationMs(durations) {
   return workMs + (Number(durations?.lunch) || 0);
 }
 
-function formatDayStatusLog(punches, dayKey) {
-  const sorted = [...(punches || [])].sort((a, b) => new Date(a.time) - new Date(b.time));
-  if (!sorted.length) return "—";
-  const isToday = companyDateKey(dayKey) === companyDateKey();
-  const cap = isToday ? new Date() : new Date(sorted[sorted.length - 1].time);
-  const lines = [];
-  let cursor = null;
-  let kind = "work";
-  let status = "production";
-
-  const pushLine = (end) => {
-    if (!cursor) return;
-    const endDate = end instanceof Date ? end : new Date(end);
-    const label = kind === "lunch" ? "Pause déjeuner" : workStatusDef(status).label;
-    lines.push(`<span><b>${escapeHtml(label)}</b> ${formatTime(cursor)}–${formatTime(endDate)}</span>`);
-  };
-
-  sorted.forEach((punch) => {
-    const time = punch.time;
-    if (punch.type === "in") {
-      cursor = time;
-      kind = "work";
-      status = resolvePunchWorkStatus(punch, "production");
-      return;
-    }
-    if (punch.type === "status_change" && cursor && kind === "work") {
-      pushLine(time);
-      cursor = time;
-      status = resolvePunchWorkStatus(punch, status);
-      return;
-    }
-    if (punch.type === "break_start" && cursor) {
-      pushLine(time);
-      cursor = time;
-      kind = "lunch";
-      return;
-    }
-    if (punch.type === "break_end") {
-      pushLine(time);
-      cursor = time;
-      kind = "work";
-      status = resolvePunchWorkStatus(punch, status);
-      return;
-    }
-    if (punch.type === "out") {
-      pushLine(time);
-      cursor = null;
-    }
-  });
-  if (cursor) pushLine(cap);
-  return lines.length ? `<div class="punch-log">${lines.join("")}</div>` : "—";
-}
-
 function getTeamPunchDetailView() {
   return teamPunchFilters.detailView === "status" ? "status" : "punches";
 }
@@ -4126,7 +4073,7 @@ function renderTeamPunchRows(dailyRows) {
 }
 
 function renderTeamStatusRows(dailyRows) {
-  const statusCols = WORK_STATUSES.length + 6;
+  const statusCols = WORK_STATUSES.length + 4;
   if (!dailyRows.length) {
     return `<tr><td colspan="${statusCols}" class="empty-cell">Aucun statut pour cette période. Ajustez les filtres, puis actualisez.</td></tr>`;
   }
@@ -4139,7 +4086,6 @@ function renderTeamStatusRows(dailyRows) {
         ${WORK_STATUSES.map((status) => `<td>${formatStatusDurationCell(durations[status.value])}</td>`).join("")}
         <td>${formatStatusDurationCell(durations.lunch)}</td>
         <td><strong>${formatStatusDurationCell(totalStatusDurationMs(durations))}</strong></td>
-        <td>${formatDayStatusLog(row.punches, row.dayKey)}</td>
       </tr>`;
   }).join("");
 }
@@ -4167,7 +4113,6 @@ function renderTeamPunchDetailCard(dailyRows, options = {}) {
                 ${WORK_STATUSES.map((status) => `<th>${escapeHtml(status.label)}</th>`).join("")}
                 <th>Pause déjeuner</th>
                 <th>Durée totale</th>
-                <th>Journal des statuts</th>
               </tr>
             </thead>
             <tbody>${renderTeamStatusRows(dailyRows)}</tbody>
