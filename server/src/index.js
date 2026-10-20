@@ -15,6 +15,7 @@ import {
   signUser,
   startMicrosoftLogin
 } from "./auth.js";
+import { assertJwtSecret } from "./jwt-secret.js";
 import csrf from "csurf";
 import { rateLimit } from "./rate-limit.js";
 import { runQuery } from "./query.js";
@@ -135,7 +136,14 @@ app.get("/api/auth/session", async (req, res) => {
 
 app.post("/api/auth/logout", async (req, res) => {
   const user = readToken(req);
-  if (user?.sub) await bumpSessionEpoch(user.sub).catch(() => {});
+  try {
+    if (user?.sub) await bumpSessionEpoch(user.sub);
+  } catch (error) {
+    console.error("logout epoch", error);
+    return res.status(500).json({
+      error: { message: "Déconnexion incomplète. Réessayez." }
+    });
+  }
   clearSessionCookie(res);
   res.json({ error: null });
 });
@@ -263,6 +271,12 @@ app.use("/api", (req, res) => {
 });
 
 const port = Number(process.env.PORT || 3000);
+try {
+  assertJwtSecret();
+} catch (error) {
+  console.error("JWT_SECRET:", error.message);
+  process.exit(1);
+}
 runMigrations()
   .then(() => query("select 1"))
   .then(() => {

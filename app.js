@@ -12002,7 +12002,13 @@ function bindAppEvents() {
       return;
     }
     const previousPrefix = storagePrefix();
-    if (session && supabaseClient) await supabaseClient.auth.signOut();
+    if (session && supabaseClient) {
+      const { error } = await supabaseClient.auth.signOut();
+      if (error) {
+        alert(error.message || "Déconnexion incomplète. Réessayez.");
+        return;
+      }
+    }
     stopLateReminderWatcher();
     try {
       const orphans = [];

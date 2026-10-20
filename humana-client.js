@@ -183,7 +183,8 @@
           });
         },
         signOut: function () {
-          return request("/api/auth/logout", { method: "POST" }).then(function () {
+          return request("/api/auth/logout", { method: "POST" }).then(function (json) {
+            if (json.error) return { error: json.error };
             notify("SIGNED_OUT", null);
             return { error: null };
           });

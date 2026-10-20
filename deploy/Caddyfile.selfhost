@@ -35,9 +35,10 @@
 	}
 }
 
-:80 {
-	import humana_site
-}
+# Pas de site catch-all :80 : il servait l'appli en HTTP clair (cookies, SSO, API).
+# Caddy écoute encore le port 80 pour ACME et redirige HTTP→HTTPS sur
+# {$CADDY_ADDRESS} et www.daylyx.com. Accès IP sans certificat :
+# CADDY_ADDRESS=http://<ip> dans .env (hors production).
 
 www.daylyx.com {
 	redir https://daylyx.com{uri} permanent

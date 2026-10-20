@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import { adminQuery, withAdmin } from "./db.js";
+import { assertJwtSecret } from "./jwt-secret.js";
 
 const COOKIE = "humana_session";
 const STATE_COOKIE = "humana_oauth_state";
@@ -70,11 +71,7 @@ async function grantCreatorAccess(profile, email) {
 }
 
 function jwtSecret() {
-  const secret = process.env.JWT_SECRET || "";
-  if (secret.length < 32) {
-    throw new Error("JWT_SECRET doit faire au moins 32 caractères.");
-  }
-  return secret;
+  return assertJwtSecret();
 }
 
 export function jwtTtl() {

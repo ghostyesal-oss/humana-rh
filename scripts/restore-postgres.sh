@@ -1,5 +1,6 @@
 #!/bin/sh
-# Restaure un dump produit par backup-postgres.sh.
+# Restaure un dump produit par backup-postgres.sh (policies RLS conservées).
+# Ne pas utiliser restore-dump.sh : il DROP le schéma et est bloqué hors import legacy.
 # Usage:
 #   PGPASSWORD=... PGHOST=postgres PGUSER=humana PGDATABASE=humana \
 #   BACKUP_ENCRYPTION_KEY=... \
