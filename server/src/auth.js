@@ -122,10 +122,24 @@ export function sessionMatchesProfile(payload, profile) {
 
 export async function bumpSessionEpoch(userId) {
   if (!userId) return;
-  await adminQuery(
-    "update public.profiles set session_epoch = coalesce(session_epoch, 1) + 1 where id = $1",
-    [userId]
-  );
+  await withAdmin(async (client) => {
+    await client.query("begin");
+    try {
+      await client.query("select set_config('request.jwt.claim.sub', $1, true)", [String(userId)]);
+      await client.query(
+        "update public.profiles set session_epoch = coalesce(session_epoch, 1) + 1 where id = $1",
+        [userId]
+      );
+      await client.query("commit");
+    } catch (error) {
+      try {
+        await client.query("rollback");
+      } catch {
+        /* connexion déjà abortée */
+      }
+      throw error;
+    }
+  });
 }
 
 export function setSessionCookie(res, token) {

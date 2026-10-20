@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { adminQuery, withUser } from "../src/db.js";
+import { bumpSessionEpoch } from "../src/auth.js";
 import { runMigrations } from "../src/migrate.js";
 import { runQuery } from "../src/query.js";
 import { runRpc } from "../src/rpc.js";
@@ -616,5 +617,18 @@ test("authz: salarié, manager, admin", async (t) => {
       }),
       (error) => error.status === 403
     );
+  });
+
+  await t.test("logout: bumpSessionEpoch incrémente pour un salarié", async () => {
+    const { rows: before } = await adminQuery(
+      "select session_epoch from public.profiles where id = $1",
+      [A]
+    );
+    await bumpSessionEpoch(A);
+    const { rows: after } = await adminQuery(
+      "select session_epoch from public.profiles where id = $1",
+      [A]
+    );
+    assert.equal(Number(after[0].session_epoch), Number(before[0].session_epoch || 1) + 1);
   });
 });
