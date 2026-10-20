@@ -270,9 +270,9 @@ function sanitizeImportedEmployee(row) {
 }
 
 function matchExistingEmployee(row, existing) {
-  const cegid = normalizeImportedMatricule(row.matricule);
-  if (cegid) {
-    const hits = existing.filter((item) => normalizeImportedMatricule(item.matricule) === cegid);
+  const matriculeId = normalizeImportedMatricule(row.matricule);
+  if (matriculeId) {
+    const hits = existing.filter((item) => normalizeImportedMatricule(item.matricule) === matriculeId);
     if (hits.length === 1) return hits[0];
     if (hits.length > 1) {
       const named = hits.filter((item) => employeeNamesMatch(item.full_name, row.full_name));

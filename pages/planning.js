@@ -33,7 +33,7 @@
           </div>
           ${canImportPlanning() ? `
           <label class="planning-import">
-            Importer Cegid
+            Importer le planning
             <input type="file" id="planning-import" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
           </label>` : ""}
         </div>
@@ -41,7 +41,7 @@
       ${planningState.importNotice ? `<p class="planning-import-notice">${escapeHtml(planningState.importNotice)}</p>` : ""}
       ${renderPlanningAssignPanel()}
       ${renderUnjustifiedAbsenceInbox(model)}
-      <p class="planning-hint">${escapeHtml(PLANNING_DEPTS.find((item) => item.id === model.dept)?.hint || "")} Cliquez une journée pour la modifier (présent, télétravail, congé…). Une absence planifiée sans pointage s’affiche en AI jusqu’à justification par le traffic manager ou le RH. L’import Cegid et l’affectation par équipe restent disponibles.</p>
+      <p class="planning-hint">${escapeHtml(PLANNING_DEPTS.find((item) => item.id === model.dept)?.hint || "")} Cliquez une journée pour la modifier (présent, télétravail, congé…). Une absence planifiée sans pointage s’affiche en AI jusqu’à justification par le traffic manager ou le RH. L’import planning et l’affectation par équipe restent disponibles.</p>
       ${planningState.tab === "log" ? renderPlanningLog(model)
         : planningState.tab === "gaps" ? renderPlanningGaps(model)
         : renderPlanningGrid(model)}`;

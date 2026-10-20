@@ -491,7 +491,7 @@ test("authz: salarié, manager, admin", async (t) => {
         kind: "PR",
         hours: 0,
         matricule: "20812",
-        source: "cegid"
+        source: "import"
       }]
     };
     const imported = await runRpc(mgr, "import_planning_entries", payload);
@@ -537,7 +537,7 @@ test("authz: salarié, manager, admin", async (t) => {
     const result = await runRpc(admin, "import_employees", {
       employees: [{
         matricule: "20999",
-        full_name: "Import Cegid",
+        full_name: "Import planning",
         job_title: "Agent",
         department: "CS",
         role: "employee",
@@ -552,7 +552,7 @@ test("authz: salarié, manager, admin", async (t) => {
       "select full_name, manager_id, matricule from public.profiles where matricule = $1",
       ["20999"]
     );
-    assert.equal(rows[0].full_name, "Import Cegid");
+    assert.equal(rows[0].full_name, "Import planning");
     assert.equal(rows[0].manager_id, A);
     const padded = await runRpc(admin, "import_employees", {
       employees: [

@@ -1,6 +1,6 @@
--- Planning importé (Cegid / ATLAS). Sert de référence aux heures prévues.
+-- Planning importé (fichier). Sert de référence aux heures prévues.
 -- Une ligne par agent / jour / demi-journée (slot 1 matin, slot 2 après-midi).
--- Le matricule Cegid est stocké pour audit ; le lien opérationnel est user_id.
+-- Le matricule importé est stocké pour audit ; le lien opérationnel est user_id.
 
 create table if not exists public.planning_entries (
   id uuid primary key default gen_random_uuid(),

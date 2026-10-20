@@ -3106,8 +3106,8 @@ function renderUserAccountSection() {
         </form>
         <p class="hierarchy-meta">Si la personne ne s'est jamais connectée à Daylyx, elle sera préenregistrée. À la première connexion Microsoft, son compte sera créé automatiquement.</p>
         <div class="planning-import admin-employee-import">
-          <strong>Importer les employés (Excel Cegid)</strong>
-          <p class="hierarchy-meta">Cegid ID = matricule Daylyx (le Matricule RH 1, 2, 3… est ignoré). STATUT Inactif et DATE DEPART déjà passée sont exclus. Manager = Nom + Prénom (vide = pas de manager).</p>
+          <strong>Importer les employés (Excel)</strong>
+          <p class="hierarchy-meta">L'identifiant employé du fichier = matricule Daylyx (le Matricule RH 1, 2, 3… est ignoré). STATUT Inactif et DATE DEPART déjà passée sont exclus. Manager = Nom + Prénom (vide = pas de manager).</p>
           <input type="file" id="admin-employee-import" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
           ${appData.employeeImportNotice ? `<p class="planning-import-notice">${escapeHtml(appData.employeeImportNotice)}</p>` : ""}
         </div>
@@ -7137,7 +7137,7 @@ function edsRowCells(row, columns = visibleEdsColumns()) {
 }
 
 const PLANNING_DEPTS = [
-  { id: "all", label: "Tous", hint: "Tous les agents du périmètre, y compris le planning Cegid importé." },
+  { id: "all", label: "Tous", hint: "Tous les agents du périmètre, y compris le planning importé." },
   { id: "rnd", label: "R&D", hint: "Objectif : 8h travaillées + 1h de pause déjeuner (horaire souple)." },
   { id: "cs", label: "CS", hint: "Calendrier fixe 08h–17h, pause 1h." },
   { id: "ces", label: "CES", hint: "Calendrier fixe 08h–17h, pause 1h." }
@@ -7200,7 +7200,7 @@ function foldPlanningToken(value) {
     .trim();
 }
 
-function normalizeCegidId(value) {
+function normalizeMatriculeId(value) {
   const text = String(value ?? "").trim().replace(/\s+/g, "");
   if (!text || text === "-" || text === "0") return "";
   if (/^\d+(\.0+)?$/.test(text)) return String(Math.round(Number(text)));
@@ -7507,7 +7507,7 @@ function mapEmployeeHeader(raw) {
   if ((text.includes("matricule") && text.includes("manager")) || text === "matricule manager") return "managerMatricule";
   if (text === "manager" || (text.includes("manager") && !text.includes("matricule"))) return "managerName";
   if (text.includes("statut") || text === "stat" || text === "status") return "status";
-  if (text.includes("cegid")) return "cegid";
+  if (text.includes("cegid") || (text.includes("id") && text.includes("employ"))) return "empId";
   if (text.includes("matricule") && (text.includes("rh") || text.includes("hr"))) return "matriculeRh";
   if (text.includes("civil")) return "civility";
   if (text.includes("prenom")) return "firstName";
@@ -7524,13 +7524,13 @@ function mapEmployeeHeader(raw) {
 }
 
 function mapEmployeeHeaders(rawHeaders) {
-  let seenCegid = false;
+  let seenEmpId = false;
   return rawHeaders.map((raw) => {
     const key = mapEmployeeHeader(raw);
-    if (key !== "cegid") return key;
-    if (seenCegid) return "cegidAlt";
-    seenCegid = true;
-    return "cegid";
+    if (key !== "empId") return key;
+    if (seenEmpId) return "empIdAlt";
+    seenEmpId = true;
+    return "empId";
   });
 }
 
@@ -7586,7 +7586,7 @@ function findEmployeeHeaderIndex(grid) {
     const keys = mapEmployeeHeaders(grid[i] || []);
     const unique = new Set(keys.filter(Boolean));
     let score = unique.size;
-    if (keys.includes("cegid")) score += 8;
+    if (keys.includes("empId")) score += 8;
     if (keys.includes("status")) score += 5;
     if (keys.includes("lastName") && keys.includes("firstName")) score += 6;
     if (keys.includes("managerName")) score += 2;
@@ -7603,12 +7603,12 @@ function scoreEmployeeGrid(grid) {
   const headerIdx = findEmployeeHeaderIndex(grid);
   const keys = mapEmployeeHeaders(grid[headerIdx] || []);
   let score = new Set(keys.filter(Boolean)).size;
-  if (keys.includes("cegid")) score += 8;
+  if (keys.includes("empId")) score += 8;
   if (keys.includes("status")) score += 5;
   if (keys.includes("lastName") && keys.includes("firstName")) score += 6;
   grid.slice(headerIdx + 1).forEach((cells) => {
     const row = mapCellsToEmployeeRow(cells, keys);
-    if (normalizeCegidId(row.cegid) || normalizeCegidId(row.cegidAlt) || String(row.lastName || "").trim()) {
+    if (normalizeMatriculeId(row.empId) || normalizeMatriculeId(row.empIdAlt) || String(row.lastName || "").trim()) {
       score += 1;
     }
   });
@@ -7667,18 +7667,18 @@ function planningTokenSetsMatch(left, right) {
   return everyLeft && everyRight;
 }
 
-function normalizeCegidDigits(value) {
+function normalizeMatriculeDigits(value) {
   return String(value ?? "").replace(/\D/g, "").replace(/^0+/, "");
 }
 
 function matchPlanningProfileByMatricule(row, profiles) {
-  const cegid = normalizeCegidId(row.matricule);
-  const digits = normalizeCegidDigits(row.matricule);
-  if (!cegid && !digits) return null;
+  const matriculeId = normalizeMatriculeId(row.matricule);
+  const digits = normalizeMatriculeDigits(row.matricule);
+  if (!matriculeId && !digits) return null;
   const hits = profiles.filter((profile) => {
-    const mat = normalizeCegidId(profile.matricule);
-    if (cegid && mat && mat === cegid) return true;
-    const profileDigits = normalizeCegidDigits(profile.matricule);
+    const mat = normalizeMatriculeId(profile.matricule);
+    if (matriculeId && mat && mat === matriculeId) return true;
+    const profileDigits = normalizeMatriculeDigits(profile.matricule);
     return Boolean(digits && profileDigits && profileDigits === digits);
   });
   if (hits.length === 1) return hits[0];
@@ -7718,24 +7718,24 @@ function matchPlanningProfile(row, profiles) {
 function buildPlanningImportEntries(rawRows, profiles) {
   const unmatched = [];
   const grouped = new Map();
-  let skippedEmptyCegid = 0;
-  const fileHasCegid = rawRows.some((row) => Boolean(normalizeCegidId(row.matricule)));
+  let skippedEmptyMatricule = 0;
+  const fileHasMatricule = rawRows.some((row) => Boolean(normalizeMatriculeId(row.matricule)));
   rawRows.forEach((row) => {
     const workDate = parseFrenchPlanningDate(row.date);
     if (!workDate) return;
-    const cegid = normalizeCegidId(row.matricule);
+    const matriculeId = normalizeMatriculeId(row.matricule);
     let profile = null;
-    if (cegid) {
+    if (matriculeId) {
       profile = matchPlanningProfileByMatricule(row, profiles);
       if (!profile) profile = matchPlanningProfileByName(row, profiles);
       if (!profile) {
-        unmatched.push(`${row.agent || "?"} · Cegid ${cegid}`);
+        unmatched.push(`${row.agent || "?"} · ${matriculeId}`);
         return;
       }
-    } else if (fileHasCegid) {
+    } else if (fileHasMatricule) {
       profile = matchPlanningProfileByName(row, profiles);
       if (!profile) {
-        skippedEmptyCegid += 1;
+        skippedEmptyMatricule += 1;
         return;
       }
     } else {
@@ -7758,8 +7758,8 @@ function buildPlanningImportEntries(rawRows, profiles) {
       structure: row.structure || "",
       location: row.location || "",
       note: [row.value, row.holiday].filter(Boolean).join(" · "),
-      source: "cegid",
-      matricule: cegid
+      source: "import",
+      matricule: matriculeId
     });
     grouped.set(key, list);
   });
@@ -7771,7 +7771,7 @@ function buildPlanningImportEntries(rawRows, profiles) {
     });
   });
   entries.sort((a, b) => String(a.work_date).localeCompare(b.work_date) || String(a.user_id).localeCompare(b.user_id) || a.slot - b.slot);
-  return { entries, unmatched: [...new Set(unmatched)], skippedEmptyCegid };
+  return { entries, unmatched: [...new Set(unmatched)], skippedEmptyMatricule };
 }
 
 function getPlanningEntries() {
@@ -7791,7 +7791,7 @@ function planningSourceLabel(source) {
   const key = String(source || "").toLowerCase();
   if (key === "manual") return "saisie";
   if (key === "assign") return "affectation";
-  if (key === "import") return "import Cegid";
+  if (key === "import" || key === "cegid") return "import";
   return key;
 }
 
@@ -7908,11 +7908,11 @@ async function importPlanningFromFile(file) {
   const pool = profiles.length ? profiles : getReportProfiles();
   const rawRows = await parsePlanningFile(file);
   if (!rawRows.length) throw new Error("Aucune ligne de planning n'a été lue.");
-  const { entries, unmatched, skippedEmptyCegid } = buildPlanningImportEntries(rawRows, pool);
+  const { entries, unmatched, skippedEmptyMatricule } = buildPlanningImportEntries(rawRows, pool);
   if (!entries.length) {
     throw new Error(unmatched.length
-      ? `Aucun agent reconnu : les ID CEGID (${unmatched[0].split(" · ").pop() || ""}) ne correspondent pas aux matricules Daylyx, et les noms du fichier ne matchent pas les fiches. Ex. : ${unmatched.slice(0, 3).join(" · ")}`
-      : "Aucun agent reconnu dans le fichier (les lignes sans ID CEGID sont ignorées).");
+      ? `Aucun agent reconnu : les matricules (${unmatched[0].split(" · ").pop() || ""}) ne correspondent pas aux fiches Daylyx, et les noms du fichier ne matchent pas. Ex. : ${unmatched.slice(0, 3).join(" · ")}`
+      : "Aucun agent reconnu dans le fichier (les lignes sans matricule sont ignorées).");
   }
   const dates = entries.map((row) => row.work_date).sort();
   const replaceFrom = dates[0];
@@ -7921,8 +7921,8 @@ async function importPlanningFromFile(file) {
   await savePlanningEntries(entries, { replaceFrom, replaceTo, userIds });
   planningState.dept = "all";
   const sample = unmatched.slice(0, 4).join(" · ");
-  const skipped = skippedEmptyCegid ? ` · ${skippedEmptyCegid} ligne${skippedEmptyCegid > 1 ? "s" : ""} sans ID CEGID ignorée${skippedEmptyCegid > 1 ? "s" : ""}` : "";
-  planningState.importNotice = `${entries.length} créneau${entries.length > 1 ? "x" : ""} importé${entries.length > 1 ? "s" : ""} · ${userIds.length} agent${userIds.length > 1 ? "s" : ""} · ID CEGID = matricule · heures prévues pour le calcul${skipped}${unmatched.length ? ` · ${unmatched.length} non reconnu${unmatched.length > 1 ? "s" : ""}${sample ? ` (${sample})` : ""}` : ""}.`;
+  const skipped = skippedEmptyMatricule ? ` · ${skippedEmptyMatricule} ligne${skippedEmptyMatricule > 1 ? "s" : ""} sans matricule ignorée${skippedEmptyMatricule > 1 ? "s" : ""}` : "";
+  planningState.importNotice = `${entries.length} créneau${entries.length > 1 ? "x" : ""} importé${entries.length > 1 ? "s" : ""} · ${userIds.length} agent${userIds.length > 1 ? "s" : ""} · identifiant = matricule · heures prévues pour le calcul${skipped}${unmatched.length ? ` · ${unmatched.length} non reconnu${unmatched.length > 1 ? "s" : ""}${sample ? ` (${sample})` : ""}` : ""}.`;
 }
 
 function employeeNamesMatch(left, right) {
@@ -7964,12 +7964,12 @@ function buildEmployeeImportRows(rawRows) {
   let skippedLeft = 0;
   let skippedEmpty = 0;
   rawRows.forEach((row) => {
-    const cegid = normalizeCegidId(row.cegid) || normalizeCegidId(row.cegidAlt);
+    const matriculeId = normalizeMatriculeId(row.empId) || normalizeMatriculeId(row.empIdAlt);
     const firstName = String(row.firstName || "").trim();
     const lastName = String(row.lastName || "").trim();
     const fullName = [firstName, lastName].filter(Boolean).join(" ").trim()
       || [lastName, firstName].filter(Boolean).join(" ").trim();
-    if (!cegid && !fullName) {
+    if (!matriculeId && !fullName) {
       skippedEmpty += 1;
       return;
     }
@@ -7981,8 +7981,8 @@ function buildEmployeeImportRows(rawRows) {
     const department = [row.bu, row.subBu].map((item) => String(item || "").trim()).filter(Boolean).join(" / ") || "General";
     const managerName = isPersonManagerName(row.managerName) ? String(row.managerName).trim() : "";
     employees.push({
-      matricule: cegid,
-      full_name: fullName || cegid,
+      matricule: matriculeId,
+      full_name: fullName || matriculeId,
       email: String(row.email || "").trim().toLowerCase(),
       job_title: String(row.job || row.profileLabel || "Collaborateur").trim() || "Collaborateur",
       department,
@@ -7990,14 +7990,14 @@ function buildEmployeeImportRows(rawRows) {
       leave_grade: ranks.leave_grade,
       shift_code: mapEmployeeShift(row.bu, row.subBu, row.job),
       hired_at: parseHrDate(row.hiredAt) || "",
-      manager_matricule: normalizeCegidId(row.managerMatricule),
+      manager_matricule: normalizeMatriculeId(row.managerMatricule),
       manager_name: managerName
     });
   });
   const seen = new Set();
   const unique = [];
   employees.forEach((row) => {
-    const key = normalizeCegidDigits(row.matricule) || foldPlanningToken(row.full_name);
+    const key = normalizeMatriculeDigits(row.matricule) || foldPlanningToken(row.full_name);
     if (!key || seen.has(key)) return;
     seen.add(key);
     unique.push(row);
@@ -8030,7 +8030,7 @@ async function importEmployeesFromFile(file) {
   });
   const { employees, skippedLeft, skippedEmpty } = buildEmployeeImportRows(rawRows);
   if (!employees.length) {
-    throw new Error("Aucun employé actif à importer. Vérifiez les colonnes Nom / PRENOM / Cegid ID, et les dates de départ.");
+    throw new Error("Aucun employé actif à importer. Vérifiez les colonnes Nom / PRENOM / identifiant, et les dates de départ.");
   }
   let created = 0;
   let updated = 0;
@@ -8038,11 +8038,11 @@ async function importEmployeesFromFile(file) {
   let total = 0;
   if (demoMode || !usesDatabase()) {
     const byMatricule = new Map((appData.orgProfiles || []).map((profile) => {
-      const digits = normalizeCegidDigits(profile.matricule);
-      return [digits || normalizeCegidId(profile.matricule), profile];
+      const digits = normalizeMatriculeDigits(profile.matricule);
+      return [digits || normalizeMatriculeId(profile.matricule), profile];
     }));
     employees.forEach((row) => {
-      const existing = (row.matricule && (byMatricule.get(normalizeCegidDigits(row.matricule)) || byMatricule.get(row.matricule)))
+      const existing = (row.matricule && (byMatricule.get(normalizeMatriculeDigits(row.matricule)) || byMatricule.get(row.matricule)))
         || findProfileByEmployeeName(row.full_name, appData.orgProfiles);
       if (existing) {
         Object.assign(existing, {
@@ -8071,18 +8071,18 @@ async function importEmployeesFromFile(file) {
           hired_at: row.hired_at
         };
         appData.orgProfiles.push(profile);
-        byMatricule.set(normalizeCegidDigits(row.matricule) || row.matricule, profile);
+        byMatricule.set(normalizeMatriculeDigits(row.matricule) || row.matricule, profile);
         created += 1;
       }
     });
     employees.forEach((row) => {
       if (!row.manager_matricule && !row.manager_name) return;
       const profile = (appData.orgProfiles || []).find((item) => (
-        (row.matricule && (normalizeCegidDigits(item.matricule) === normalizeCegidDigits(row.matricule) || normalizeCegidId(item.matricule) === row.matricule))
+        (row.matricule && (normalizeMatriculeDigits(item.matricule) === normalizeMatriculeDigits(row.matricule) || normalizeMatriculeId(item.matricule) === row.matricule))
         || employeeNamesMatch(item.full_name, row.full_name)
       ));
       const manager = (appData.orgProfiles || []).find((item) => (
-        (row.manager_matricule && (normalizeCegidDigits(item.matricule) === normalizeCegidDigits(row.manager_matricule) || normalizeCegidId(item.matricule) === row.manager_matricule))
+        (row.manager_matricule && (normalizeMatriculeDigits(item.matricule) === normalizeMatriculeDigits(row.manager_matricule) || normalizeMatriculeId(item.matricule) === row.manager_matricule))
         || (row.manager_name && employeeNamesMatch(item.full_name, row.manager_name))
       ));
       if (profile && manager && manager.id !== profile.id) {
@@ -8110,7 +8110,7 @@ async function importEmployeesFromFile(file) {
     await loadOrgProfilesFull();
   }
   const visible = (appData.orgProfiles || []).length;
-  appData.employeeImportNotice = `${employees.length} actif${employees.length > 1 ? "s" : ""} importé${employees.length > 1 ? "s" : ""} · ${created} créé${created > 1 ? "s" : ""} · ${updated} mis à jour · ${visible} fiches visibles${total ? ` · ${total} en base` : ""} · Cegid ID = matricule${skippedLeft ? ` · ${skippedLeft} Inactif/départ ignoré${skippedLeft > 1 ? "s" : ""}` : ""}${skippedEmpty ? ` · ${skippedEmpty} ligne${skippedEmpty > 1 ? "s" : ""} vide${skippedEmpty > 1 ? "s" : ""}` : ""}.`;
+  appData.employeeImportNotice = `${employees.length} actif${employees.length > 1 ? "s" : ""} importé${employees.length > 1 ? "s" : ""} · ${created} créé${created > 1 ? "s" : ""} · ${updated} mis à jour · ${visible} fiches visibles${total ? ` · ${total} en base` : ""} · identifiant = matricule${skippedLeft ? ` · ${skippedLeft} Inactif/départ ignoré${skippedLeft > 1 ? "s" : ""}` : ""}${skippedEmpty ? ` · ${skippedEmpty} ligne${skippedEmpty > 1 ? "s" : ""} vide${skippedEmpty > 1 ? "s" : ""}` : ""}.`;
 }
 
 function getPlanningCursor() {
@@ -8458,8 +8458,8 @@ function buildPlanningModel() {
           codes.push(item.kind);
         });
         notes.push(`Prévu ${plannedHours}h`);
-        const cegid = slots.map((item) => item.matricule).find(Boolean);
-        if (cegid) notes.push(`Cegid ${cegid}`);
+        const importedMatricule = slots.map((item) => item.matricule).find(Boolean);
+        if (importedMatricule) notes.push(`Matricule ${importedMatricule}`);
       }
       dayLeaves.forEach((item) => {
         const code = planningLeaveCode(item.type);
