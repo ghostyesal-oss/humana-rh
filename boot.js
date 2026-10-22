@@ -51,6 +51,7 @@
   function showLoginError(message) {
     var errorBox = document.getElementById("login-error");
     if (!errorBox) return;
+    if (errorBox.getAttribute("data-session-expired") === "1") return;
     errorBox.hidden = false;
     errorBox.textContent = formatOAuthError(message);
   }

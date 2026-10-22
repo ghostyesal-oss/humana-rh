@@ -2,6 +2,15 @@ import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import { adminQuery, withAdmin, withUser } from "./db.js";
 import { assertJwtSecret } from "./jwt-secret.js";
+import {
+  jwtMaxAgeMs,
+  jwtTtl,
+  sessionAuthTimeSec,
+  sessionDeadlineMs,
+  sessionRemainingMs
+} from "./session-ttl.js";
+
+export { jwtMaxAgeMs, jwtTtl, sessionAuthTimeSec, sessionDeadlineMs, sessionRemainingMs };
 
 const COOKIE = "humana_session";
 const STATE_COOKIE = "humana_oauth_state";
@@ -74,30 +83,22 @@ function jwtSecret() {
   return assertJwtSecret();
 }
 
-export function jwtTtl() {
-  const raw = String(process.env.JWT_EXPIRES_IN || "12h").trim();
-  return /^\d+[smhd]$/.test(raw) ? raw : "12h";
-}
-
-export function jwtMaxAgeMs() {
-  const ttl = jwtTtl();
-  const amount = Number(ttl.slice(0, -1));
-  const unit = ttl.slice(-1);
-  const factors = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
-  return amount * (factors[unit] || 3_600_000);
-}
-
-export function signUser(profile) {
+export function signUser(profile, options = {}) {
+  const authTime = Number(options.authTime) > 0
+    ? Number(options.authTime)
+    : Math.floor(Date.now() / 1000);
+  const remainingSec = Math.max(1, Math.ceil(sessionRemainingMs({ auth_time: authTime }) / 1000));
   return jwt.sign(
     {
       sub: profile.id,
       email: profile.email,
       role: profile.role || "employee",
       name: profile.full_name || "",
-      epoch: Number(profile.session_epoch) || 1
+      epoch: Number(profile.session_epoch) || 1,
+      auth_time: authTime
     },
     jwtSecret(),
-    { expiresIn: jwtTtl() }
+    { expiresIn: remainingSec }
   );
 }
 
@@ -143,12 +144,13 @@ export async function bumpSessionEpoch(userId) {
   invalidateProfileCache(userId);
 }
 
-export function setSessionCookie(res, token) {
+export function setSessionCookie(res, token, claims = null) {
+  const remaining = claims ? sessionRemainingMs(claims) : jwtMaxAgeMs();
   res.cookie(COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.COOKIE_SECURE !== "false",
-    maxAge: jwtMaxAgeMs(),
+    maxAge: Math.max(1000, remaining),
     path: "/"
   });
 }
@@ -380,9 +382,11 @@ export async function finishMicrosoftLogin(req, res) {
 }
 
 export function sessionPayload(user, profile) {
+  const expiresAt = sessionDeadlineMs(user);
   return {
     access_token: "cookie",
     token_type: "bearer",
+    expires_at: expiresAt || undefined,
     user: {
       id: user.sub,
       email: user.email,

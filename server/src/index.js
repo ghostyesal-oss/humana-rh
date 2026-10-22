@@ -9,8 +9,10 @@ import {
   loadProfile,
   readToken,
   requireAuth,
+  sessionAuthTimeSec,
   sessionMatchesProfile,
   sessionPayload,
+  sessionRemainingMs,
   setSessionCookie,
   signUser,
   startMicrosoftLogin
@@ -145,6 +147,10 @@ app.get("/api/auth/microsoft/callback", authLimiter, finishMicrosoftLogin);
 app.get("/api/auth/session", async (req, res) => {
   const user = readToken(req);
   if (!user) return res.json({ data: { session: null }, error: null });
+  if (sessionRemainingMs(user) <= 0) {
+    clearSessionCookie(res);
+    return res.json({ data: { session: null }, error: null });
+  }
   const profile = await loadProfile(user.sub);
   if (!sessionMatchesProfile(user, profile)) {
     return res.json({ data: { session: null }, error: null });
@@ -168,15 +174,26 @@ app.post("/api/auth/logout", async (req, res) => {
 
 app.post("/api/auth/refresh", async (req, res) => {
   const user = readToken(req);
-  if (!user) return res.status(401).json({ data: { session: null }, error: { message: "Session expirée." } });
+  if (!user) {
+    clearSessionCookie(res);
+    return res.status(401).json({ data: { session: null }, error: { message: "Session expirée." } });
+  }
+  if (sessionRemainingMs(user) <= 0) {
+    clearSessionCookie(res);
+    return res.status(401).json({ data: { session: null }, error: { message: "Session expirée." } });
+  }
   const profile = await loadProfile(user.sub);
   if (!sessionMatchesProfile(user, profile)) {
     clearSessionCookie(res);
     return res.status(401).json({ data: { session: null }, error: { message: "Session révoquée." } });
   }
-  const token = signUser(profile);
-  setSessionCookie(res, token);
-  res.json({ data: { session: sessionPayload({ ...user, epoch: profile.session_epoch }, profile) }, error: null });
+  const authTime = sessionAuthTimeSec(user);
+  const token = signUser(profile, { authTime });
+  setSessionCookie(res, token, { auth_time: authTime });
+  res.json({
+    data: { session: sessionPayload({ ...user, auth_time: authTime, epoch: profile.session_epoch }, profile) },
+    error: null
+  });
 });
 
 app.post("/api/db", requireAuth, writeLimiter, async (req, res) => {

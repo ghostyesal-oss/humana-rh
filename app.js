@@ -9,6 +9,11 @@ let app = null;
 let session = null;
 let demoMode = false;
 let portalMode = false;
+const SESSION_MAX_MS = 22 * 60 * 60 * 1000;
+const DEMO_STARTED_KEY = "humana_demo_started_at";
+const SESSION_EXPIRED_KEY = "humana_session_expired";
+let sessionExpiryTimer = 0;
+let signingOut = false;
 // MPA mode : chaque HTML porte <body data-page="xxx">.
 // Fallback SPA : index.html sans data-page → navigation interne classique.
 const mpaMode = typeof document !== "undefined" && !!document.body?.dataset?.page;
@@ -11041,12 +11046,160 @@ async function loadGtaCollections(userId) {
   }));
 }
 
+function clearSessionExpiryTimer() {
+  if (sessionExpiryTimer) {
+    window.clearTimeout(sessionExpiryTimer);
+    sessionExpiryTimer = 0;
+  }
+}
+
+function scheduleSessionExpiry(expiresAt) {
+  clearSessionExpiryTimer();
+  const at = Number(expiresAt);
+  if (!Number.isFinite(at) || at <= 0) return;
+  const wait = Math.max(0, Math.min(SESSION_MAX_MS, at - Date.now()));
+  sessionExpiryTimer = window.setTimeout(() => {
+    signOutUser({ expired: true });
+  }, wait);
+}
+
+function demoStartedAt() {
+  try {
+    const n = Number(sessionStorage.getItem(DEMO_STARTED_KEY));
+    if (Number.isFinite(n) && n > 0) return n;
+  } catch (_) { /* ignore */ }
+  return 0;
+}
+
+function markDemoStarted(forceNow = false) {
+  const started = forceNow ? Date.now() : (demoStartedAt() || Date.now());
+  try { sessionStorage.setItem(DEMO_STARTED_KEY, String(started)); } catch (_) { /* ignore */ }
+  return started;
+}
+
+function scheduleDemoExpiry() {
+  scheduleSessionExpiry(markDemoStarted() + SESSION_MAX_MS);
+}
+
+function isDemoSessionExpired() {
+  const started = demoStartedAt();
+  return Boolean(started && Date.now() - started >= SESSION_MAX_MS);
+}
+
+function consumeSessionExpiredMessage() {
+  let expired = false;
+  try {
+    expired = new URLSearchParams(window.location.search).get("expired") === "1";
+  } catch (_) { /* ignore */ }
+  try {
+    if (sessionStorage.getItem(SESSION_EXPIRED_KEY) === "1") {
+      sessionStorage.removeItem(SESSION_EXPIRED_KEY);
+      expired = true;
+    }
+  } catch (_) { /* ignore */ }
+  if (!expired) return "";
+  try {
+    if (window.location.search.includes("expired=")) {
+      window.history.replaceState({}, document.title, window.location.pathname || "/");
+    }
+  } catch (_) { /* ignore */ }
+  return "Session expirée après 22 h. Reconnectez-vous.";
+}
+
+async function signOutUser({ expired = false } = {}) {
+  if (signingOut) return;
+  signingOut = true;
+  clearSessionExpiryTimer();
+  if (portalMode) {
+    window.location.href = "/_services/auth/logout";
+    return;
+  }
+  const previousPrefix = storagePrefix();
+  if (session && supabaseClient) {
+    const { error } = await supabaseClient.auth.signOut();
+    if (error && !expired) {
+      signingOut = false;
+      alert(error.message || "Déconnexion incomplète. Réessayez.");
+      return;
+    }
+  }
+  stopLateReminderWatcher();
+  try {
+    const orphans = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(previousPrefix)) orphans.push(key);
+    }
+    orphans.forEach((key) => localStorage.removeItem(key));
+  } catch (_) { /* ignore quota / privacy mode errors */ }
+  try { sessionStorage.removeItem("humana_demo_mode"); } catch (_) { /* ignore */ }
+  try { sessionStorage.removeItem(DEMO_STARTED_KEY); } catch (_) { /* ignore */ }
+  try { sessionStorage.removeItem("humana_auth_boot"); } catch (_) { /* ignore */ }
+  if (expired) {
+    try { sessionStorage.setItem(SESSION_EXPIRED_KEY, "1"); } catch (_) { /* ignore */ }
+  }
+  session = null;
+  demoMode = false;
+  currentPage = "home";
+  initialAuthHandled = false;
+  teamPunchesInitialLoadDone = false;
+  journalPunchesInitialLoadDone = false;
+  dataStamp = Object.create(null);
+  window.__humanaInviteApplied = false;
+  journalFullscreen = false;
+  journalFilters = { start: "", end: "", userId: "", query: "" };
+  journalColumnFilters = {};
+  journalOpenColumn = "";
+  leaveCalendarMonth = null;
+  edsFilters = { start: "", end: "" };
+  appData = {
+    loading: false,
+    error: "",
+    profile: null,
+    punches: [],
+    teamPunches: [],
+    journalPunches: [],
+    journalMetaMissing: false,
+    teamLeaveRequests: [],
+    leaveRequests: [],
+    attestationRequests: [],
+    salaryAdvanceRequests: [],
+    salaryAdvanceTableMissing: false,
+    salaryAdvanceQuota: null,
+    orgProfiles: [],
+    pendingInvites: [],
+    hrDocuments: [],
+    payslips: [],
+    hrAlerts: [],
+    punchCorrections: [],
+    overtimeRequests: [],
+    activityEntries: [],
+    navVisibility: null,
+    studioCreators: [],
+    companyEvents: [],
+    companyEventsTableMissing: false,
+    eventEditingId: "",
+    eventDetailId: "",
+    adminEditingId: "",
+    adminEditingInviteId: "",
+    edsPayroll: {},
+    delayReviews: []
+  };
+  if (mpaMode) {
+    window.location.href = expired ? `${loginHref()}?expired=1` : loginHref();
+    return;
+  }
+  signingOut = false;
+  renderLogin(expired ? consumeSessionExpiredMessage() : "");
+}
+
 async function bootstrapUser(options = {}) {
   const { showSpinner = true } = options;
 
   if (!usesDatabase()) {
     hideAuthBootScreen();
     renderApp();
+    if (demoMode) scheduleDemoExpiry();
     return;
   }
 
@@ -11078,6 +11231,7 @@ async function bootstrapUser(options = {}) {
       renderApp();
       maybeShowMicrosoftWelcome();
       startLateReminderWatcher();
+      scheduleSessionExpiry(session?.expires_at);
     }
   })();
 
@@ -11135,8 +11289,14 @@ function setLoginState({ ready = false, error } = {}) {
   if (microsoftButton) microsoftButton.disabled = !ready;
   if (configNote) configNote.hidden = ready;
   if (errorMessage && error !== undefined) {
+    if (errorMessage.dataset.sessionExpired === "1" && error && !String(error).includes("22 h")) {
+      microsoftButton && (microsoftButton.disabled = !ready);
+      return;
+    }
     errorMessage.hidden = !error;
     errorMessage.textContent = error;
+    if (error && String(error).includes("22 h")) errorMessage.dataset.sessionExpired = "1";
+    else delete errorMessage.dataset.sessionExpired;
   }
 }
 
@@ -11193,7 +11353,7 @@ function renderLogin(error = "") {
   }
 
   bindLoginEvents();
-  setLoginState({ ready: Boolean(supabaseClient), error });
+  setLoginState({ ready: Boolean(supabaseClient), error: error || consumeSessionExpiredMessage() });
 }
 
 async function signInWithMicrosoft() {
@@ -13235,82 +13395,8 @@ function bindAppEvents() {
   document.querySelector(".close-menu")?.addEventListener("click", () => sidebar.classList.remove("open"));
   backdrop?.addEventListener("click", () => sidebar.classList.remove("open"));
 
-  document.querySelector("#logout")?.addEventListener("click", async () => {
-    if (portalMode) {
-      window.location.href = "/_services/auth/logout";
-      return;
-    }
-    const previousPrefix = storagePrefix();
-    if (session && supabaseClient) {
-      const { error } = await supabaseClient.auth.signOut();
-      if (error) {
-        alert(error.message || "Déconnexion incomplète. Réessayez.");
-        return;
-      }
-    }
-    stopLateReminderWatcher();
-    try {
-      const orphans = [];
-      for (let i = 0; i < localStorage.length; i += 1) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith(previousPrefix)) orphans.push(key);
-      }
-      orphans.forEach((key) => localStorage.removeItem(key));
-    } catch (_) { /* ignore quota / privacy mode errors */ }
-    // Coupe le mode démo (persistant en sessionStorage entre les pages MPA).
-    try { sessionStorage.removeItem("humana_demo_mode"); } catch (_) { /* ignore */ }
-    session = null;
-    demoMode = false;
-    currentPage = "home";
-    initialAuthHandled = false;
-    teamPunchesInitialLoadDone = false;
-    journalPunchesInitialLoadDone = false;
-    dataStamp = Object.create(null);
-    window.__humanaInviteApplied = false;
-    journalFullscreen = false;
-    journalFilters = { start: "", end: "", userId: "", query: "" };
-    journalColumnFilters = {};
-    journalOpenColumn = "";
-    leaveCalendarMonth = null;
-    edsFilters = { start: "", end: "" };
-    appData = {
-      loading: false,
-      error: "",
-      profile: null,
-      punches: [],
-      teamPunches: [],
-      journalPunches: [],
-      journalMetaMissing: false,
-      teamLeaveRequests: [],
-      leaveRequests: [],
-      attestationRequests: [],
-      salaryAdvanceRequests: [],
-      salaryAdvanceTableMissing: false,
-      salaryAdvanceQuota: null,
-      orgProfiles: [],
-      pendingInvites: [],
-      hrDocuments: [],
-      payslips: [],
-      hrAlerts: [],
-      punchCorrections: [],
-      overtimeRequests: [],
-      activityEntries: [],
-      navVisibility: null,
-      studioCreators: [],
-      companyEvents: [],
-      companyEventsTableMissing: false,
-      eventEditingId: "",
-      eventDetailId: "",
-      adminEditingId: "",
-      adminEditingInviteId: "",
-      edsPayroll: {},
-      delayReviews: []
-    };
-    if (mpaMode) {
-      window.location.href = loginHref();
-      return;
-    }
-    renderLogin();
+  document.querySelector("#logout")?.addEventListener("click", () => {
+    signOutUser();
   });
 
   document.querySelector("#retry-load")?.addEventListener("click", () => {
@@ -13399,12 +13485,24 @@ async function initialize() {
     ensureAppContainer();
     if (shouldBootAuthenticatedUi()) showAuthBootScreen();
     bindLoginEvents();
+    const expiredNotice = consumeSessionExpiredMessage();
+    if (expiredNotice) setLoginState({ ready: Boolean(supabaseClient), error: expiredNotice });
     // Reprise du mode démo après redirection depuis / vers /admin.html.
     // Le flag reste dans sessionStorage tant que l'utilisateur ne se déconnecte
     // pas : chaque navigation MPA (page reload) re-hydrate l'état démo.
     if (mpaMode) {
       let demoFlag = false;
       try { demoFlag = sessionStorage.getItem("humana_demo_mode") === "1"; } catch (_) {}
+      if (demoFlag && isDemoSessionExpired()) {
+        try {
+          sessionStorage.removeItem("humana_demo_mode");
+          sessionStorage.removeItem(DEMO_STARTED_KEY);
+          sessionStorage.removeItem("humana_auth_boot");
+          sessionStorage.setItem(SESSION_EXPIRED_KEY, "1");
+        } catch (_) { /* ignore */ }
+        window.location.href = `${loginHref()}?expired=1`;
+        return;
+      }
       if (demoFlag) {
         demoMode = true;
         supabaseClient = getSupabaseClient();
@@ -13412,13 +13510,14 @@ async function initialize() {
         hydrateDemoWorkspace();
         renderApp();
         hideAuthBootScreen();
+        scheduleDemoExpiry();
         return;
       }
     }
     if (window.__authReady) await window.__authReady;
     supabaseClient = getSupabaseClient();
     if (!shouldBootAuthenticatedUi()) {
-      setLoginState({ ready: Boolean(supabaseClient) });
+      setLoginState({ ready: Boolean(supabaseClient), error: expiredNotice || undefined });
     }
 
     if (window.__pendingAuthSession) {
@@ -13449,6 +13548,11 @@ async function initialize() {
     }
 
     supabaseClient.auth.onAuthStateChange(async (event, nextSession) => {
+      if (event === "TOKEN_REFRESHED" && nextSession) {
+        session = nextSession;
+        scheduleSessionExpiry(nextSession.expires_at);
+        return;
+      }
       if (nextSession && (event === "SIGNED_IN" || event === "INITIAL_SESSION")) {
         if (initialAuthHandled) return;
         initialAuthHandled = true;
@@ -13727,16 +13831,17 @@ window.humanaStartDemo = function () {
   supabaseClient = getSupabaseClient();
   ensureAppContainer();
   try { sessionStorage.setItem("humana_auth_boot", "1"); } catch (_) { /* ignore */ }
+  try { sessionStorage.setItem("humana_demo_mode", "1"); } catch (_) { /* ignore */ }
+  markDemoStarted(true);
   showAuthBootScreen();
   hydrateDemoWorkspace();
   if (!mpaMode) {
-    // Le mode démo doit rejoindre la page admin MPA (avec pages/*.js chargés).
-    try { sessionStorage.setItem("humana_demo_mode", "1"); } catch (_) { /* ignore */ }
     window.location.href = pageHref("admin");
     return;
   }
   renderApp();
   hideAuthBootScreen();
+  scheduleDemoExpiry();
 };
 
 
