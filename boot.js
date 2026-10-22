@@ -163,29 +163,42 @@
     loginButton.addEventListener("click", window.humanaSignIn);
     loginButton.dataset.humanaBound = "1";
   }
-  var demoButton = document.getElementById("demo-login");
-  if (demoButton) {
-    demoButton.addEventListener("click", function () {
-      function tryDemo() {
-        if (typeof window.humanaStartDemo === "function") {
-          window.humanaStartDemo();
-          return true;
+  var demoForm = document.getElementById("demo-login-form");
+  if (demoForm && !demoForm.dataset.humanaBound) {
+    demoForm.dataset.humanaBound = "1";
+    demoForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var input = demoForm.querySelector("[name=demo_code]");
+      var button = document.getElementById("demo-login");
+      var code = input ? input.value : "";
+      if (button) button.disabled = true;
+      var unlock = typeof window.humanaUnlockDemo === "function"
+        ? window.humanaUnlockDemo(code)
+        : Promise.reject(new Error("Application non chargée."));
+      unlock.then(function () {
+        function tryDemo() {
+          if (typeof window.humanaStartDemo === "function") {
+            window.humanaStartDemo();
+            return true;
+          }
+          return false;
         }
-        return false;
-      }
-      if (!tryDemo()) {
+        if (tryDemo()) return;
         var tries = 0;
         var timer = setInterval(function () {
           if (tryDemo() || ++tries > 150) {
             clearInterval(timer);
             if (tries > 150) {
               showLoginError("Application non chargée. Videz le cache (Ctrl+Shift+R) et rechargez.");
+              if (button) button.disabled = false;
             }
           }
         }, 100);
-      }
+      }).catch(function (error) {
+        showLoginError(error && error.message ? error.message : "Code d'accès incorrect.");
+        if (button) button.disabled = false;
+      });
     });
-    demoButton.dataset.humanaBound = "1";
   }
 })();
 

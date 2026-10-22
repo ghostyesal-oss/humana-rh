@@ -208,5 +208,30 @@
     };
   }
 
+  window.humanaUnlockDemo = function (code) {
+    var trimmed = String(code || "").trim();
+    var localCode = String((window.HUMANA_CONFIG || {}).DEMO_ACCESS_CODE || "").trim();
+    if (!trimmed) {
+      return Promise.reject(new Error("Saisissez le code d'accès."));
+    }
+    if (localCode) {
+      return trimmed === localCode
+        ? Promise.resolve()
+        : Promise.reject(new Error("Code d'accès incorrect."));
+    }
+    return request("/api/demo/unlock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: trimmed })
+    }).then(function (json) {
+      if (json && json.__status >= 200 && json.__status < 300 && !(json.error && json.error.message)) {
+        return;
+      }
+      throw new Error(json && json.error && json.error.message
+        ? json.error.message
+        : "Code d'accès incorrect.");
+    });
+  };
+
   window.supabase = { createClient: createClient };
 })();

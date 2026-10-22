@@ -871,6 +871,39 @@ html.daylyx-presenting #app {
   background: var(--lime-muted);
 }
 
+.demo-button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.demo-access-form {
+  display: grid;
+  gap: var(--s3);
+}
+
+.demo-access-form label {
+  display: grid;
+  gap: var(--s2);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.demo-access-form input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--s4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+}
+
+.demo-access-form input:focus {
+  border-color: var(--forest-mid);
+  box-shadow: 0 0 0 3px var(--brand-glow);
+  outline: none;
+}
+
 .login-card small {
   display: block;
   margin-top: var(--s5);

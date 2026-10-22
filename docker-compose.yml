@@ -42,6 +42,7 @@ services:
       APP_ORIGIN: ${APP_ORIGIN}
       BOOTSTRAP_CREATOR_EMAILS: ${BOOTSTRAP_CREATOR_EMAILS:-}
       PAYROLL_EMAILS: ${PAYROLL_EMAILS:-}
+      DEMO_ACCESS_CODE: ${DEMO_ACCESS_CODE:-}
     logging: *default-logging
     volumes:
       - storage:/data/storage

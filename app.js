@@ -11090,19 +11090,30 @@ async function bootstrapUser(options = {}) {
 
 function bindLoginEvents() {
   bindThemeToggle();
-  const demoBtn = document.querySelector("#demo-login");
-  if (demoBtn && !demoBtn.dataset.humanaBound) {
-    demoBtn.dataset.humanaBound = "1";
-    demoBtn.addEventListener("click", () => {
-      // Passe par humanaStartDemo pour bénéficier de la redirection MPA
-      // (sinon sur index.html on tenterait un renderApp sans pages/*.js chargés).
-      if (typeof window.humanaStartDemo === "function") {
-        window.humanaStartDemo();
-        return;
-      }
-      demoMode = true;
-      hydrateDemoWorkspace();
-      renderApp();
+  const demoForm = document.querySelector("#demo-login-form");
+  if (demoForm && !demoForm.dataset.humanaBound) {
+    demoForm.dataset.humanaBound = "1";
+    demoForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const input = demoForm.querySelector("[name=demo_code]");
+      const button = demoForm.querySelector("#demo-login");
+      const code = input ? input.value : "";
+      if (button) button.disabled = true;
+      const unlock = typeof window.humanaUnlockDemo === "function"
+        ? window.humanaUnlockDemo(code)
+        : Promise.reject(new Error("Application non chargée."));
+      unlock.then(() => {
+        if (typeof window.humanaStartDemo === "function") {
+          window.humanaStartDemo();
+          return;
+        }
+        demoMode = true;
+        hydrateDemoWorkspace();
+        renderApp();
+      }).catch((error) => {
+        setLoginState({ ready: Boolean(supabaseClient), error: error.message || "Code d'accès incorrect." });
+        if (button) button.disabled = false;
+      });
     });
   }
 
@@ -11165,7 +11176,13 @@ function renderLogin(error = "") {
             <div id="config-note" class="config-note">Préparation de la connexion en cours...</div>
             <p id="login-error" class="error-message" hidden></p>
             <div class="separator"><span>ou</span></div>
-            <button id="demo-login" type="button" class="demo-button">Voir l'aperçu administrateur</button>
+            <form id="demo-login-form" class="demo-access-form">
+              <label>
+                Code d'accès démo
+                <input type="text" name="demo_code" id="demo-code" autocomplete="off" spellcheck="false" maxlength="64" placeholder="Code partagé" required>
+              </label>
+              <button id="demo-login" type="submit" class="demo-button">Ouvrir la démo</button>
+            </form>
             <p class="login-legal">Outil RH professionnel.
               <a href="/confidentialite">Confidentialité</a> ·
               <a href="/mentions-legales">Mentions légales</a> ·
