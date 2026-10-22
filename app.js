@@ -34,7 +34,7 @@ function assetUrl(path) {
   return hash ? `/${clean}?h=${hash}` : `/${clean}`;
 }
 
-const PAGE_MODULE_REV = "h8";
+const PAGE_MODULE_REV = "h11";
 
 function ensurePageModule(page) {
   if (window.Humana?.pages?.[page]) return Promise.resolve();
@@ -918,6 +918,8 @@ const FR_HOLIDAYS_2026 = ["2026-01-01", "2026-04-06", "2026-05-01", "2026-05-08"
 const MA_HOLIDAYS_2026 = ["2026-01-01", "2026-01-11", "2026-05-01", "2026-07-30", "2026-08-14", "2026-08-20", "2026-08-21", "2026-11-06", "2026-11-18"];
 const RAMADAN_2026 = { start: "2026-02-18", end: "2026-03-19" };
 const LEAVE_ACCRUAL = { employee: 1.5, manager: 2, codir: 2.5 };
+const ATTESTATION_COOLDOWN_MONTHS = 3;
+const ATTESTATION_TYPE_LIMIT = 1;
 const attestationTypes = [
   "Attestation de travail",
   "Attestation de salaire",
@@ -3980,6 +3982,75 @@ function getSalaryAdvanceQuota() {
   return appData.salaryAdvanceQuota && typeof appData.salaryAdvanceQuota === "object"
     ? appData.salaryAdvanceQuota
     : computeSalaryAdvanceQuota();
+}
+
+function countsTowardAttestationQuota(status) {
+  const value = String(status || "").toLowerCase();
+  if (value.includes("refus") || value.includes("rejet")) return false;
+  return true;
+}
+
+function addMonthsToDateKey(dateKey, months) {
+  const [year, month, day] = String(dateKey || "").slice(0, 10).split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(Date.UTC(year, month - 1 + months, day)).toISOString().slice(0, 10);
+}
+
+function formatDateKeyFr(dateKey) {
+  const [year, month, day] = String(dateKey || "").split("-");
+  if (!year || !month || !day) return "";
+  return `${day}/${month}/${year}`;
+}
+
+function computeAttestationQuota(userId = session?.user?.id) {
+  const todayKey = companyDateKey(new Date());
+  const lastByType = {};
+  getAttestationRequests().forEach((row) => {
+    if ((row.userId || session?.user?.id) !== userId) return;
+    if (row.kind && row.kind !== "attestation") return;
+    const type = String(row.type || "").trim();
+    if (!attestationTypes.includes(type)) return;
+    if (!countsTowardAttestationQuota(row.status)) return;
+    const dateKey = companyDateKey(row.created || row.created_at || Date.now());
+    if (!lastByType[type] || dateKey > lastByType[type]) lastByType[type] = dateKey;
+  });
+  const byType = {};
+  const blockedTypes = [];
+  const availableTypes = [];
+  const blockedNext = {};
+  attestationTypes.forEach((type) => {
+    const lastDate = lastByType[type] || null;
+    const next = lastDate ? addMonthsToDateKey(lastDate, ATTESTATION_COOLDOWN_MONTHS) : null;
+    const blocked = Boolean(next && todayKey < next);
+    const nextLabel = next ? formatDateKeyFr(next) : "";
+    byType[type] = {
+      used: blocked ? 1 : 0,
+      limit: ATTESTATION_TYPE_LIMIT,
+      remaining: blocked ? 0 : 1,
+      lastDate,
+      lastDateLabel: lastDate ? formatDateKeyFr(lastDate) : "",
+      nextAvailable: next,
+      nextAvailableLabel: nextLabel
+    };
+    if (blocked) {
+      blockedTypes.push(type);
+      blockedNext[type] = nextLabel;
+    } else {
+      availableTypes.push(type);
+    }
+  });
+  return {
+    cooldownMonths: ATTESTATION_COOLDOWN_MONTHS,
+    byType,
+    blockedTypes,
+    blockedNext,
+    availableTypes,
+    allBlocked: availableTypes.length === 0
+  };
+}
+
+function getAttestationQuota() {
+  return computeAttestationQuota();
 }
 
 function advanceStatusLabel(status) {
@@ -13104,6 +13175,16 @@ function bindPageEvents() {
       alert("Indiquez le motif de la demande.");
       return;
     }
+    const quota = getAttestationQuota();
+    const blocked = types.filter((type) => (quota.byType[type]?.remaining ?? 0) <= 0);
+    if (blocked.length) {
+      const details = blocked.map((type) => {
+        const next = quota.byType[type]?.nextAvailableLabel;
+        return next ? `${type} (prochaine demande le ${next})` : type;
+      }).join(", ");
+      alert(`Déjà demandé il y a moins de ${quota.cooldownMonths} mois : ${details}. Un seul document du même type tous les ${quota.cooldownMonths} mois.`);
+      return;
+    }
 
     withAction(async () => {
       if (usesDatabase()) {
@@ -13926,6 +14007,7 @@ window.humanaStartDemo = function () {
     getLeaveValidatorChain,
     getManagerChain,
     getNavVisibility,
+    getAttestationQuota,
     getOwnHrRequests,
     getPunches,
     getSalaryAdvanceQuota,

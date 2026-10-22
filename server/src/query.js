@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { adminQuery, logSensitiveAccess, rlsDenied, withUser } from "./db.js";
 import { resolveSelectLimit } from "./query-limit.js";
+import { assertAttestationInsert } from "./attestation.js";
 import { assertSalaryAdvanceInsert } from "./salary-advance.js";
 
 const tx = new AsyncLocalStorage();
@@ -479,6 +480,7 @@ async function conflictRowExists(fromSql, row, conflictCols) {
 }
 
 async function prepareWriteRows(table, user, rows) {
+  const attestationBatchUsed = Object.create(null);
   for (const row of rows) {
     if (!row || typeof row !== "object") continue;
     if (table === "push_subscriptions") {
@@ -503,6 +505,12 @@ async function prepareWriteRows(table, user, rows) {
         : await canApproveTarget(user, owner);
       if (table === "salary_advance_requests") {
         await assertSalaryAdvanceInsert(owner, row.amount);
+      }
+      if (table === "attestation_requests") {
+        const type = String(row.document_type || "").trim();
+        const batchKey = `${owner}\0${type}`;
+        await assertAttestationInsert(owner, type, attestationBatchUsed[batchKey] || 0);
+        attestationBatchUsed[batchKey] = (attestationBatchUsed[batchKey] || 0) + 1;
       }
       if (privileged) continue;
       if (row.user_id && row.user_id !== user.sub) {
