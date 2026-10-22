@@ -34,7 +34,7 @@ function assetUrl(path) {
   return hash ? `/${clean}?h=${hash}` : `/${clean}`;
 }
 
-const PAGE_MODULE_REV = "h7";
+const PAGE_MODULE_REV = "h8";
 
 function ensurePageModule(page) {
   if (window.Humana?.pages?.[page]) return Promise.resolve();
@@ -919,24 +919,35 @@ const MA_HOLIDAYS_2026 = ["2026-01-01", "2026-01-11", "2026-05-01", "2026-07-30"
 const RAMADAN_2026 = { start: "2026-02-18", end: "2026-03-19" };
 const LEAVE_ACCRUAL = { employee: 1.5, manager: 2, codir: 2.5 };
 const attestationTypes = [
-  "Attestation employeur",
-  "Certificat de travail",
+  "Attestation de travail",
   "Attestation de salaire",
-  "Attestation de congés"
+  "Domiciliation de salaire",
+  "Attestation de titularisation",
+  "Attestation de déclaration de salaire annuel",
+  "Bulletins de paie cachetés"
 ];
-const OTHER_REQUEST_CUSTOM = "Autre";
+const OTHER_REQUEST_CUSTOM = "Autres";
 const otherRequestTypes = [
+  "Assurances",
+  "Transport",
+  "Retraite",
+  "Salaire",
+  "BP",
+  OTHER_REQUEST_CUSTOM
+];
+const LEGACY_OTHER_REQUEST_TYPES = [
   "Réclamation",
   "Info assurance",
   "Réclamation assurance",
-  OTHER_REQUEST_CUSTOM
+  "Autre"
 ];
 
 function isOtherHrType(type) {
   const value = String(type || "").trim();
   if (!value) return false;
   if (otherRequestTypes.includes(value)) return true;
-  return /^autre(\s|:|$)/i.test(value);
+  if (LEGACY_OTHER_REQUEST_TYPES.includes(value)) return true;
+  return /^autres?(\s|:|$)/i.test(value);
 }
 
 function hrKindLabel(request) {
@@ -12165,7 +12176,10 @@ function bindHrDropdowns() {
       event.stopPropagation();
       setOpen(!root.classList.contains("is-open"));
     });
-    root.addEventListener("change", refreshSummary);
+    root.addEventListener("change", () => {
+      refreshSummary();
+      if (root.hasAttribute("data-hr-single")) setOpen(false);
+    });
     form?.addEventListener("reset", () => {
       setOpen(false);
       queueMicrotask(refreshSummary);
@@ -13133,12 +13147,12 @@ function bindPageEvents() {
       .filter((type) => otherRequestTypes.includes(type));
     const reason = String(data.get("reason") || "").trim();
     const otherDetail = String(data.get("other_detail") || "").replace(/\s+/g, " ").trim().slice(0, 120);
-    if (!types.length) {
-      alert("Sélectionnez au moins un type de demande.");
+    if (types.length !== 1) {
+      alert("Sélectionnez un type de demande.");
       return;
     }
     if (types.includes(OTHER_REQUEST_CUSTOM) && !otherDetail) {
-      alert("Précisez le type de demande (Autre).");
+      alert("Précisez le type de demande (Autres).");
       return;
     }
     if (!reason) {
@@ -13799,7 +13813,7 @@ function hydrateDemoWorkspace() {
     id: "att-demo-1",
     userId: "u-hugo",
     kind: "attestation",
-    type: "Attestation employeur",
+    type: "Attestation de travail",
     reason: "Dossier de location",
     status: "A valider",
     created: new Date().toISOString()
@@ -13807,7 +13821,7 @@ function hydrateDemoWorkspace() {
     id: "oth-demo-1",
     userId: "u-lea",
     kind: "other",
-    type: "Info assurance",
+    type: "Assurances",
     reason: "Demande de tableau de garanties",
     status: "A valider",
     created: new Date().toISOString()

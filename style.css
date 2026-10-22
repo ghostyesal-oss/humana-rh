@@ -3255,7 +3255,8 @@ tbody tr:hover td { background: var(--surface-2); }
   background: var(--surface-2, rgba(15, 23, 42, 0.05));
 }
 
-.hr-dropdown__menu input[type="checkbox"] {
+.hr-dropdown__menu input[type="checkbox"],
+.hr-dropdown__menu input[type="radio"] {
   width: 16px;
   height: 16px;
   margin: 0;

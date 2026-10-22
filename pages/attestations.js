@@ -28,16 +28,18 @@
         </article>`;
   }
 
-  function hrTypeDropdown(placeholder, types) {
+  function hrTypeDropdown(placeholder, types, options = {}) {
+    const single = Boolean(options.single);
+    const inputType = single ? "radio" : "checkbox";
     return `
-              <div class="hr-dropdown" data-hr-dropdown data-placeholder="${H.escapeHtml(placeholder)}">
+              <div class="hr-dropdown" data-hr-dropdown data-placeholder="${H.escapeHtml(placeholder)}"${single ? " data-hr-single" : ""}>
                 <button type="button" class="hr-dropdown__toggle is-placeholder" data-hr-toggle aria-expanded="false" aria-haspopup="listbox">
                   <span data-hr-summary>${H.escapeHtml(placeholder)}</span>
                 </button>
-                <div class="hr-dropdown__menu" role="listbox" aria-multiselectable="true">
+                <div class="hr-dropdown__menu" role="listbox" aria-multiselectable="${single ? "false" : "true"}">
                   ${types.map((type) => `
                     <label>
-                      <input type="checkbox" name="types" value="${H.escapeHtml(type)}">
+                      <input type="${inputType}" name="types" value="${H.escapeHtml(type)}">
                       <span>${H.escapeHtml(type)}</span>
                     </label>`).join("")}
                 </div>
@@ -75,7 +77,7 @@
           <form id="other-request-form" class="feature-form">
             <label class="hr-select">
               Type de demande
-              ${hrTypeDropdown("Choisir une ou plusieurs demandes", H.otherRequestTypes)}
+              ${hrTypeDropdown("Choisir une demande", H.otherRequestTypes, { single: true })}
             </label>
             <label data-other-detail hidden>
               Précisez
