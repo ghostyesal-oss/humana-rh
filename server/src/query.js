@@ -23,6 +23,7 @@ const COLUMN_SQL = Object.freeze({
   shift_code: '"shift_code"',
   hired_at: '"hired_at"',
   leave_grade: '"leave_grade"',
+  holiday_calendar: '"holiday_calendar"',
   avatar_url: '"avatar_url"',
   phone: '"phone"',
   created_at: '"created_at"',
@@ -116,7 +117,7 @@ const COLUMN_SQL = Object.freeze({
 
 const DIRECTORY_COLUMNS = [
   "id", "email", "full_name", "job_title", "department", "role", "manager_id",
-  "matricule", "shift_code", "hired_at", "leave_grade"
+  "matricule", "shift_code", "hired_at", "leave_grade", "holiday_calendar"
 ];
 
 const ADMIN_WRITE_TABLES = new Set([

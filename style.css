@@ -2567,6 +2567,14 @@ tbody tr:hover td { background: var(--surface-2); }
   background: color-mix(in srgb, var(--surface-2) 55%, var(--surface));
 }
 
+.leave-cal-cell.is-holiday {
+  background: color-mix(in srgb, #b45309 9%, var(--surface));
+}
+
+.leave-cal-legend-holiday i {
+  background: color-mix(in srgb, #b45309 45%, var(--surface));
+}
+
 .leave-cal-cell.is-today .leave-cal-day {
   background: var(--forest-mid);
   color: #fff;
@@ -7414,6 +7422,10 @@ small { font-size: 11px; }
   overflow: auto;
   cursor: default;
 }
+.admin-user-filters {
+  margin-bottom: 10px;
+}
+
 .admin-user-list thead th {
   position: sticky;
   top: 0;

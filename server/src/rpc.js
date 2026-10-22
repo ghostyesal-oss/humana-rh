@@ -30,7 +30,8 @@ async function applyPendingInvite(user, args) {
            manager_id = coalesce($6, manager_id),
            shift_code = coalesce(nullif($7, ''), shift_code),
            leave_grade = coalesce(nullif($8, ''), leave_grade),
-           hired_at = coalesce($9, hired_at)
+           hired_at = coalesce($9, hired_at),
+           holiday_calendar = coalesce(nullif($10, ''), holiday_calendar)
        where id = $1`,
       [
         userId,
@@ -41,7 +42,8 @@ async function applyPendingInvite(user, args) {
         row.manager_id || null,
         row.shift_code || "",
         row.leave_grade || "",
-        row.hired_at || null
+        row.hired_at || null,
+        row.holiday_calendar || ""
       ]
     );
     await adminQuery("delete from public.pending_invites where id = $1", [row.id]);
@@ -252,6 +254,9 @@ function sanitizeImportedEmployee(row) {
   if (!matricule && !fullName) return null;
   const role = ["employee", "manager", "rh", "admin"].includes(String(row.role || "")) ? row.role : "employee";
   const leaveGrade = ["employee", "manager", "codir"].includes(String(row.leave_grade || "")) ? row.leave_grade : "employee";
+  const holidayCalendar = ["ma", "fr"].includes(String(row.holiday_calendar || "").toLowerCase())
+    ? String(row.holiday_calendar).toLowerCase()
+    : "";
   const shift = ["cs", "ces", "rnd"].includes(String(row.shift_code || "")) ? row.shift_code : "cs";
   const hired = DATE_RE.test(String(row.hired_at || "")) ? row.hired_at : null;
   const email = clip(row.email, 120).toLowerCase();
@@ -263,6 +268,7 @@ function sanitizeImportedEmployee(row) {
     department: clip(row.department, 80) || "General",
     role,
     leave_grade: leaveGrade,
+    holiday_calendar: holidayCalendar,
     shift_code: shift,
     hired_at: hired,
     manager_matricule: normalizeImportedMatricule(row.manager_matricule),
@@ -333,6 +339,7 @@ async function importEmployees(user, args) {
                shift_code = coalesce(nullif($7, ''), shift_code),
                leave_grade = coalesce(nullif($8, ''), leave_grade),
                hired_at = coalesce($9::date, hired_at),
+               holiday_calendar = coalesce(nullif($10, ''), holiday_calendar),
                updated_at = now()
            where id = $1`,
           [
@@ -344,7 +351,8 @@ async function importEmployees(user, args) {
             emp.matricule,
             emp.shift_code,
             emp.leave_grade,
-            emp.hired_at
+            emp.hired_at,
+            emp.holiday_calendar
           ]
         );
         if (emp.matricule) hit.matricule = emp.matricule;
@@ -353,8 +361,9 @@ async function importEmployees(user, args) {
       } else {
         const inserted = await client.query(
           `insert into public.profiles
-             (id, email, full_name, role, job_title, department, matricule, shift_code, hired_at, leave_grade)
-           values (gen_random_uuid(), nullif($1, ''), $2, $3, $4, $5, nullif($6, ''), $7, $8::date, $9)
+             (id, email, full_name, role, job_title, department, matricule, shift_code, hired_at, leave_grade, holiday_calendar)
+           values (gen_random_uuid(), nullif($1, ''), $2, $3, $4, $5, nullif($6, ''), $7, $8::date, $9,
+                   coalesce(nullif($10, ''), case when $7 = 'rnd' then 'ma' else 'fr' end))
            returning id, email, full_name, role, matricule`,
           [
             emp.email,
@@ -365,7 +374,8 @@ async function importEmployees(user, args) {
             emp.matricule,
             emp.shift_code,
             emp.hired_at,
-            emp.leave_grade
+            emp.leave_grade,
+            emp.holiday_calendar
           ]
         );
         existing.push(inserted.rows[0]);

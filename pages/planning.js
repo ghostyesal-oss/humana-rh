@@ -29,11 +29,7 @@
             <button type="button" class="outline-button" id="planning-next">›</button>
           </div>
           ${H.canImportPlanning() ? `
-          <button type="button" class="outline-button" id="planning-tt-rotate">Générer rotation TT du mois</button>
-          <label class="planning-import">
-            Importer le planning
-            <input type="file" id="planning-import" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
-          </label>` : ""}
+          <button type="button" class="outline-button" id="planning-tt-rotate">Générer planning du mois</button>` : ""}
         </div>
       </div>
       ${H.planningState.importNotice ? `<p class="planning-import-notice">${H.escapeHtml(H.planningState.importNotice)}</p>` : ""}

@@ -29,7 +29,7 @@ function assetUrl(path) {
   return hash ? `/${clean}?h=${hash}` : `/${clean}`;
 }
 
-const PAGE_MODULE_REV = "h3";
+const PAGE_MODULE_REV = "h7";
 
 function ensurePageModule(page) {
   if (window.Humana?.pages?.[page]) return Promise.resolve();
@@ -160,7 +160,17 @@ const TEAM_LEAVE_LIMIT = 500;
 const PLANNING_ENTRY_LIMIT = 15000;
 let adminUserQuery = "";
 let adminUserFormOpen = false;
-const filterPanelOpen = { journal: false, teamPunches: false, global: false };
+let adminAssignOpen = false;
+let adminAssignNotice = "";
+const adminUserFilters = {
+  role: "",
+  managerId: "",
+  department: "",
+  leaveGrade: "",
+  holidayCalendar: "",
+  shiftCode: ""
+};
+const filterPanelOpen = { journal: false, teamPunches: false, global: false, admin: false };
 
 function isFilterPanelOpen(key) {
   return Boolean(filterPanelOpen[tablePageKey(key)]);
@@ -1474,7 +1484,7 @@ async function insertTimePunch(payload) {
 }
 
 const LEAVE_GTA_FIELDS = ["unit", "half_day", "hours", "motif", "attachment_name", "workflow_step"];
-const PROFILE_GTA_FIELDS = ["hired_at", "shift_code", "leave_grade"];
+const PROFILE_GTA_FIELDS = ["hired_at", "shift_code", "leave_grade", "holiday_calendar"];
 const PROFILE_DIRECTORY_FIELDS = [
   "id",
   "email",
@@ -1485,6 +1495,7 @@ const PROFILE_DIRECTORY_FIELDS = [
   "manager_id",
   "shift_code",
   "leave_grade",
+  "holiday_calendar",
   "matricule",
   "hired_at"
 ];
@@ -2496,9 +2507,10 @@ function renderLeaveCalendar() {
     const hasConflict = teamScope && events.length >= 2;
     const isToday = key === todayKey;
     const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+    const isHoliday = isHolidayKey(key);
 
     return `
-      <div class="leave-cal-cell${isToday ? " is-today" : ""}${hasConflict ? " has-conflict" : ""}${isWeekend ? " is-weekend" : ""}" data-date="${key}">
+      <div class="leave-cal-cell${isToday ? " is-today" : ""}${hasConflict ? " has-conflict" : ""}${isWeekend ? " is-weekend" : ""}${isHoliday ? " is-holiday" : ""}" data-date="${key}">
         <span class="leave-cal-day">${date.getDate()}</span>
         <div class="leave-cal-events">
           ${events.slice(0, 3).map((event) => `
@@ -2538,6 +2550,7 @@ function renderLeaveCalendar() {
         <span class="leave-cal-legend-item"><i class="leave-type-unjustified"></i> Injustifiée</span>
         <span class="leave-cal-legend-item leave-cal-legend-pending"><i></i> En attente</span>
         ${teamScope ? `<span class="leave-cal-legend-item leave-cal-legend-conflict"><i></i> Conflit d'équipe</span>` : ""}
+        <span class="leave-cal-legend-item leave-cal-legend-holiday"><i></i> Férié (${escapeHtml(holidayCalendarLabel(getHolidayCalendar()))})</span>
       </div>
     </article>`;
 }
@@ -3095,7 +3108,8 @@ function parseUserAccountForm(data) {
       leave_balance_rtt: Number(data.get("leave_balance_rtt") || 0),
       hired_at: String(data.get("hired_at") || "") || null,
       shift_code: String(data.get("shift_code") || "cs"),
-      leave_grade: String(data.get("leave_grade") || "employee")
+      leave_grade: String(data.get("leave_grade") || "employee"),
+      holiday_calendar: normalizeHolidayCalendar(data.get("holiday_calendar"), data.get("shift_code"))
     }
   };
 }
@@ -3111,6 +3125,31 @@ async function persistWithGtaFallback(action, payload) {
 async function persistUserAccount({ email, profileId, inviteId, payload }) {
   if (usesDatabase() && !isAdmin()) {
     throw new Error("Seul un administrateur peut gérer les comptes.");
+  }
+  if (!usesDatabase()) {
+    if (profileId) {
+      const profile = appData.orgProfiles.find((item) => item.id === profileId);
+      if (profile) Object.assign(profile, payload, { email: email || profile.email });
+      if (appData.profile?.id === profileId) Object.assign(appData.profile, payload);
+      return;
+    }
+    if (inviteId) {
+      const invite = appData.pendingInvites.find((item) => item.id === inviteId);
+      if (invite) Object.assign(invite, payload, { email });
+      return;
+    }
+    const existing = appData.orgProfiles.find((profile) => profile.email?.toLowerCase() === email);
+    if (existing) {
+      Object.assign(existing, payload);
+      return;
+    }
+    appData.pendingInvites.push({
+      id: `invite-${Date.now()}`,
+      email,
+      ...payload,
+      created_by: session.user.id
+    });
+    return;
   }
   if (profileId) {
     if (profileId === session.user.id && payload.role !== "admin" && appData.profile?.role === "admin") {
@@ -3145,20 +3184,61 @@ async function persistUserAccount({ email, profileId, inviteId, payload }) {
   }, { onConflict: "email" }), payload);
 }
 
+function adminDepartmentList() {
+  return [...new Set((appData.orgProfiles || [])
+    .map((profile) => String(profile.department || "").trim())
+    .filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right, "fr"));
+}
+
+function hasAdminUserFilters() {
+  return Boolean(
+    adminUserQuery
+    || adminUserFilters.role
+    || adminUserFilters.managerId
+    || adminUserFilters.department
+    || adminUserFilters.leaveGrade
+    || adminUserFilters.holidayCalendar
+    || adminUserFilters.shiftCode
+  );
+}
+
 function getFilteredAdminProfiles() {
-  const list = [...(appData.orgProfiles || [])]
+  let list = [...(appData.orgProfiles || [])]
     .filter(Boolean)
     .sort((a, b) => (a.full_name || "").localeCompare(b.full_name || "", "fr"));
   const query = foldPlanningToken(adminUserQuery);
-  if (!query) return list;
-  return list.filter((profile) => foldPlanningToken(
-    `${profile.full_name || ""} ${profile.email || ""} ${profile.matricule || ""} ${profile.job_title || ""} ${profile.department || ""}`
-  ).includes(query));
+  if (query) {
+    list = list.filter((profile) => foldPlanningToken(
+      `${profile.full_name || ""} ${profile.email || ""} ${profile.matricule || ""} ${profile.job_title || ""} ${profile.department || ""}`
+    ).includes(query));
+  }
+  if (adminUserFilters.role) {
+    list = list.filter((profile) => profile.role === adminUserFilters.role);
+  }
+  if (adminUserFilters.managerId) {
+    list = list.filter((profile) => adminUserFilters.managerId === "__none__"
+      ? !profile.manager_id
+      : profile.manager_id === adminUserFilters.managerId);
+  }
+  if (adminUserFilters.department) {
+    list = list.filter((profile) => String(profile.department || "") === adminUserFilters.department);
+  }
+  if (adminUserFilters.leaveGrade) {
+    list = list.filter((profile) => getLeaveGrade(profile) === adminUserFilters.leaveGrade);
+  }
+  if (adminUserFilters.holidayCalendar) {
+    list = list.filter((profile) => getHolidayCalendar(profile) === adminUserFilters.holidayCalendar);
+  }
+  if (adminUserFilters.shiftCode) {
+    list = list.filter((profile) => String(profile.shift_code || "cs").toLowerCase() === adminUserFilters.shiftCode);
+  }
+  return list;
 }
 
 function renderAdminUserRows(profiles) {
   if (!profiles.length) {
-    return `<tr><td colspan="5" class="empty-cell">Aucun utilisateur${adminUserQuery ? " ne correspond à la recherche" : " actif"}.</td></tr>`;
+    return `<tr><td colspan="5" class="empty-cell">Aucun utilisateur${hasAdminUserFilters() ? " ne correspond aux filtres" : " actif"}.</td></tr>`;
   }
   return profiles.map((profile) => `
     <tr>
@@ -3234,14 +3314,23 @@ function renderUserAccountSection() {
               </select>
             </label>
           </div>
-          <label>
-            Grade de congés
-            <select name="leave_grade">
-              <option value="employee"${(editing?.leave_grade || "employee") === "employee" ? " selected" : ""}>Collaborateur — 1,5 j/mois</option>
-              <option value="manager"${editing?.leave_grade === "manager" ? " selected" : ""}>Responsable — 2 j/mois</option>
-              <option value="codir"${editing?.leave_grade === "codir" ? " selected" : ""}>CODIR — 2,5 j/mois</option>
-            </select>
-          </label>
+          <div class="form-row">
+            <label>
+              Grade de congés
+              <select name="leave_grade">
+                <option value="employee"${(editing?.leave_grade || "employee") === "employee" ? " selected" : ""}>Collaborateur — 1,5 j/mois</option>
+                <option value="manager"${editing?.leave_grade === "manager" ? " selected" : ""}>Responsable — 2 j/mois</option>
+                <option value="codir"${editing?.leave_grade === "codir" ? " selected" : ""}>CODIR — 2,5 j/mois</option>
+              </select>
+            </label>
+            <label>
+              Jours fériés
+              <select name="holiday_calendar">
+                ${holidayCalendarOptions(editing?.holiday_calendar, { shiftCode: editing?.shift_code || "cs" })}
+              </select>
+            </label>
+          </div>
+          <p class="hierarchy-meta">Par défaut : CS / CES → jours fériés français, R&amp;D → jours fériés marocains (modifiable ici).</p>
           <div class="admin-form-actions">
             <button type="submit" class="primary">${editing ? "Enregistrer" : "Ajouter"}</button>
             ${editing ? `<button type="button" id="admin-cancel-edit" class="outline-button">Annuler</button>` : ""}
@@ -3255,6 +3344,7 @@ function renderUserAccountSection() {
           ${appData.employeeImportNotice ? `<p class="planning-import-notice">${escapeHtml(appData.employeeImportNotice)}</p>` : ""}
         </div>
       </details>
+      ${renderAdminAssignPanel(userPage.total)}
       <article class="card table-card admin-user-list">
         <div class="toolbar">
           <h3>Utilisateurs actifs <span id="admin-user-count" class="admin-user-count">${userPage.total} / ${appData.orgProfiles.length}</span></h3>
@@ -3263,6 +3353,7 @@ function renderUserAccountSection() {
             <input type="search" id="admin-user-search" value="${escapeHtml(adminUserQuery)}" placeholder="Nom, matricule, e-mail…">
           </label>
         </div>
+        ${renderAdminUserFilterPanel()}
         <div class="table-wrap">
           <table>
             <thead><tr><th>Nom</th><th>E-mail</th><th>Rôle</th><th>Manager</th><th></th></tr></thead>
@@ -3300,10 +3391,246 @@ function renderUserAccountSection() {
     </article>`;
 }
 
+function holidayCalendarLabel(calendar) {
+  return String(calendar || "").toLowerCase() === "ma" ? "Maroc" : "France";
+}
+
+function holidayCalendarOptions(selected, { emptyLabel, shiftCode } = {}) {
+  const current = emptyLabel && (selected == null || selected === "")
+    ? ""
+    : normalizeHolidayCalendar(selected, shiftCode);
+  const empty = emptyLabel ? `<option value="">${escapeHtml(emptyLabel)}</option>` : "";
+  return `
+    ${empty}
+    <option value="ma"${current === "ma" ? " selected" : ""}>Maroc</option>
+    <option value="fr"${current === "fr" ? " selected" : ""}>France</option>`;
+}
+
+function adminFilterSelect(name, label, optionsHtml) {
+  return `
+    <label>
+      ${label}
+      <select data-admin-user-filter="${name}">
+        ${optionsHtml}
+      </select>
+    </label>`;
+}
+
+function renderAdminUserFilterPanel() {
+  const managers = (appData.orgProfiles || [])
+    .filter((profile) => (appData.orgProfiles || []).some((item) => item.manager_id === profile.id))
+    .sort((left, right) => String(left.full_name || "").localeCompare(String(right.full_name || ""), "fr"));
+  const roleFilter = `
+    <option value="">Tous</option>
+    ${ASSIGNABLE_ROLES.map((role) => `<option value="${role}"${adminUserFilters.role === role ? " selected" : ""}>${escapeHtml(roleLabels[role])}</option>`).join("")}`;
+  const managerFilter = `
+    <option value="">Tous</option>
+    <option value="__none__"${adminUserFilters.managerId === "__none__" ? " selected" : ""}>Sans manager</option>
+    ${managers.map((profile) => `<option value="${profile.id}"${adminUserFilters.managerId === profile.id ? " selected" : ""}>${escapeHtml(profile.full_name)}</option>`).join("")}`;
+  const deptFilter = `
+    <option value="">Toutes</option>
+    ${adminDepartmentList().map((dept) => `<option value="${escapeHtml(dept)}"${adminUserFilters.department === dept ? " selected" : ""}>${escapeHtml(dept)}</option>`).join("")}`;
+  const gradeFilter = `
+    <option value="">Tous</option>
+    <option value="employee"${adminUserFilters.leaveGrade === "employee" ? " selected" : ""}>Collaborateur</option>
+    <option value="manager"${adminUserFilters.leaveGrade === "manager" ? " selected" : ""}>Responsable</option>
+    <option value="codir"${adminUserFilters.leaveGrade === "codir" ? " selected" : ""}>CODIR</option>`;
+  const shiftFilter = `
+    <option value="">Toutes</option>
+    ${SHIFT_DEPT_META.map(({ code, name }) => `<option value="${code}"${adminUserFilters.shiftCode === code ? " selected" : ""}>${escapeHtml(name)}</option>`).join("")}`;
+  return `
+    <details class="collapse-panel"${isFilterPanelOpen("admin") ? " open" : ""} data-filter-panel="admin">
+      <summary>Filtres</summary>
+      <div class="feature-form collapse-panel-form admin-user-filters">
+        <div class="form-row">
+          ${adminFilterSelect("role", "Rôle", roleFilter)}
+          ${adminFilterSelect("managerId", "Manager", managerFilter)}
+        </div>
+        <div class="form-row">
+          ${adminFilterSelect("department", "Équipe", deptFilter)}
+          ${adminFilterSelect("leaveGrade", "Grade de congés", gradeFilter)}
+        </div>
+        <div class="form-row">
+          ${adminFilterSelect("holidayCalendar", "Jours fériés", holidayCalendarOptions(adminUserFilters.holidayCalendar, { emptyLabel: "Tous" }))}
+          ${adminFilterSelect("shiftCode", "Vacation", shiftFilter)}
+        </div>
+      </div>
+    </details>`;
+}
+
+function adminAssignPreviewText(count = getFilteredAdminProfiles().length) {
+  if (!count) return "Aucun collaborateur dans le filtre actuel.";
+  if (count === 1) return "1 personne du filtre actuel sera mise à jour (seuls les champs renseignés changent).";
+  return `${count} personnes du filtre actuel seront mises à jour (seuls les champs renseignés changent).`;
+}
+
+function renderAdminAssignPanel(count = getFilteredAdminProfiles().length) {
+  return `
+    <details class="admin-user-assign"${adminAssignOpen ? " open" : ""} id="admin-assign-panel">
+      <summary>Affecter un rôle, une équipe, un grade…</summary>
+      <form id="admin-assign-form" class="feature-form admin-user-assign-form">
+        <p class="hierarchy-meta" id="admin-assign-preview">${escapeHtml(adminAssignPreviewText(count))}</p>
+        <p class="hierarchy-meta">Par défaut, CS et CES chôment les jours fériés français, R&amp;D les jours fériés marocains.</p>
+        ${adminAssignNotice ? `<p class="planning-import-notice">${escapeHtml(adminAssignNotice)}</p>` : ""}
+        <div class="form-row">
+          <label>
+            Rôle
+            <select name="role">
+              <option value="">Inchangé</option>
+              ${ASSIGNABLE_ROLES.map((role) => `<option value="${role}">${escapeHtml(roleLabels[role])}</option>`).join("")}
+            </select>
+          </label>
+          <label>
+            Manager
+            <select name="manager_id">
+              <option value="">Inchangé</option>
+              <option value="__none__">Aucun manager</option>
+              ${(appData.orgProfiles || []).map((profile) => `<option value="${profile.id}">${escapeHtml(profile.full_name)}</option>`).join("")}
+            </select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>
+            Équipe
+            <select name="department">
+              <option value="">Inchangée</option>
+              ${adminDepartmentList().map((dept) => `<option value="${escapeHtml(dept)}">${escapeHtml(dept)}</option>`).join("")}
+            </select>
+          </label>
+          <label>
+            Nouvelle équipe
+            <input type="text" name="department_custom" placeholder="Laisser vide pour ne pas créer">
+          </label>
+        </div>
+        <div class="form-row">
+          <label>
+            Grade de congés
+            <select name="leave_grade">
+              <option value="">Inchangé</option>
+              <option value="employee">Collaborateur — 1,5 j/mois</option>
+              <option value="manager">Responsable — 2 j/mois</option>
+              <option value="codir">CODIR — 2,5 j/mois</option>
+            </select>
+          </label>
+          <label>
+            Jours fériés
+            <select name="holiday_calendar">
+              ${holidayCalendarOptions("", { emptyLabel: "Inchangés" })}
+            </select>
+          </label>
+        </div>
+        <label>
+          Vacation
+          <select name="shift_code">
+            <option value="">Inchangée</option>
+            ${SHIFT_DEPT_META.map(({ code, name }) => `<option value="${code}">${escapeHtml(name)}</option>`).join("")}
+          </select>
+        </label>
+        <button type="submit" class="primary">Appliquer au filtre</button>
+      </form>
+    </details>`;
+}
+
+function parseAdminAssignPatch(data) {
+  const patch = {};
+  const role = String(data.get("role") || "");
+  if (ASSIGNABLE_ROLES.includes(role)) patch.role = role;
+  const managerId = String(data.get("manager_id") || "");
+  if (managerId === "__none__") patch.manager_id = null;
+  else if (managerId) patch.manager_id = managerId;
+  const customDept = String(data.get("department_custom") || "").trim();
+  const department = customDept || String(data.get("department") || "").trim();
+  if (department) patch.department = department;
+  const leaveGrade = String(data.get("leave_grade") || "");
+  if (["employee", "manager", "codir"].includes(leaveGrade)) patch.leave_grade = leaveGrade;
+  const holiday = String(data.get("holiday_calendar") || "");
+  if (holiday === "ma" || holiday === "fr") patch.holiday_calendar = holiday;
+  const shift = String(data.get("shift_code") || "").toLowerCase();
+  if (["cs", "ces", "rnd"].includes(shift)) {
+    patch.shift_code = shift;
+    if (!patch.holiday_calendar) patch.holiday_calendar = defaultHolidayCalendarForShift(shift);
+  }
+  return patch;
+}
+
+function countAdmins() {
+  return (appData.orgProfiles || []).filter((profile) => profile.role === "admin" || profile.role === "creator").length;
+}
+
+async function persistAdminAssign(profiles, patch) {
+  const keys = Object.keys(patch);
+  if (!keys.length) throw new Error("Choisissez au moins un champ à modifier.");
+  if (!profiles.length) throw new Error("Aucun collaborateur dans le filtre actuel.");
+  let remainingAdmins = countAdmins();
+  let updated = 0;
+  let skipped = 0;
+  for (const profile of profiles) {
+    const next = { ...patch };
+    if (next.manager_id === profile.id) delete next.manager_id;
+    if (next.role) {
+      if (profile.role === "creator" || (profile.role === "admin" && next.role !== "admin" && remainingAdmins <= 1)) {
+        delete next.role;
+      } else if (profile.role === "admin" && next.role !== "admin") {
+        remainingAdmins -= 1;
+      }
+    }
+    const changed = {};
+    Object.entries(next).forEach(([key, value]) => {
+      if (profile[key] !== value) changed[key] = value;
+    });
+    if (!Object.keys(changed).length) {
+      skipped += 1;
+      continue;
+    }
+    Object.assign(profile, changed);
+    if (appData.profile?.id === profile.id) Object.assign(appData.profile, changed);
+    if (usesDatabase()) {
+      await persistWithGtaFallback(
+        (row) => supabaseClient.from("profiles").update(row).eq("id", profile.id),
+        changed
+      );
+    }
+    updated += 1;
+  }
+  return { updated, skipped };
+}
+
+function refreshAdminUserTable() {
+  resetTablePage("admin-users");
+  const page = paginateList("admin-users", getFilteredAdminProfiles());
+  const tbody = document.querySelector("#admin-user-tbody");
+  const count = document.querySelector("#admin-user-count");
+  const host = document.querySelector("[data-table-pager-host='admin-users']");
+  const preview = document.querySelector("#admin-assign-preview");
+  if (tbody) tbody.innerHTML = renderAdminUserRows(page.items);
+  if (count) count.textContent = `${page.total} / ${appData.orgProfiles.length}`;
+  if (host) host.innerHTML = renderTablePager(page);
+  if (preview) preview.textContent = adminAssignPreviewText(page.total);
+  document.querySelectorAll(".admin-edit-profile").forEach((button) => {
+    button.addEventListener("click", () => {
+      setUserAccountEditing({ profileId: button.dataset.profileId, inviteId: "" });
+      renderApp();
+    });
+  });
+  bindTablePagers();
+}
+
 function bindUserAccountSection() {
   document.querySelector(".admin-user-assign")?.addEventListener("toggle", (event) => {
     adminUserFormOpen = event.currentTarget.open;
   });
+  document.querySelector("#admin-assign-panel")?.addEventListener("toggle", (event) => {
+    adminAssignOpen = event.currentTarget.open;
+  });
+
+  const userForm = document.querySelector("#admin-user-form");
+  const shiftSelect = userForm?.querySelector("[name='shift_code']");
+  const holidaySelect = userForm?.querySelector("[name='holiday_calendar']");
+  if (shiftSelect && holidaySelect) {
+    shiftSelect.addEventListener("change", () => {
+      holidaySelect.value = defaultHolidayCalendarForShift(shiftSelect.value);
+    });
+  }
 
   document.querySelector("#admin-user-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -3358,21 +3685,28 @@ function bindUserAccountSection() {
 
   document.querySelector("#admin-user-search")?.addEventListener("input", (event) => {
     adminUserQuery = event.currentTarget.value;
-    resetTablePage("admin-users");
-    const page = paginateList("admin-users", getFilteredAdminProfiles());
-    const tbody = document.querySelector("#admin-user-tbody");
-    const count = document.querySelector("#admin-user-count");
-    const host = document.querySelector("[data-table-pager-host='admin-users']");
-    if (tbody) tbody.innerHTML = renderAdminUserRows(page.items);
-    if (count) count.textContent = `${page.total} / ${appData.orgProfiles.length}`;
-    if (host) host.innerHTML = renderTablePager(page);
-    document.querySelectorAll(".admin-edit-profile").forEach((button) => {
-      button.addEventListener("click", () => {
-        setUserAccountEditing({ profileId: button.dataset.profileId, inviteId: "" });
-        renderApp();
-      });
+    refreshAdminUserTable();
+  });
+
+  document.querySelectorAll("[data-admin-user-filter]").forEach((select) => {
+    select.addEventListener("change", () => {
+      const key = select.dataset.adminUserFilter;
+      if (!Object.prototype.hasOwnProperty.call(adminUserFilters, key)) return;
+      adminUserFilters[key] = select.value;
+      refreshAdminUserTable();
     });
-    bindTablePagers();
+  });
+
+  document.querySelector("#admin-assign-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const patch = parseAdminAssignPatch(new FormData(event.currentTarget));
+    const profiles = getFilteredAdminProfiles();
+    adminAssignOpen = true;
+    withAction(async () => {
+      const result = await persistAdminAssign(profiles, patch);
+      adminAssignNotice = `${result.updated} mise${result.updated > 1 ? "s" : ""} à jour${result.skipped ? ` · ${result.skipped} inchangé${result.skipped > 1 ? "s" : ""}` : ""}.`;
+      currentPage = "admin";
+    });
   });
 
   document.querySelectorAll(".admin-edit-invite").forEach((button) => {
@@ -4954,17 +5288,17 @@ function leaveTypeOptionsHtml() {
       </optgroup>`).join("");
 }
 
-function addWorkingDaysKey(start, count) {
+function addWorkingDaysKey(start, count, profile = appData.profile) {
   const cursor = parseLocalDate(start);
   if (Number.isNaN(cursor.getTime()) || count < 1) return start;
   let remaining = count;
-  while (!isWorkingDayKey(toDateKey(cursor))) {
+  while (!isWorkingDayKey(toDateKey(cursor), profile)) {
     cursor.setDate(cursor.getDate() + 1);
   }
   remaining -= 1;
   while (remaining > 0) {
     cursor.setDate(cursor.getDate() + 1);
-    if (isWorkingDayKey(toDateKey(cursor))) remaining -= 1;
+    if (isWorkingDayKey(toDateKey(cursor), profile)) remaining -= 1;
   }
   return toDateKey(cursor);
 }
@@ -4989,7 +5323,7 @@ function getLeaveBalances() {
   const requests = getLeaveRequests();
   const profile = appData.profile;
   const accruedCp = accruedLeaveDays(profile);
-  const recup = recoveryDaysForYear();
+  const recup = recoveryDaysForYear(new Date().getFullYear(), profile);
   const stored = usesDatabase()
     ? {
         cp: Number(profile?.leave_balance_cp ?? accruedCp),
@@ -5030,7 +5364,9 @@ function getLeaveBalances() {
       used: used.recup,
       pending: pending.recup,
       remaining: Math.max(0, totals.recup - used.recup - pending.recup),
-      hint: "Écart entre les jours fériés FR et MA"
+      hint: getHolidayCalendar(profile) === "ma"
+        ? "Jours fériés France non chômés"
+        : "Jours fériés Maroc non chômés"
     }
   ];
 }
@@ -8367,6 +8703,7 @@ async function importEmployeesFromFile(file) {
           matricule: row.matricule || existing.matricule,
           shift_code: row.shift_code,
           leave_grade: row.leave_grade,
+          holiday_calendar: defaultHolidayCalendarForShift(row.shift_code),
           hired_at: row.hired_at || existing.hired_at,
           role: existing.role === "creator" || existing.role === "admin" ? existing.role : row.role
         });
@@ -8383,6 +8720,7 @@ async function importEmployeesFromFile(file) {
           matricule: row.matricule,
           shift_code: row.shift_code,
           leave_grade: row.leave_grade,
+          holiday_calendar: defaultHolidayCalendarForShift(row.shift_code),
           hired_at: row.hired_at
         };
         appData.orgProfiles.push(profile);
@@ -8773,13 +9111,17 @@ function buildPlanningModel() {
         ? slots.reduce((total, item) => total + Number(item.hours || 0), 0)
         : null;
       const plannedAbsence = Boolean(slots && slots.some((item) => PLANNING_ABSENCE_CODES.has(item.kind)));
-      const working = plannedHours == null ? isWorkingDayKey(dayKey) : (plannedHours > 0 || plannedAbsence);
+      const working = plannedHours == null ? isWorkingDayKey(dayKey, profile) : (plannedHours > 0 || plannedAbsence);
       const dayRow = daily.find((row) => row.userId === profile.id && row.dayKey === dayKey);
       const dayLeaves = leaves.filter((item) => (
         (item.userId || item.user_id) === profile.id && leaveCoversPlanningDay(item, dayKey)
       ));
       const codes = [];
       const notes = [];
+      if (!slots && isHolidayKey(dayKey, profile)) {
+        codes.push("FER");
+        notes.push(`Jour férié ${holidayCalendarLabel(getHolidayCalendar(profile))}`);
+      }
       if (slots) {
         slots.forEach((item) => {
           if (!item.kind) return;
@@ -9011,9 +9353,13 @@ async function applyMassShiftCode(profiles, shiftCode) {
   profiles.forEach((profile) => {
     if (profile.shift_code === shiftCode) return;
     profile.shift_code = shiftCode;
+    profile.holiday_calendar = defaultHolidayCalendarForShift(shiftCode);
     count += 1;
     if (!demoMode && usesDatabase()) {
-      pending.push(supabaseClient.from("profiles").update({ shift_code: shiftCode }).eq("id", profile.id));
+      pending.push(supabaseClient.from("profiles").update({
+        shift_code: shiftCode,
+        holiday_calendar: profile.holiday_calendar
+      }).eq("id", profile.id));
     }
   });
   for (let i = 0; i < pending.length; i += 15) {
@@ -9089,7 +9435,7 @@ function assignTtRotation(people, workDates, options = {}) {
 }
 
 function planningTtWorkDates(cursor = getPlanningCursor()) {
-  return planningDaysOfMonth(cursor).filter(isWorkingDayKey);
+  return planningDaysOfMonth(cursor).filter((day) => !isWeekendDate(parseLocalDate(day)));
 }
 
 function planningTtBlockingKind(kindOrType) {
@@ -9129,6 +9475,11 @@ function planningTtSkipSet(profiles, dates) {
   const skip = new Set();
   const ids = new Set(profiles.map((profile) => profile.id));
   const dateSet = new Set(dates);
+  profiles.forEach((profile) => {
+    dates.forEach((day) => {
+      if (isHolidayKey(day, profile)) skip.add(`${profile.id}|${day}`);
+    });
+  });
   getPlanningLeaves().forEach((item) => {
     const uid = item.userId || item.user_id;
     if (!ids.has(uid) || !planningTtBlockingKind(item.type)) return;
@@ -9170,7 +9521,7 @@ function keptPlanningAbsenceEntries(profiles, start, end) {
       const day = toDateKey(cursor);
       const key = `${uid}|${day}`;
       cursor.setDate(cursor.getDate() + 1);
-      if (!isWorkingDayKey(day) || occupied.has(key) || !leaveCoversPlanningDay(item, day)) continue;
+      if (!isWorkingDayKey(day, profile) || occupied.has(key) || !leaveCoversPlanningDay(item, day)) continue;
       occupied.add(key);
       kept.push({
         user_id: uid,
@@ -9408,7 +9759,7 @@ function renderPlanningGrid(model) {
           <thead>
             <tr>
               <th class="planning-name">Agent</th>
-              ${model.days.map((day) => `<th class="${isWorkingDayKey(day) ? "" : "is-off"}"><span>${weekday(day)}</span><strong>${dayNum(day)}</strong></th>`).join("")}
+              ${model.days.map((day) => `<th class="${isWeekendDate(parseLocalDate(day)) ? "is-off" : ""}"><span>${weekday(day)}</span><strong>${dayNum(day)}</strong></th>`).join("")}
             </tr>
           </thead>
           <tbody>
@@ -9725,7 +10076,7 @@ function buildGlobalDashboardData() {
   const cursor = new Date(startDate);
   while (cursor <= endDate) {
     const key = toDateKey(cursor);
-    if (isWorkingDayKey(key)) daysWorking.add(key);
+    if (!isWeekendDate(parseLocalDate(key))) daysWorking.add(key);
     cursor.setDate(cursor.getDate() + 1);
   }
 
@@ -10238,10 +10589,17 @@ function mergeOrgProfiles(directoryRows, detailedRows) {
 }
 
 async function fetchOrgDirectoryRows() {
-  const directoryRes = await supabaseClient
+  const selectFields = PROFILE_DIRECTORY_FIELDS.join(",");
+  let directoryRes = await supabaseClient
     .from("profiles_directory")
-    .select(PROFILE_DIRECTORY_FIELDS.join(","))
+    .select(selectFields)
     .order("full_name");
+  if (directoryRes.error && errorMentionsAny(directoryRes.error, ["holiday_calendar"])) {
+    directoryRes = await supabaseClient
+      .from("profiles_directory")
+      .select(PROFILE_DIRECTORY_FIELDS.filter((field) => field !== "holiday_calendar").join(","))
+      .order("full_name");
+  }
   if (!directoryRes.error) return directoryRes.data || [];
   if (!isMissingDbObjectError(directoryRes.error)) {
     console.warn("profiles_directory:", directoryRes.error.message);
@@ -10413,7 +10771,13 @@ async function loadOrgDirectory() {
 
 async function loadOrgProfilesFull() {
   const directoryRows = await fetchOrgDirectoryRows();
-  const profilesRes = await supabaseClient.from("profiles").select(PROFILE_ADMIN_FIELDS.join(",")).order("full_name");
+  let profilesRes = await supabaseClient.from("profiles").select(PROFILE_ADMIN_FIELDS.join(",")).order("full_name");
+  if (profilesRes.error && errorMentionsAny(profilesRes.error, ["holiday_calendar"])) {
+    profilesRes = await supabaseClient
+      .from("profiles")
+      .select(PROFILE_ADMIN_FIELDS.filter((field) => field !== "holiday_calendar").join(","))
+      .order("full_name");
+  }
   if (profilesRes.error) throw profilesRes.error;
   appData.orgProfiles = mergeOrgProfiles(directoryRows, profilesRes.data || []);
 }
@@ -10836,20 +11200,39 @@ function isWeekendDate(date) {
   return day === 0 || day === 6;
 }
 
-function holidaySet() {
-  return new Set([...FR_HOLIDAYS_2026, ...MA_HOLIDAYS_2026]);
+function defaultHolidayCalendarForShift(shiftCode) {
+  return String(shiftCode || "").toLowerCase() === "rnd" ? "ma" : "fr";
 }
 
-function isHolidayKey(dayKey) {
-  return holidaySet().has(dayKey);
+function normalizeHolidayCalendar(value, shiftCode) {
+  const raw = String(value || "").toLowerCase();
+  if (raw === "fr" || raw === "ma") return raw;
+  return defaultHolidayCalendarForShift(shiftCode);
 }
 
-function isWorkingDayKey(dayKey) {
+function getHolidayCalendar(profile = appData.profile) {
+  return normalizeHolidayCalendar(profile?.holiday_calendar, profile?.shift_code);
+}
+
+function holidaysForCalendar(calendar) {
+  return normalizeHolidayCalendar(calendar) === "fr" ? FR_HOLIDAYS_2026 : MA_HOLIDAYS_2026;
+}
+
+function holidaySet(profile = appData.profile) {
+  return new Set(holidaysForCalendar(getHolidayCalendar(profile)));
+}
+
+function isHolidayKey(dayKey, profile = appData.profile) {
+  return holidaySet(profile).has(dayKey);
+}
+
+function isWorkingDayKey(dayKey, profile = appData.profile) {
   const date = parseLocalDate(dayKey);
-  return !isWeekendDate(date) && !isHolidayKey(dayKey);
+  if (!date || Number.isNaN(date.getTime())) return false;
+  return !isWeekendDate(date) && !isHolidayKey(dayKey, profile);
 }
 
-function countWorkingDays(start, end) {
+function countWorkingDays(start, end, profile = appData.profile) {
   const startDate = parseLocalDate(start);
   const endDate = parseLocalDate(end);
   if (endDate < startDate) return 0;
@@ -10857,7 +11240,7 @@ function countWorkingDays(start, end) {
   const cursor = new Date(startDate);
   while (cursor <= endDate) {
     const key = toDateKey(cursor);
-    if (isWorkingDayKey(key)) count += 1;
+    if (isWorkingDayKey(key, profile)) count += 1;
     cursor.setDate(cursor.getDate() + 1);
   }
   return Math.max(count, 0);
@@ -10932,10 +11315,15 @@ function accruedLeaveDays(profile = appData.profile, at = new Date()) {
   return roundUpOneDecimal(Math.max(0, seniorityMonths(profile, at)) * rate);
 }
 
-function recoveryDaysForYear(year = new Date().getFullYear()) {
-  const fr = FR_HOLIDAYS_2026.filter((day) => day.startsWith(String(year)) && isWorkingDayKey(day));
-  const ma = new Set(MA_HOLIDAYS_2026.filter((day) => day.startsWith(String(year))));
-  return fr.filter((day) => !ma.has(day)).length;
+function recoveryDaysForYear(year = new Date().getFullYear(), profile = appData.profile) {
+  const prefix = String(year);
+  const own = new Set(holidaysForCalendar(getHolidayCalendar(profile)).filter((day) => day.startsWith(prefix)));
+  const other = holidaysForCalendar(getHolidayCalendar(profile) === "fr" ? "ma" : "fr")
+    .filter((day) => day.startsWith(prefix));
+  return other.filter((day) => {
+    const date = parseLocalDate(day);
+    return date && !Number.isNaN(date.getTime()) && !isWeekendDate(date) && !own.has(day);
+  }).length;
 }
 
 function leaveNeedsAttachment(type) {
@@ -11092,7 +11480,7 @@ function analyzeWorkedDay(row, profile) {
   const shift = getActiveShift(profile, dayKey);
   const importedHours = importedPlannedHours(profile?.id || row.userId, dayKey);
   const plannedHours = importedHours == null
-    ? (isWorkingDayKey(dayKey) ? shift.plannedHours : 0)
+    ? (isWorkingDayKey(dayKey, profile) ? shift.plannedHours : 0)
     : importedHours;
   const plannedMs = plannedHours * 3600000;
   const realizedMs = row.workedMs || 0;
@@ -12046,27 +12434,6 @@ function bindPageEvents() {
     button.addEventListener("click", () => {
       openPlanningDayDialog(button.dataset.planningUser, button.dataset.planningDay);
     });
-  });
-
-  document.querySelector("#planning-import")?.addEventListener("change", (event) => {
-    const input = event.currentTarget;
-    const file = input.files && input.files[0];
-    input.value = "";
-    if (!file) return;
-    (async () => {
-      appData.loading = true;
-      appData.error = "";
-      renderApp();
-      try {
-        await withTimeout(importPlanningFromFile(file), 60000, "Import planning");
-        if (usesDatabase()) await loadPageData(currentPage, { force: true });
-      } catch (error) {
-        appData.error = formatAppError(error);
-      } finally {
-        appData.loading = false;
-        renderApp();
-      }
-    })();
   });
 
   document.querySelector("#team-punches-export")?.addEventListener("click", () => {
@@ -13064,12 +13431,12 @@ window.humanaRender = async function (authSession) {
 
 function hydrateDemoWorkspace() {
   const profiles = [
-    { id: "u-camille", email: "camille.moreau@humaine.fr", full_name: "Camille Moreau", job_title: "Directrice RH", department: "Ressources humaines", role: "admin", manager_id: "", matricule: "HUM-1001", leave_grade: "codir", shift_code: "cs", hired_at: "2018-03-01", leave_balance_cp: 30, leave_balance_rtt: 8 },
-    { id: "u-thomas", email: "thomas.bernard@humaine.fr", full_name: "Thomas Bernard", job_title: "Responsable opérations", department: "Opérations", role: "manager", manager_id: "u-camille", matricule: "HUM-1042", leave_grade: "manager", shift_code: "cs", hired_at: "2020-01-15", leave_balance_cp: 24, leave_balance_rtt: 6 },
-    { id: "u-sarah", email: "sarah.nguyen@humaine.fr", full_name: "Sarah Nguyen", job_title: "Responsable commercial", department: "Commercial", role: "manager", manager_id: "u-camille", matricule: "HUM-1088", leave_grade: "manager", shift_code: "cs", hired_at: "2019-09-01", leave_balance_cp: 24, leave_balance_rtt: 8 },
-    { id: "u-lea", email: "lea.martin@humaine.fr", full_name: "Léa Martin", job_title: "Chargée de paie", department: "Ressources humaines", role: "rh", manager_id: "u-thomas", matricule: "HUM-1214", leave_grade: "employee", shift_code: "cs", hired_at: "2024-01-08", leave_balance_cp: 18, leave_balance_rtt: 5 },
-    { id: "u-hugo", email: "hugo.petit@humaine.fr", full_name: "Hugo Petit", job_title: "Ingénieur R&D", department: "R&D", role: "employee", manager_id: "u-thomas", matricule: "HUM-1307", leave_grade: "employee", shift_code: "rnd", hired_at: "2023-06-12", leave_balance_cp: 18, leave_balance_rtt: 8 },
-    { id: "u-nina", email: "nina.rossi@humaine.fr", full_name: "Nina Rossi", job_title: "Commerciale", department: "CES", role: "employee", manager_id: "u-sarah", matricule: "HUM-1420", leave_grade: "employee", shift_code: "ces", hired_at: "2025-11-02", leave_balance_cp: 4, leave_balance_rtt: 2 }
+    { id: "u-camille", email: "camille.moreau@humaine.fr", full_name: "Camille Moreau", job_title: "Directrice RH", department: "Ressources humaines", role: "admin", manager_id: "", matricule: "HUM-1001", leave_grade: "codir", shift_code: "cs", holiday_calendar: "fr", hired_at: "2018-03-01", leave_balance_cp: 30, leave_balance_rtt: 8 },
+    { id: "u-thomas", email: "thomas.bernard@humaine.fr", full_name: "Thomas Bernard", job_title: "Responsable opérations", department: "Opérations", role: "manager", manager_id: "u-camille", matricule: "HUM-1042", leave_grade: "manager", shift_code: "cs", holiday_calendar: "fr", hired_at: "2020-01-15", leave_balance_cp: 24, leave_balance_rtt: 6 },
+    { id: "u-sarah", email: "sarah.nguyen@humaine.fr", full_name: "Sarah Nguyen", job_title: "Responsable commercial", department: "Commercial", role: "manager", manager_id: "u-camille", matricule: "HUM-1088", leave_grade: "manager", shift_code: "cs", holiday_calendar: "fr", hired_at: "2019-09-01", leave_balance_cp: 24, leave_balance_rtt: 8 },
+    { id: "u-lea", email: "lea.martin@humaine.fr", full_name: "Léa Martin", job_title: "Chargée de paie", department: "Ressources humaines", role: "rh", manager_id: "u-thomas", matricule: "HUM-1214", leave_grade: "employee", shift_code: "cs", holiday_calendar: "fr", hired_at: "2024-01-08", leave_balance_cp: 18, leave_balance_rtt: 5 },
+    { id: "u-hugo", email: "hugo.petit@humaine.fr", full_name: "Hugo Petit", job_title: "Ingénieur R&D", department: "R&D", role: "employee", manager_id: "u-thomas", matricule: "HUM-1307", leave_grade: "employee", shift_code: "rnd", holiday_calendar: "ma", hired_at: "2023-06-12", leave_balance_cp: 18, leave_balance_rtt: 8 },
+    { id: "u-nina", email: "nina.rossi@humaine.fr", full_name: "Nina Rossi", job_title: "Commerciale", department: "CES", role: "employee", manager_id: "u-sarah", matricule: "HUM-1420", leave_grade: "employee", shift_code: "ces", holiday_calendar: "fr", hired_at: "2025-11-02", leave_balance_cp: 4, leave_balance_rtt: 2 }
   ];
   const me = profiles.find((profile) => profile.id === "u-camille") || profiles[0];
   session = {
