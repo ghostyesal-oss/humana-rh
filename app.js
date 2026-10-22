@@ -6905,7 +6905,7 @@ function renderHrValidationInbox() {
   if (!pending.length) return "";
   const page = paginateList("hr-inbox", pending);
   return `
-    <article class="card table-card page-spacer">
+    <article class="card table-card page-spacer hr-validation-inbox">
       <div class="toolbar"><h3>Demandes RH à valider</h3></div>
       <p class="hierarchy-meta">Visa RH ou Directeur. Un seul visa suffit. La demande passe en « Prise en charge », puis « Validé » ou « Refusé ».</p>
       <div class="table-wrap">
@@ -10123,6 +10123,8 @@ function buildGlobalDashboardData() {
     .sort((a, b) => b.workedMs - a.workedMs);
 
   const scopeUserIds = new Set(profiles.map((profile) => profile.id));
+  const absenceRate = computeAbsenceRateMetrics(profiles, range);
+
   const correctionStats = (getPunchCorrections() || []).reduce((acc, item) => {
     const userId = gtaItemUserId(item);
     if (!scopeUserIds.has(userId)) return acc;
@@ -10148,7 +10150,81 @@ function buildGlobalDashboardData() {
     topDelays,
     departmentRows,
     sampleSize: rowsWithStats.length,
-    corrections: correctionStats
+    corrections: correctionStats,
+    absenceRate
+  };
+}
+
+function isFrenchHolidayKey(dayKey) {
+  return FR_HOLIDAYS_2026.includes(String(dayKey || "").slice(0, 10));
+}
+
+function isAbsenceRateExcludedLeave(type, { excludePaternity = false } = {}) {
+  const key = leaveTypeKey(type);
+  const folded = foldAbsenceText(type);
+  if (key === "cp" || key === "recup" || key === "unpaid" || key === "suspension" || key === "maternity") return true;
+  if (key === "paternity") return excludePaternity;
+  if (key === "justified" || folded.includes("maladie")) return true;
+  if (folded.includes("deces") || folded.includes("circoncision")) return true;
+  if (folded.includes("operation conjoint") || folded.includes("operation du conjoint") || folded.includes("operation enfant")) return true;
+  return false;
+}
+
+function absenceRatePlannedHours(profile, dayKey) {
+  const imported = importedPlannedHours(profile?.id, dayKey);
+  if (imported != null) return Math.max(0, Number(imported) || 0);
+  if (isWeekendDate(parseLocalDate(dayKey))) return 0;
+  return Math.max(0, Number(getActiveShift(profile, dayKey).plannedHours || 0));
+}
+
+function computeAbsenceRateMetrics(profiles, range) {
+  const leaves = [
+    ...getLeaveRequests(),
+    ...(appData.teamLeaveRequests || []).map((row) => (row.type ? row : normalizeTeamLeaveRequest(row)))
+  ].filter(edsLeaveApproved);
+  const daily = summarizeTeamPunchesByDay(appData.teamPunches || [], range.start, range.end);
+  let absHours = 0;
+  let plannedHours = 0;
+  const start = parseLocalDate(range.start);
+  const end = parseLocalDate(range.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    return { rate: 0, absHours: 0, plannedHours: 0 };
+  }
+
+  (profiles || []).forEach((profile) => {
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      const dayKey = toDateKey(cursor);
+      cursor.setDate(cursor.getDate() + 1);
+      if (isWeekendDate(parseLocalDate(dayKey)) || isFrenchHolidayKey(dayKey)) continue;
+      const hours = absenceRatePlannedHours(profile, dayKey);
+      if (hours <= 0) continue;
+
+      const dayLeaves = leaves.filter((item) => (
+        (item.userId || item.user_id) === profile.id && leaveCoversPlanningDay(item, dayKey)
+      ));
+      const skipPlanned = dayLeaves.some((item) => isAbsenceRateExcludedLeave(item.type, { excludePaternity: false }));
+      if (!skipPlanned) plannedHours += hours;
+
+      const countingLeave = dayLeaves.find((item) => (
+        leaveTypeKey(item.type) !== "hours"
+        && !isAbsenceRateExcludedLeave(item.type, { excludePaternity: true })
+      ));
+      if (countingLeave) {
+        const unit = String(countingLeave.unit || "").toLowerCase();
+        const half = String(countingLeave.halfDay || countingLeave.half_day || "").trim();
+        absHours += (unit === "half" || half) ? hours / 2 : hours;
+        continue;
+      }
+      const dayRow = daily.find((row) => row.userId === profile.id && row.dayKey === dayKey) || null;
+      if (isUnjustifiedAbsenceDay(profile, dayKey, { dayRow, dayLeaves })) absHours += hours;
+    }
+  });
+
+  return {
+    rate: plannedHours > 0 ? absHours / plannedHours : 0,
+    absHours,
+    plannedHours
   };
 }
 
@@ -10191,10 +10267,7 @@ function renderGlobalKpiCards(data) {
   const plannedHours = data.totals.plannedMs / 3600000;
   const completion = plannedHours ? Math.min(999, Math.round((workingHours / plannedHours) * 100)) : 0;
   const otHours = data.totals.payableOtMs / 3600000;
-  const totalPresenceSlots = data.activeUsers * data.daysCount;
-  const presenceRate = totalPresenceSlots
-    ? Math.round((data.sampleSize / totalPresenceSlots) * 100)
-    : 0;
+  const absencePct = Math.round((Number(data.absenceRate?.rate) || 0) * 1000) / 10;
   const delayLevel = delaySeverityLevel(data.totals.delayMin);
   const delayLabel = delaySeverityLabel(delayLevel);
   const delayOccurrences = data.topDelays.reduce((sum, item) => sum + item.occurrences, 0);
@@ -10212,9 +10285,9 @@ function renderGlobalKpiCards(data) {
         <span class="global-kpi-sub">sur ${data.profiles.length} dans le périmètre</span>
       </article>
       <article class="global-kpi-card">
-        <span class="global-kpi-label">Taux de présence</span>
-        <strong class="global-kpi-value">${presenceRate} %</strong>
-        <span class="global-kpi-sub">${data.sampleSize} jours pointés · ${data.daysCount} jours ouvrés</span>
+        <span class="global-kpi-label">Taux d'absentéisme</span>
+        <strong class="global-kpi-value">${absencePct.toFixed(1)} %</strong>
+        <span class="global-kpi-sub">${(data.absenceRate?.absHours || 0).toFixed(1)} h d'absence / ${(data.absenceRate?.plannedHours || 0).toFixed(1)} h planifiées · hors CP, maladie, fériés FR</span>
       </article>
       <article class="global-kpi-card global-kpi-card--delay global-kpi-card--delay-${delayLevel}">
         <span class="global-kpi-label">Retards cumulés</span>
@@ -10619,7 +10692,7 @@ const PAGE_COLLECTIONS = {
   journal: ["org", "journal"],
   "team-punches": ["org", "teamPunches", "gta", "planningEntries"],
   reports: ["org", "leave", "teamLeave", "teamPunches", "planningEntries", "edsPayroll"],
-  global: ["org", "teamPunches", "planningEntries"],
+  global: ["org", "teamPunches", "planningEntries", "leave", "teamLeave"],
   planning: ["org", "teamPunches", "planningEntries", "leave", "teamLeave"],
   privacy: ["punches", "leave", "attestations", "documents"]
 };
@@ -10859,7 +10932,11 @@ async function loadCollection(key, { force = false } = {}) {
             ? getEdsRange()
             : currentPage === "planning"
               ? planningMonthRange()
-              : getLeaveCalendarMonth()
+              : currentPage === "global"
+                ? (teamPunchFilters.start && teamPunchFilters.end
+                  ? { start: teamPunchFilters.start, end: teamPunchFilters.end }
+                  : getDefaultTeamPunchRange())
+                : getLeaveCalendarMonth()
         );
       } else appData.teamLeaveRequests = [];
       break;
