@@ -12351,17 +12351,6 @@ function bindPageEvents() {
     }
   });
   document.querySelector("#planning-tt-rotate")?.addEventListener("click", () => {
-    const cursor = getPlanningCursor();
-    const monthLabel = cursor.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-    const ok = window.confirm(
-      `Générer la rotation télétravail de ${monthLabel} ?\n\n`
-      + "R&D : 3 jours TT / semaine\n"
-      + "CS et CES : 2 jours TT / semaine\n"
-      + "La répartition tourne chaque mois.\n"
-      + "Le bureau n'est jamais vide (au moins une personne sur site).\n"
-      + "Les congés validés, récupérations, déplacements et autres absences déjà posés sont conservés."
-    );
-    if (!ok) return;
     (async () => {
       appData.loading = true;
       appData.error = "";
