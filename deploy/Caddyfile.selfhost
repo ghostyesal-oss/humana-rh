@@ -1,4 +1,16 @@
+{
+	log {
+		output stdout
+		format json
+		level ERROR
+	}
+}
+
 (humana_site) {
+	log {
+		output stdout
+		format json
+	}
 	encode gzip
 
 	@https {

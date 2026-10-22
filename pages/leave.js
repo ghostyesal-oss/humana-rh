@@ -1,31 +1,29 @@
-/* Auto-generated from app.js by scripts/extract-pages.mjs.
- * Renderer for the "leave" tab.
- * Shared state/helpers are read from app.js (loaded first) via the
- * classic script scope. Registers itself on window.Humana.pages so
- * pageContent() in app.js can dispatch by currentPage.
+/* Page "leave" : frontière window.Humana (app.js).
+ * Plus de dépendance au scope global. Source maintenue dans pages/.
  */
-(function () {
+(function (H) {
   "use strict";
   function leavePage() {
-    if (!isNavPageVisible("leave")) {
+    if (!H.isNavPageVisible("leave")) {
       return `<article class="card"><p class="empty-state">L'onglet Congés n'est pas disponible pour votre profil.</p></article>`;
     }
 
-    const requests = getLeaveRequests();
-    const balances = getLeaveBalances();
-    const pending = pendingLeaveForValidator();
-    const months = seniorityMonths();
+    const requests = H.getLeaveRequests();
+    const balances = H.getLeaveBalances();
+    const pendingPage = H.paginateList("leave-pending", H.pendingLeaveForValidator());
+    const minePage = H.paginateList("leave-mine", requests);
+    const months = H.seniorityMonths();
     const carryFlag = balances[0] && balances[0].remaining > 3 && new Date().getMonth() === 11;
-    const chain = getLeaveValidatorChain(session?.user?.id);
+    const chain = H.getLeaveValidatorChain(H.session?.user?.id);
 
     return `
       ${carryFlag ? `<p class="data-note">Alerte de report : plus de 3 jours de CP restants au 31/12. Le solde non consommé est reportable une seule année.</p>` : ""}
-      ${months < 6 && !hasOrgWideAccess() ? `<p class="data-note">Ancienneté : ${months} mois. La durée légale requise est de 6 mois, sauf dérogation RH.</p>` : ""}
+      ${months < 6 && !H.hasOrgWideAccess() ? `<p class="data-note">Ancienneté : ${months} mois. La durée légale requise est de 6 mois, sauf dérogation RH.</p>` : ""}
       <section class="balance-grid">
-        ${balances.map((balance) => balanceCard(balance)).join("")}
+        ${balances.map((balance) => H.balanceCard(balance)).join("")}
       </section>
-      ${renderLeaveCalendar()}
-      ${pending.length ? `
+      ${H.renderLeaveCalendar()}
+      ${pendingPage.total ? `
       <article class="card table-card page-spacer">
         <div class="toolbar"><h3>Demandes à valider</h3></div>
         <p class="hierarchy-meta">Après le N+1 (et le N+2 s'il existe), le Directeur ou le RH valide — un seul visa suffit.</p>
@@ -33,12 +31,12 @@
           <table>
             <thead><tr><th>Collaborateur</th><th>Type</th><th>Période</th><th>Statut</th><th></th></tr></thead>
             <tbody>
-              ${pending.map((request) => `
+              ${pendingPage.items.map((request) => `
                 <tr>
-                  <td>${escapeHtml(request.name || profileById(request.userId || request.user_id)?.full_name || getUserName())}</td>
-                  <td>${escapeHtml(request.type)}${request.motif ? `<br><small>${escapeHtml(request.motif)}</small>` : ""}</td>
-                  <td>${formatDate(request.start)} - ${formatDate(request.end)} · ${request.days || request.hours || 0}${leaveIsHoursUnit(request.type) ? " h" : " j"}</td>
-                  <td>${badge(request.status)}</td>
+                  <td>${H.escapeHtml(request.name || H.profileById(request.userId || request.user_id)?.full_name || H.getUserName())}</td>
+                  <td>${H.escapeHtml(request.type)}${request.motif ? `<br><small>${H.escapeHtml(request.motif)}</small>` : ""}</td>
+                  <td>${H.formatDate(request.start)} - ${H.formatDate(request.end)} · ${request.days || request.hours || 0}${H.leaveIsHoursUnit(request.type) ? " h" : " j"}</td>
+                  <td>${H.badge(request.status)}</td>
                   <td>
                     <button type="button" class="primary leave-approve" data-leave-id="${request.id}">Valider</button>
                     <button type="button" class="outline-button leave-reject" data-leave-id="${request.id}">Refuser</button>
@@ -47,15 +45,16 @@
             </tbody>
           </table>
         </div>
+        ${H.renderTablePager(pendingPage)}
       </article>` : ""}
       <div class="feature-grid page-spacer">
         <article class="card form-card">
-          ${cardHeading("Nouvelle demande")}
+          ${H.cardHeading("Nouvelle demande")}
           <form id="leave-form" class="feature-form">
             <label>
               Code d'absence
               <select name="type" id="leave-type" required>
-                ${leaveTypeOptionsHtml()}
+                ${H.leaveTypeOptionsHtml()}
               </select>
             </label>
             <div class="form-row">
@@ -97,21 +96,20 @@
             </label>
             <button type="submit" class="primary">Envoyer la demande</button>
           </form>
-          <p class="hierarchy-meta">Validation : ${escapeHtml(leaveChainLabel(chain) || "N+1 → Directeur / RH")}. Directeur et RH sont interchangeables. Les absences ne peuvent pas se chevaucher.</p>
+          <p class="hierarchy-meta">Validation : ${H.escapeHtml(H.leaveChainLabel(chain) || "N+1 → Directeur / RH")}. Directeur et RH sont interchangeables. Les absences ne peuvent pas se chevaucher.</p>
         </article>
         <article class="card table-card">
           <div class="toolbar"><h3>Mes demandes</h3></div>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Type</th><th>Période</th><th>Durée</th><th>Justificatif</th><th>Statut</th></tr></thead>
-              <tbody>${leaveRows(requests)}</tbody>
-            </table>
-          </div>
-        </article>
+            <tbody>${H.leaveRows(minePage.items)}</tbody>
+          </table>
+        </div>
+        ${H.renderTablePager(minePage)}
+      </article>
       </div>`;
   }
 
-  (window.Humana = window.Humana || {});
-  (window.Humana.pages = window.Humana.pages || {});
-  window.Humana.pages["leave"] = leavePage;
-})();
+  (H.pages = H.pages || {})["leave"] = leavePage;
+})(window.Humana);

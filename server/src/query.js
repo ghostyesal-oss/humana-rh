@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { adminQuery, logSensitiveAccess, rlsDenied, withUser } from "./db.js";
+import { resolveSelectLimit } from "./query-limit.js";
+import { assertSalaryAdvanceInsert } from "./salary-advance.js";
 
 const tx = new AsyncLocalStorage();
 
@@ -329,10 +331,26 @@ async function canApproveTarget(user, targetUserId) {
   return reports.includes(targetUserId);
 }
 
-function canApproveHrTarget(user, targetUserId) {
-  if (!isHr(user)) return false;
+function isDirectorProfile(profile) {
+  const grade = String(profile?.leave_grade || "").toLowerCase();
+  const title = String(profile?.job_title || "").toLowerCase();
+  return grade === "codir"
+    || title.includes("directeur")
+    || title.includes("directrice")
+    || title.includes("codir");
+}
+
+async function canApproveHrTarget(user, targetUserId) {
   if (!targetUserId || targetUserId === user.sub) return false;
-  return true;
+  if (isHr(user)) return true;
+  const { rows } = await dbQuery(
+    "select role, leave_grade, job_title from public.profiles where id = $1 limit 1",
+    [user.sub]
+  );
+  const me = rows[0];
+  if (!me) return false;
+  if (isHr({ role: me.role })) return true;
+  return isDirectorProfile(me);
 }
 
 async function teamScopeIds(user) {
@@ -480,8 +498,11 @@ async function prepareWriteRows(table, user, rows) {
     if (REQUEST_TABLES.has(table)) {
       const owner = row.user_id || user.sub;
       const privileged = HR_REQUEST_TABLES.has(table)
-        ? canApproveHrTarget(user, owner)
+        ? await canApproveHrTarget(user, owner)
         : await canApproveTarget(user, owner);
+      if (table === "salary_advance_requests") {
+        await assertSalaryAdvanceInsert(owner, row.amount);
+      }
       if (privileged) continue;
       if (row.user_id && row.user_id !== user.sub) {
         throw denied("Impossible de créer une demande pour un autre collaborateur.");
@@ -623,7 +644,7 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters, on
         row[ownerCol] = user.sub;
       } else if (row[ownerCol] && row[ownerCol] !== user.sub) {
         const allowed = HR_REQUEST_TABLES.has(table)
-          ? canApproveHrTarget(user, row[ownerCol])
+          ? await canApproveHrTarget(user, row[ownerCol])
           : await canApproveTarget(user, row[ownerCol]);
         if (!allowed) throw denied("Accès refusé.");
       } else if (!row[ownerCol]) {
@@ -638,7 +659,7 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters, on
     for (const row of rows) {
       if (!row) continue;
       const privileged = HR_REQUEST_TABLES.has(table)
-        ? canApproveHrTarget(user, row.user_id || user.sub)
+        ? await canApproveHrTarget(user, row.user_id || user.sub)
         : await canApproveTarget(user, row.user_id || user.sub);
       if (!privileged && !isPendingStatus(row.status)) {
         throw denied("Impossible de créer une demande déjà validée.");
@@ -652,7 +673,7 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters, on
     if (isAdmin(user)) return;
     for (const row of existing) {
       if (HR_REQUEST_TABLES.has(table)) {
-        if (canApproveHrTarget(user, row.user_id)) continue;
+        if (await canApproveHrTarget(user, row.user_id)) continue;
         if (row.user_id !== user.sub || !isPendingStatus(row.status)) {
           throw denied("Impossible de supprimer une demande déjà traitée.");
         }
@@ -684,8 +705,8 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters, on
   if (touchesStatus) {
     for (const row of existing) {
       if (HR_REQUEST_TABLES.has(table)) {
-        if (!canApproveHrTarget(user, row.user_id)) {
-          throw denied("Seul un RH ou un administrateur peut valider ou refuser cette demande.");
+        if (!await canApproveHrTarget(user, row.user_id)) {
+          throw denied("Seul un RH, un directeur ou un administrateur peut valider ou refuser cette demande.");
         }
         continue;
       }
@@ -700,7 +721,7 @@ async function assertWriteAllowed(table, fromSql, user, op, payload, filters, on
     for (const row of existing) {
       const ownPending = row.user_id === user.sub && isPendingStatus(row.status);
       const managing = HR_REQUEST_TABLES.has(table)
-        ? canApproveHrTarget(user, row.user_id)
+        ? await canApproveHrTarget(user, row.user_id)
         : await canApproveTarget(user, row.user_id);
       if (!ownPending && !managing) {
         throw denied("Cette demande ne peut plus être modifiée.");
@@ -838,8 +859,9 @@ async function executeQuery(user, body) {
         text += ` order by ${COLUMN_SQL[orderKey]} ${body.order.ascending === false ? "desc" : "asc"}`;
       }
     }
-    if (body.limit) {
-      params.push(Number(body.limit));
+    const limit = resolveSelectLimit(table, body.limit);
+    if (limit) {
+      params.push(limit);
       text += ` limit $${params.length}`;
     }
     const adminDirectory = isHr(user) && (table === "profiles" || table === "profiles_directory");

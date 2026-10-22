@@ -3077,6 +3077,10 @@ tbody tr:hover td { background: var(--surface-2); }
   color: var(--text);
 }
 
+.feature-form [hidden] {
+  display: none !important;
+}
+
 .feature-form input,
 .feature-form select,
 .feature-form textarea {
@@ -3100,6 +3104,123 @@ tbody tr:hover td { background: var(--surface-2); }
 .feature-form textarea {
   min-height: 88px;
   resize: vertical;
+}
+
+@media (min-width: 1280px) {
+  .feature-grid--hr {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+}
+
+.form-card:has(.hr-dropdown) {
+  overflow: visible;
+  transform: none;
+  transform-style: flat;
+}
+
+.form-card:has(.hr-dropdown.is-open) {
+  z-index: 6;
+}
+
+.hr-select {
+  position: relative;
+  z-index: 2;
+}
+
+.hr-dropdown {
+  position: relative;
+}
+
+.hr-dropdown__toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px var(--s3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hr-dropdown__toggle.is-placeholder {
+  color: var(--text-tertiary, #6b7280);
+}
+
+.hr-dropdown__toggle::after {
+  content: "";
+  width: 0.45em;
+  height: 0.45em;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  opacity: 0.55;
+  flex-shrink: 0;
+}
+
+.hr-dropdown.is-open .hr-dropdown__toggle {
+  border-color: var(--forest-mid);
+  box-shadow: 0 0 0 3px var(--brand-glow);
+}
+
+.hr-dropdown.is-open .hr-dropdown__toggle::after {
+  transform: rotate(225deg) translateY(-1px);
+}
+
+.hr-dropdown__toggle span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hr-dropdown__menu {
+  display: none;
+  position: absolute;
+  z-index: 12;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--input-bg);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+}
+
+.hr-dropdown.is-open .hr-dropdown__menu {
+  display: grid;
+  gap: 2px;
+}
+
+.hr-dropdown__menu label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 10px;
+  border-radius: calc(var(--radius) - 2px);
+  cursor: pointer;
+}
+
+.hr-dropdown__menu label:hover,
+.hr-dropdown__menu label:has(input:checked) {
+  background: var(--surface-2, rgba(15, 23, 42, 0.05));
+}
+
+.hr-dropdown__menu input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  flex-shrink: 0;
+  accent-color: var(--forest-mid);
 }
 
 .form-row {
@@ -3164,6 +3285,27 @@ tbody tr:hover td { background: var(--surface-2); }
   color: var(--text-tertiary);
   line-height: 1.55;
 }
+
+.hr-progress {
+  display: flex;
+  gap: 8px;
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.hr-progress li {
+  position: relative;
+}
+.hr-progress li + li::before {
+  content: "→";
+  margin-right: 8px;
+  color: var(--text-tertiary);
+}
+.hr-progress .is-done { color: var(--success-text, #047857); font-weight: 600; }
+.hr-progress .is-current { color: var(--warning-text, #b45309); font-weight: 600; }
+.hr-progress .is-rejected { color: var(--danger-text, #b91c1c); font-weight: 600; }
 
 .hierarchy-grid .card > .hierarchy-meta,
 .page-spacer.card > .hierarchy-meta {
@@ -4187,6 +4329,29 @@ tbody tr:hover td { background: var(--surface-2); }
   flex-wrap: wrap;
   gap: var(--s2);
   justify-content: flex-end;
+}
+
+.ai-inbox {
+  margin-bottom: 28px;
+}
+
+.ai-pager,
+.table-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.ai-pager__status,
+.table-pager__status {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 7em;
+  text-align: center;
 }
 
 .team-detail-toggle {
@@ -7180,23 +7345,31 @@ small { font-size: 11px; }
   font-size: 12px;
   color: var(--text-secondary);
 }
-.planning-assign {
+.planning-assign,
+.admin-user-assign,
+.collapse-panel {
   margin: 0 0 12px;
   padding: 8px 12px 10px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
 }
-.planning-assign > summary {
+.planning-assign > summary,
+.admin-user-assign > summary,
+.collapse-panel > summary {
   cursor: pointer;
   font-size: 13px;
   font-weight: 700;
   padding: 6px 0;
 }
-.planning-assign-form {
+.planning-assign-form,
+.admin-user-assign-form,
+.collapse-panel-form {
   margin-top: 10px;
 }
-.planning-assign-form .primary {
+.planning-assign-form .primary,
+.admin-user-assign-form .primary,
+.collapse-panel-form .primary {
   justify-self: start;
 }
 .admin-employee-import {
@@ -7207,6 +7380,9 @@ small { font-size: 11px; }
   gap: 6px;
 }
 .admin-employee-import strong { font-size: 13px; }
+.admin-user-stack {
+  grid-template-columns: 1fr;
+}
 .admin-user-list .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -7235,7 +7411,6 @@ small { font-size: 11px; }
   font-weight: 500;
 }
 .admin-user-list .table-wrap {
-  max-height: min(56vh, 620px);
   overflow: auto;
   cursor: default;
 }

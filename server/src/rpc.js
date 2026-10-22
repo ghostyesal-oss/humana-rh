@@ -1,4 +1,5 @@
 import { adminQuery, withAdmin, withUser } from "./db.js";
+import { salaryAdvanceQuotaFor } from "./salary-advance.js";
 
 function rpcMissing(name) {
   return { data: null, error: { message: `Could not find the function public.${name}` } };
@@ -427,5 +428,12 @@ export async function runRpc(user, name, args) {
   if (name === "process_auto_clock_outs") return rpcMissing(name);
   if (name === "import_planning_entries") return importPlanningEntries(user, args || {});
   if (name === "import_employees") return importEmployees(user, args || {});
+  if (name === "salary_advance_quota") {
+    const result = await salaryAdvanceQuotaFor(user.sub, null);
+    return {
+      data: { ...result.quota, ok: result.ok, reason: result.reason },
+      error: null
+    };
+  }
   return rpcMissing(name);
 }

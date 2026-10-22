@@ -1,7 +1,7 @@
 #!/bin/sh
-# Supervision minimale: disque des sauvegardes, santé API, expiration TLS.
+# Supervision locale: disque des sauvegardes, santé API, expiration TLS.
+# Écrit des lignes JSON sur stdout (docker compose logs watchdog).
 # Pas de docker.sock ni de montage de la racine hôte.
-# Alerte: POST texte brut vers ALERT_WEBHOOK_URL (ntfy, Slack incoming, etc.).
 # Test: docker compose exec watchdog /watchdog.sh --test
 set -eu
 
@@ -11,10 +11,7 @@ CERT_DAYS=${CERT_WARN_DAYS:-14}
 
 alert() {
   msg=$1
-  echo "[watchdog] $msg"
-  if [ -n "${ALERT_WEBHOOK_URL:-}" ]; then
-    curl -fsS -X POST --data "$msg" "$ALERT_WEBHOOK_URL" >/dev/null || true
-  fi
+  echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"level\":\"error\",\"msg\":\"watchdog\",\"detail\":\"$msg\"}"
 }
 
 if [ "${1:-}" = "--test" ]; then

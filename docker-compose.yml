@@ -1,7 +1,14 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: humana
       POSTGRES_USER: humana
@@ -35,6 +42,7 @@ services:
       APP_ORIGIN: ${APP_ORIGIN}
       BOOTSTRAP_CREATOR_EMAILS: ${BOOTSTRAP_CREATOR_EMAILS:-}
       PAYROLL_EMAILS: ${PAYROLL_EMAILS:-}
+    logging: *default-logging
     volumes:
       - storage:/data/storage
     depends_on:
@@ -70,6 +78,7 @@ services:
       LEGAL_PUBLICATION_DIRECTOR: ${LEGAL_PUBLICATION_DIRECTOR:-}
       LEGAL_DPO_NAME: ${LEGAL_DPO_NAME:-}
       LEGAL_DPO_EMAIL: ${LEGAL_DPO_EMAIL:-}
+    logging: *default-logging
     volumes:
       - caddy_data:/data
       - caddy_config:/config
@@ -91,13 +100,17 @@ services:
       BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-}
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
       BACKUP_INTERVAL_SEC: ${BACKUP_INTERVAL_SEC:-86400}
-      BACKUP_OFFSITE_DIR: ${BACKUP_OFFSITE_DIR:-}
+      STORAGE_ROOT: /data/storage
+      BACKUP_OFFSITE_DIR: /offsite
     volumes:
       - pgbackups:/backups
+      - storage:/data/storage:ro
+      - ${BACKUP_OFFSITE_HOST:-./backups-offsite}:/offsite
       - ./scripts/backup-postgres.sh:/backup.sh:ro
     depends_on:
       postgres:
         condition: service_healthy
+    logging: *default-logging
     entrypoint: ["/bin/sh", "/backup.sh", "--loop"]
     networks:
       - humana
@@ -109,10 +122,10 @@ services:
     restart: unless-stopped
     environment:
       APP_ORIGIN: ${APP_ORIGIN}
-      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
       DISK_WARN_PCT: ${DISK_WARN_PCT:-90}
       CERT_WARN_DAYS: ${CERT_WARN_DAYS:-14}
       CHECK_INTERVAL_SEC: ${WATCHDOG_INTERVAL_SEC:-300}
+    logging: *default-logging
     volumes:
       - pgbackups:/backups:ro
     depends_on:

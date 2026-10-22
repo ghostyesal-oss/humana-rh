@@ -1,14 +1,11 @@
-/* Auto-generated from app.js by scripts/extract-pages.mjs.
- * Renderer for the "events" tab.
- * Shared state/helpers are read from app.js (loaded first) via the
- * classic script scope. Registers itself on window.Humana.pages so
- * pageContent() in app.js can dispatch by currentPage.
+/* Page "events" : frontière window.Humana (app.js).
+ * Plus de dépendance au scope global. Source maintenue dans pages/.
  */
-(function () {
+(function (H) {
   "use strict";
   function eventsPage() {
-    const admin = isAdmin();
-    const events = getCompanyEvents();
+    const admin = H.isAdmin();
+    const events = H.getCompanyEvents();
     const now = Date.now();
     const upcoming = events
       .filter((event) => {
@@ -27,42 +24,42 @@
     const featured = upcoming[0] || null;
     const rest = upcoming.slice(1);
 
-    const editingId = appData.eventEditingId || "";
+    const editingId = H.appData.eventEditingId || "";
     const editing = editingId ? events.find((event) => String(event.id) === String(editingId)) : null;
     const defaultStart = editing?.starts_at
-      ? eventLocalDateTimeValue(editing.starts_at)
-      : eventLocalDateTimeValue(new Date(Date.now() + 60 * 60 * 1000).toISOString());
-    const defaultEnd = editing?.ends_at ? eventLocalDateTimeValue(editing.ends_at) : "";
+      ? H.eventLocalDateTimeValue(editing.starts_at)
+      : H.eventLocalDateTimeValue(new Date(Date.now() + 60 * 60 * 1000).toISOString());
+    const defaultEnd = editing?.ends_at ? H.eventLocalDateTimeValue(editing.ends_at) : "";
 
-    const tableMissingWarning = appData.companyEventsTableMissing && admin
+    const tableMissingWarning = H.appData.companyEventsTableMissing && admin
       ? `<article class="card error-card">
           <p class="error-message">Table <code>company_events</code> introuvable. Redémarrez l'API pour appliquer les migrations.</p>
         </article>`
       : "";
 
     const renderFeatured = (event) => {
-      const meta = eventTypeMeta(event.event_type);
-      const countdown = formatCountdown(event.starts_at);
-      const author = profileById(event.created_by)?.full_name || "";
-      const posterUrl = sanitizeEventPosterUrl(event);
+      const meta = H.eventTypeMeta(event.event_type);
+      const countdown = H.formatCountdown(event.starts_at);
+      const author = H.profileById(event.created_by)?.full_name || "";
+      const posterUrl = H.sanitizeEventPosterUrl(event);
       return `
-        <article class="event-hero event-hero--${meta.id}${posterUrl ? " has-poster" : ""}" data-event-open="${event.id}" role="button" tabindex="0" aria-label="Voir le détail de ${escapeHtml(event.title)}">
-          ${posterUrl ? `<div class="event-hero__poster" aria-hidden="true"><img src="${escapeHtml(posterUrl)}" alt=""></div>` : ""}
+        <article class="event-hero event-hero--${meta.id}${posterUrl ? " has-poster" : ""}" data-event-open="${event.id}" role="button" tabindex="0" aria-label="Voir le détail de ${H.escapeHtml(event.title)}">
+          ${posterUrl ? `<div class="event-hero__poster" aria-hidden="true"><img src="${H.escapeHtml(posterUrl)}" alt=""></div>` : ""}
           <button type="button" class="event-hero__expand" data-event-open="${event.id}" aria-label="Agrandir">⤢</button>
           <div class="event-hero__overlay">
             <div class="event-hero__meta">
               <span class="event-type-pill event-type--${meta.id}">${meta.icon} ${meta.label}</span>
-              ${countdown ? `<span class="event-hero__countdown">${escapeHtml(countdown)}</span>` : ""}
+              ${countdown ? `<span class="event-hero__countdown">${H.escapeHtml(countdown)}</span>` : ""}
             </div>
-            <h2 class="event-hero__title">${escapeHtml(event.title)}</h2>
+            <h2 class="event-hero__title">${H.escapeHtml(event.title)}</h2>
             <div class="event-hero__info">
-              <span>🗓️ ${escapeHtml(formatEventWhen(event))}</span>
-              ${event.location ? `<span>📍 ${escapeHtml(event.location)}</span>` : ""}
-              <span>👥 ${escapeHtml(eventVisibilityLabel(event.visibility))}</span>
+              <span>🗓️ ${H.escapeHtml(H.formatEventWhen(event))}</span>
+              ${event.location ? `<span>📍 ${H.escapeHtml(event.location)}</span>` : ""}
+              <span>👥 ${H.escapeHtml(H.eventVisibilityLabel(event.visibility))}</span>
             </div>
-            ${event.description ? `<p class="event-hero__desc">${escapeHtml(event.description)}</p>` : ""}
+            ${event.description ? `<p class="event-hero__desc">${H.escapeHtml(event.description)}</p>` : ""}
             <div class="event-hero__footer">
-              <span class="event-hero__author">${author ? `Publié par ${escapeHtml(author)}` : ""}</span>
+              <span class="event-hero__author">${author ? `Publié par ${H.escapeHtml(author)}` : ""}</span>
               ${admin ? `
                 <div class="event-actions">
                   <button type="button" class="outline-button" data-event-edit="${event.id}">Modifier</button>
@@ -74,23 +71,23 @@
     };
 
     const renderEventCard = (event, options = {}) => {
-      const meta = eventTypeMeta(event.event_type);
-      const author = profileById(event.created_by)?.full_name || "";
+      const meta = H.eventTypeMeta(event.event_type);
+      const author = H.profileById(event.created_by)?.full_name || "";
       const canManage = admin;
       const compact = Boolean(options.compact);
       const past = Boolean(options.past);
 
       if (compact) {
         return `
-          <article class="event-row${past ? " event-row--past" : ""}" data-event-open="${event.id}" role="button" tabindex="0" aria-label="Voir le détail de ${escapeHtml(event.title)}">
-            ${renderDateBadge(event.starts_at)}
+          <article class="event-row${past ? " event-row--past" : ""}" data-event-open="${event.id}" role="button" tabindex="0" aria-label="Voir le détail de ${H.escapeHtml(event.title)}">
+            ${H.renderDateBadge(event.starts_at)}
             <div class="event-row__body">
               <div class="event-row__head">
                 <span class="event-type-pill event-type--${meta.id}">${meta.icon} ${meta.label}</span>
-                <span class="event-row__time">${escapeHtml(formatEventTimeShort(event))}</span>
+                <span class="event-row__time">${H.escapeHtml(H.formatEventTimeShort(event))}</span>
               </div>
-              <h4 class="event-row__title">${escapeHtml(event.title)}</h4>
-              ${event.location ? `<span class="event-row__location">📍 ${escapeHtml(event.location)}</span>` : ""}
+              <h4 class="event-row__title">${H.escapeHtml(event.title)}</h4>
+              ${event.location ? `<span class="event-row__location">📍 ${H.escapeHtml(event.location)}</span>` : ""}
             </div>
             ${canManage ? `
               <div class="event-row__actions">
@@ -100,28 +97,28 @@
           </article>`;
       }
 
-      const posterUrl = sanitizeEventPosterUrl(event);
+      const posterUrl = H.sanitizeEventPosterUrl(event);
       return `
-        <article class="event-card event-card--${meta.id}${past ? " event-card--past" : ""}" data-event-open="${event.id}" role="button" tabindex="0" aria-label="Voir le détail de ${escapeHtml(event.title)}">
+        <article class="event-card event-card--${meta.id}${past ? " event-card--past" : ""}" data-event-open="${event.id}" role="button" tabindex="0" aria-label="Voir le détail de ${H.escapeHtml(event.title)}">
           <div class="event-card__media">
             ${posterUrl
               ? `<div class="event-card__poster-wrap">
-                  <img class="event-card__poster" src="${escapeHtml(posterUrl)}" alt="Affiche ${escapeHtml(event.title)}" loading="lazy">
+                  <img class="event-card__poster" src="${H.escapeHtml(posterUrl)}" alt="Affiche ${H.escapeHtml(event.title)}" loading="lazy">
                 </div>`
               : `<div class="event-card__poster-placeholder" aria-hidden="true"><span>${meta.icon}</span></div>`}
-            ${renderDateBadge(event.starts_at)}
+            ${H.renderDateBadge(event.starts_at)}
             <span class="event-type-pill event-type-pill--floating event-type--${meta.id}">${meta.icon} ${meta.label}</span>
             <span class="event-card__expand" aria-hidden="true">⤢</span>
           </div>
           <div class="event-card__body">
-            <h3 class="event-card__title">${escapeHtml(event.title)}</h3>
+            <h3 class="event-card__title">${H.escapeHtml(event.title)}</h3>
             <div class="event-card__meta">
-              <span>🕒 ${escapeHtml(formatEventTimeShort(event))}</span>
-              ${event.location ? `<span>📍 ${escapeHtml(event.location)}</span>` : ""}
+              <span>🕒 ${H.escapeHtml(H.formatEventTimeShort(event))}</span>
+              ${event.location ? `<span>📍 ${H.escapeHtml(event.location)}</span>` : ""}
             </div>
-            ${event.description ? `<p class="event-card__desc">${escapeHtml(event.description)}</p>` : ""}
+            ${event.description ? `<p class="event-card__desc">${H.escapeHtml(event.description)}</p>` : ""}
             <div class="event-card__footer">
-              <span class="event-card__author">${author ? escapeHtml(author) : ""}${author && event.visibility !== "all" ? " · " : ""}${event.visibility !== "all" ? escapeHtml(eventVisibilityLabel(event.visibility)) : ""}</span>
+              <span class="event-card__author">${author ? H.escapeHtml(author) : ""}${author && event.visibility !== "all" ? " · " : ""}${event.visibility !== "all" ? H.escapeHtml(H.eventVisibilityLabel(event.visibility)) : ""}</span>
               ${canManage ? `
                 <div class="event-actions">
                   <button type="button" class="outline-button" data-event-edit="${event.id}">Modifier</button>
@@ -146,12 +143,12 @@
             <form id="event-form" class="events-composer__form" data-event-id="${editing?.id || ""}">
               <label class="field field--wide">
                 <span>Titre</span>
-                <input type="text" name="title" maxlength="140" value="${escapeHtml(editing?.title || "")}" placeholder="Ex. Réunion mensuelle" required>
+                <input type="text" name="title" maxlength="140" value="${H.escapeHtml(editing?.title || "")}" placeholder="Ex. Réunion mensuelle" required>
               </label>
               <label class="field">
                 <span>Type</span>
                 <select name="event_type">
-                  ${EVENT_TYPES.map((type) => {
+                  ${H.EVENT_TYPES.map((type) => {
                     const selected = editing?.event_type === type.id ? " selected" : "";
                     return `<option value="${type.id}"${selected}>${type.icon} ${type.label}</option>`;
                   }).join("")}
@@ -160,7 +157,7 @@
               <label class="field">
                 <span>Visibilité</span>
                 <select name="visibility">
-                  ${EVENT_VISIBILITIES.map((vis) => {
+                  ${H.EVENT_VISIBILITIES.map((vis) => {
                     const selected = (editing?.visibility || "all") === vis.id ? " selected" : "";
                     return `<option value="${vis.id}"${selected}>${vis.label}</option>`;
                   }).join("")}
@@ -180,19 +177,19 @@
               </label>
               <label class="field field--wide">
                 <span>Lieu <em>(facultatif)</em></span>
-                <input type="text" name="location" maxlength="180" value="${escapeHtml(editing?.location || "")}" placeholder="Ex. Salle Zenith · Visio Teams">
+                <input type="text" name="location" maxlength="180" value="${H.escapeHtml(editing?.location || "")}" placeholder="Ex. Salle Zenith · Visio Teams">
               </label>
               <label class="field field--wide">
                 <span>Description</span>
-                <textarea name="description" rows="4" maxlength="2000" placeholder="Détails, agenda, lien de visio, etc.">${escapeHtml(editing?.description || "")}</textarea>
+                <textarea name="description" rows="4" maxlength="2000" placeholder="Détails, agenda, lien de visio, etc.">${H.escapeHtml(editing?.description || "")}</textarea>
               </label>
               <label class="field field--wide event-poster-field">
                 <span>Affiche <em>(JPG, PNG, WEBP, GIF · max 5 Mo)</em></span>
                 <input type="file" name="poster" accept="image/jpeg,image/png,image/webp,image/gif">
               </label>
-            ${sanitizeEventPosterUrl(editing) ? `
+            ${H.sanitizeEventPosterUrl(editing) ? `
               <div class="field field--wide event-poster-preview">
-                <img src="${escapeHtml(sanitizeEventPosterUrl(editing))}" alt="Affiche actuelle">
+                <img src="${H.escapeHtml(H.sanitizeEventPosterUrl(editing))}" alt="Affiche actuelle">
                 <label class="event-checkbox">
                   <input type="checkbox" name="remove_poster">
                   <span>Supprimer l'affiche actuelle</span>
@@ -246,7 +243,7 @@
     const stats = `
       <div class="events-stats">
         <div class="events-stat"><strong>${upcoming.length}</strong><span>À venir</span></div>
-        <div class="events-stat"><strong>${featured ? formatCountdown(featured.starts_at) : "—"}</strong><span>Prochain</span></div>
+        <div class="events-stat"><strong>${featured ? H.formatCountdown(featured.starts_at) : "—"}</strong><span>Prochain</span></div>
         <div class="events-stat"><strong>${past.length}</strong><span>Passés (30j)</span></div>
       </div>`;
 
@@ -261,10 +258,8 @@
         </div>
         ${adminForm}
       </div>
-      ${renderEventDetailOverlay(events, admin)}`;
+      ${H.renderEventDetailOverlay(events, admin)}`;
   }
 
-  (window.Humana = window.Humana || {});
-  (window.Humana.pages = window.Humana.pages || {});
-  window.Humana.pages["events"] = eventsPage;
-})();
+  (H.pages = H.pages || {})["events"] = eventsPage;
+})(window.Humana);

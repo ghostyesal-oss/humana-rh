@@ -231,6 +231,15 @@ test("authz: salarié, manager, admin", async (t) => {
   });
 
   await t.test("API: le manager lit les demandes RH de son équipe, sans les valider", async () => {
+    const prevNow = process.env.SALARY_ADVANCE_NOW;
+    process.env.SALARY_ADVANCE_NOW = "2026-10-03T10:00:00Z";
+    await adminQuery("update public.profiles set hired_at = '2020-01-01' where id = $1", [M]);
+    await adminQuery(
+      `insert into public.app_settings (key, value)
+       values ('eds_payroll', $1::jsonb)
+       on conflict (key) do update set value = excluded.value`,
+      [JSON.stringify({ "2026-09-01_2026-09-30": { [M]: { salaireNet: "10000" } } })]
+    );
     const seen = await runQuery(mgr, {
       table: "attestation_requests",
       op: "select",
@@ -274,6 +283,8 @@ test("authz: salarié, manager, admin", async (t) => {
     assert.equal(approved.data[0].status, "Approuve");
     await adminQuery("update public.attestation_requests set status = 'A valider' where id = $1", [ATT_A]);
     await adminQuery("delete from public.salary_advance_requests where user_id = $1", [M]);
+    if (prevNow == null) delete process.env.SALARY_ADVANCE_NOW;
+    else process.env.SALARY_ADVANCE_NOW = prevNow;
   });
 
   await t.test("API: l'admin lit tous les bulletins", async () => {

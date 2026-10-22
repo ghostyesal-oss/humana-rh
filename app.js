@@ -1,3 +1,9 @@
+(function () {
+  if (window.__humanaAppLoaded) return;
+  window.__humanaAppLoaded = true;
+  window.Humana = window.Humana || {};
+  window.Humana.pages = window.Humana.pages || {};
+
 let supabaseClient = null;
 let app = null;
 let session = null;
@@ -23,12 +29,16 @@ function assetUrl(path) {
   return hash ? `/${clean}?h=${hash}` : `/${clean}`;
 }
 
+const PAGE_MODULE_REV = "h3";
+
 function ensurePageModule(page) {
   if (window.Humana?.pages?.[page]) return Promise.resolve();
   if (pageModulePromises[page]) return pageModulePromises[page];
   pageModulePromises[page] = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = assetUrl(`pages/${page}.js`);
+    let src = assetUrl(`pages/${page}.js`);
+    if (!/[?&]h=/.test(src)) src += (src.includes("?") ? "&" : "?") + "r=" + PAGE_MODULE_REV;
+    script.src = src;
     script.charset = "UTF-8";
     script.onload = () => resolve();
     script.onerror = () => reject(new Error(`Module ${page} introuvable`));
@@ -136,9 +146,99 @@ let workStatusColumnEnabled = false;
 let journalFullscreen = false;
 let journalFullscreenListenerBound = false;
 let leaveCalendarMonth = null;
-let planningState = { tab: "grid", dept: "cs", cursor: null, importNotice: "", assignOpen: false };
+let planningState = { tab: "grid", dept: "cs", cursor: null, importNotice: "", assignOpen: false, aiPage: 1 };
+const AI_INBOX_PAGE_SIZE = 5;
+const OWN_PUNCH_DAYS = 62;
+const OWN_PUNCH_LIMIT = 1500;
+const PRIVACY_PUNCH_DAYS = 1100;
+const PRIVACY_PUNCH_LIMIT = 5000;
+const OWN_LEAVE_MONTHS = 18;
+const OWN_HR_LIMIT = 200;
+const OWN_DOCS_LIMIT = 80;
+const TEAM_PUNCH_LIMIT = 8000;
+const TEAM_LEAVE_LIMIT = 500;
+const PLANNING_ENTRY_LIMIT = 15000;
 let adminUserQuery = "";
+let adminUserFormOpen = false;
+const filterPanelOpen = { journal: false, teamPunches: false, global: false };
+
+function isFilterPanelOpen(key) {
+  return Boolean(filterPanelOpen[tablePageKey(key)]);
+}
+
+function bindFilterPanels() {
+  document.querySelectorAll("[data-filter-panel]").forEach((panel) => {
+    if (panel.dataset.humanaBound) return;
+    panel.dataset.humanaBound = "1";
+    panel.addEventListener("toggle", () => {
+      const key = tablePageKey(panel.dataset.filterPanel);
+      if (!key || key === "table") return;
+      filterPanelOpen[key] = panel.open;
+    });
+  });
+}
+const TABLE_PAGE_SIZE = 5;
+const tablePageState = Object.create(null);
 let initialAuthHandled = false;
+
+function tablePageKey(key) {
+  return String(key || "").replace(/[^a-z0-9_-]/gi, "").slice(0, 40) || "table";
+}
+
+function resetTablePage(key) {
+  tablePageState[tablePageKey(key)] = 1;
+}
+
+function paginateList(key, items, pageSize = TABLE_PAGE_SIZE) {
+  const list = Array.isArray(items) ? items : [];
+  const size = Math.max(1, Number(pageSize) || TABLE_PAGE_SIZE);
+  const total = list.length;
+  const pages = Math.max(1, Math.ceil(total / size) || 1);
+  const id = tablePageKey(key);
+  let page = Number(tablePageState[id]) || 1;
+  if (page > pages) page = pages;
+  if (page < 1) page = 1;
+  tablePageState[id] = page;
+  const start = total ? (page - 1) * size : 0;
+  const end = Math.min(start + size, total);
+  return {
+    key: id,
+    items: list.slice(start, end),
+    page,
+    pages,
+    size,
+    start,
+    end,
+    total,
+    from: total ? start + 1 : 0,
+    to: end
+  };
+}
+
+function renderTablePager(page) {
+  if (!page || page.total <= page.size) return "";
+  return `
+    <nav class="table-pager" data-table-pager="${escapeHtml(page.key)}" aria-label="Pagination du tableau">
+      <button type="button" class="outline-button" data-table-page="${page.page - 1}"${page.page <= 1 ? " disabled" : ""}>Précédent</button>
+      <span class="table-pager__status">${page.from}–${page.to} / ${page.total}</span>
+      <button type="button" class="outline-button" data-table-page="${page.page + 1}"${page.page >= page.pages ? " disabled" : ""}>Suivant</button>
+    </nav>`;
+}
+
+function bindTablePagers() {
+  document.querySelectorAll("[data-table-pager]").forEach((nav) => {
+    if (nav.dataset.humanaBound) return;
+    nav.dataset.humanaBound = "1";
+    nav.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-table-page]");
+      if (!button || button.disabled || !nav.contains(button)) return;
+      const next = Number(button.dataset.tablePage);
+      if (!Number.isFinite(next) || next < 1) return;
+      tablePageState[tablePageKey(nav.dataset.tablePager)] = next;
+      refreshPageContent();
+    });
+  });
+}
 
 let appData = {
   loading: false,
@@ -153,6 +253,7 @@ let appData = {
   attestationRequests: [],
   salaryAdvanceRequests: [],
   salaryAdvanceTableMissing: false,
+  salaryAdvanceQuota: null,
   orgProfiles: [],
   pendingInvites: [],
   hrDocuments: [],
@@ -808,6 +909,26 @@ const attestationTypes = [
   "Attestation de salaire",
   "Attestation de congés"
 ];
+const OTHER_REQUEST_CUSTOM = "Autre";
+const otherRequestTypes = [
+  "Réclamation",
+  "Info assurance",
+  "Réclamation assurance",
+  OTHER_REQUEST_CUSTOM
+];
+
+function isOtherHrType(type) {
+  const value = String(type || "").trim();
+  if (!value) return false;
+  if (otherRequestTypes.includes(value)) return true;
+  return /^autre(\s|:|$)/i.test(value);
+}
+
+function hrKindLabel(request) {
+  if (request?.kind === "advance") return "Avance sur salaire";
+  if (request?.kind === "other") return "Autre demande";
+  return "Attestation";
+}
 
 const avatarColors = ["violet", "blue", "orange", "green", "pink"];
 
@@ -866,13 +987,13 @@ function renderProfilePyramidCard(profile, index, options = {}) {
 }
 
 function badge(value) {
-  const normalized = (value || "").toLowerCase();
-  const tone = normalized.includes("approuv") || normalized.includes("pret") || normalized.includes("termine")
+  const normalized = String(value || "").toLowerCase();
+  const isDone = normalized.includes("approuv") || normalized.includes("pret") || normalized.includes("termine")
     || normalized.includes("confirm") || normalized.includes("rectif")
-    ? "success"
-    : normalized.includes("valid") || normalized.includes("cours") || normalized.includes("attente")
-      ? "warning"
-      : "neutral";
+    || normalized === "validé" || normalized.startsWith("validé");
+  const isPending = normalized.includes("a valider") || normalized.includes("à valider")
+    || normalized.includes("prise en charge") || normalized.includes("cours") || normalized.includes("attente");
+  const tone = isDone ? "success" : isPending ? "warning" : "neutral";
   const displayValue = String(value || "")
     .replace(/^A valider\b/, "À valider")
     .replace(/^Approuve\b/, "Approuvé")
@@ -1367,6 +1488,16 @@ const PROFILE_DIRECTORY_FIELDS = [
   "matricule",
   "hired_at"
 ];
+const PROFILE_ADMIN_FIELDS = [
+  ...PROFILE_DIRECTORY_FIELDS,
+  "phone",
+  "avatar_url",
+  "created_at",
+  "updated_at",
+  "leave_balance_cp",
+  "leave_balance_rtt",
+  "leave_balance_recup"
+];
 const HR_DOCUMENT_OPTIONAL_FIELDS = ["visibility"];
 const GTA_KINDS = {
   corrections: { store: "punchCorrections", table: "punch_corrections" },
@@ -1602,6 +1733,7 @@ async function upsertDelayReview({ userId, dayKey, delayMin, status }) {
 
 function renderPendingDelayInbox(dailyRows) {
   const pending = pendingDelayItems(dailyRows);
+  const page = paginateList("delay-inbox", pending);
   return `
     <article class="card table-card page-spacer">
       <div class="toolbar">
@@ -1623,8 +1755,8 @@ function renderPendingDelayInbox(dailyRows) {
             </tr>
           </thead>
           <tbody>
-            ${pending.length
-              ? pending.map(({ row, stats }) => `
+            ${page.items.length
+              ? page.items.map(({ row, stats }) => `
                 <tr>
                   <td><strong>${escapeHtml(row.name)}</strong></td>
                   <td>${formatDate(row.dayKey)}</td>
@@ -1641,6 +1773,7 @@ function renderPendingDelayInbox(dailyRows) {
           </tbody>
         </table>
       </div>
+      ${renderTablePager(page)}
     </article>`;
 }
 
@@ -1931,22 +2064,24 @@ function computeWorkedMsInRange(punches, startStr, endStr) {
   let total = 0;
   let workStart = null;
 
+  const now = Date.now();
   sorted.forEach((punch) => {
-    const time = new Date(punch.time).getTime();
+    const time = punchTimeMs(punch);
+    if (!Number.isFinite(time) || time > now + PUNCH_FUTURE_SLACK_MS) return;
     if (punch.type === "in" || punch.type === "break_end") {
       workStart = time;
       return;
     }
     if (punch.type === "break_start" && workStart !== null) {
       const sessionStart = Math.max(workStart, rangeStart);
-      const sessionEnd = Math.min(time, rangeEnd);
+      const sessionEnd = Math.min(time, rangeEnd, now);
       if (sessionEnd > sessionStart) total += sessionEnd - sessionStart;
       workStart = null;
       return;
     }
     if (punch.type === "out" && workStart !== null) {
       const sessionStart = Math.max(workStart, rangeStart);
-      const sessionEnd = Math.min(time, rangeEnd);
+      const sessionEnd = Math.min(time, rangeEnd, now);
       if (sessionEnd > sessionStart) total += sessionEnd - sessionStart;
       workStart = null;
     }
@@ -2152,19 +2287,23 @@ async function loadTeamPunches(filters = teamPunchFilters) {
     }
   }
 
+  const range = {
+    start: filters.start || getDefaultTeamPunchRange().start,
+    end: filters.end || getDefaultTeamPunchRange().end
+  };
   let query = supabaseClient
     .from("time_punches")
     .select("*, profiles(full_name, email)")
-    .order("punched_at", { ascending: false });
+    .gte("punched_at", `${range.start}T00:00:00`)
+    .lte("punched_at", `${range.end}T23:59:59`)
+    .order("punched_at", { ascending: false })
+    .limit(TEAM_PUNCH_LIMIT);
 
   if (filters.userId) {
     query = query.eq("user_id", filters.userId);
   } else if (!isAdmin() || scope === "team") {
     query = query.in("user_id", userIds);
   }
-
-  if (filters.start) query = query.gte("punched_at", `${filters.start}T00:00:00`);
-  if (filters.end) query = query.lte("punched_at", `${filters.end}T23:59:59`);
 
   const result = await withSupabaseRetry(async () => {
     const response = await query;
@@ -2210,6 +2349,7 @@ function normalizeTeamLeaveRequest(row) {
     days: row.days,
     hours: row.hours,
     unit: row.unit,
+    halfDay: row.half_day || row.halfDay || "",
     motif: row.motif,
     attachmentName: row.attachment_name || row.attachmentName,
     workflowStep: row.workflow_step || row.workflowStep || 1,
@@ -2261,7 +2401,8 @@ async function loadTeamLeaveRequests(monthRef = getLeaveCalendarMonth()) {
       .lte("start_date", monthEnd)
       .gte("end_date", monthStart)
       .in("user_id", userIds)
-      .order("start_date", { ascending: true });
+      .order("start_date", { ascending: true })
+      .limit(TEAM_LEAVE_LIMIT);
     if (response.error && errorMentionsAny(response.error, LEAVE_GTA_FIELDS)) {
       response = await supabaseClient
         .from("leave_requests")
@@ -2269,7 +2410,8 @@ async function loadTeamLeaveRequests(monthRef = getLeaveCalendarMonth()) {
         .lte("start_date", monthEnd)
         .gte("end_date", monthStart)
         .in("user_id", userIds)
-        .order("start_date", { ascending: true });
+        .order("start_date", { ascending: true })
+        .limit(TEAM_LEAVE_LIMIT);
     }
     if (response.error) throw response.error;
     return response.data;
@@ -2518,12 +2660,7 @@ async function runAutoClockOutChecks() {
     }
   }
 
-  const punchesRes = await supabaseClient
-    .from("time_punches")
-    .select("*")
-    .eq("user_id", session.user.id)
-    .order("punched_at", { ascending: true });
-  if (!punchesRes.error) appData.punches = punchesRes.data || [];
+  await loadOwnPunches();
 }
 
 async function loadCompanyEvents() {
@@ -2793,11 +2930,13 @@ function getUserAccountEditing() {
 function clearUserAccountEditing() {
   appData.adminEditingId = "";
   appData.adminEditingInviteId = "";
+  adminUserFormOpen = false;
 }
 
 function setUserAccountEditing({ profileId = "", inviteId = "" }) {
   appData.adminEditingId = profileId;
   appData.adminEditingInviteId = inviteId;
+  adminUserFormOpen = true;
 }
 
 function getCreatorProfiles() {
@@ -3037,12 +3176,16 @@ function renderUserAccountSection() {
   const editingInvite = appData.pendingInvites.find((invite) => invite.id === editingInviteId);
   const editing = editingProfile || editingInvite;
   const isInvite = Boolean(editingInvite && !editingProfile);
+  const userPage = paginateList("admin-users", getFilteredAdminProfiles());
+  const invitePage = paginateList("admin-invites", appData.pendingInvites);
+  const formOpen = Boolean(editing) || adminUserFormOpen;
+  const formTitle = isInvite ? "Invitation en attente" : editing ? "Modifier un utilisateur" : "Ajouter un utilisateur";
 
   return `
-    <div class="feature-grid">
-      <article class="card form-card">
-        ${cardHeading(isInvite ? "Invitation en attente" : editing ? "Modifier un utilisateur" : "Ajouter un utilisateur")}
-        <form id="admin-user-form" class="feature-form">
+    <div class="feature-grid admin-user-stack">
+      <details class="admin-user-assign"${formOpen ? " open" : ""}>
+        <summary>${formTitle}</summary>
+        <form id="admin-user-form" class="feature-form admin-user-assign-form">
           <input type="hidden" name="profile_id" value="${editingProfile?.id || ""}">
           <input type="hidden" name="invite_id" value="${editingInvite?.id || ""}">
           <label>
@@ -3111,10 +3254,10 @@ function renderUserAccountSection() {
           <input type="file" id="admin-employee-import" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
           ${appData.employeeImportNotice ? `<p class="planning-import-notice">${escapeHtml(appData.employeeImportNotice)}</p>` : ""}
         </div>
-      </article>
+      </details>
       <article class="card table-card admin-user-list">
         <div class="toolbar">
-          <h3>Utilisateurs actifs <span id="admin-user-count" class="admin-user-count">${getFilteredAdminProfiles().length} / ${appData.orgProfiles.length}</span></h3>
+          <h3>Utilisateurs actifs <span id="admin-user-count" class="admin-user-count">${userPage.total} / ${appData.orgProfiles.length}</span></h3>
           <label class="admin-user-search">
             Rechercher
             <input type="search" id="admin-user-search" value="${escapeHtml(adminUserQuery)}" placeholder="Nom, matricule, e-mail…">
@@ -3124,10 +3267,11 @@ function renderUserAccountSection() {
           <table>
             <thead><tr><th>Nom</th><th>E-mail</th><th>Rôle</th><th>Manager</th><th></th></tr></thead>
             <tbody id="admin-user-tbody">
-              ${renderAdminUserRows(getFilteredAdminProfiles())}
+              ${renderAdminUserRows(userPage.items)}
             </tbody>
           </table>
         </div>
+        <div data-table-pager-host="admin-users">${renderTablePager(userPage)}</div>
       </article>
     </div>
     <article class="card table-card page-spacer">
@@ -3136,8 +3280,8 @@ function renderUserAccountSection() {
         <table>
           <thead><tr><th>E-mail</th><th>Nom</th><th>Rôle</th><th>Manager</th><th></th></tr></thead>
           <tbody>
-            ${appData.pendingInvites.length
-              ? appData.pendingInvites.map((invite) => `
+            ${invitePage.items.length
+              ? invitePage.items.map((invite) => `
                 <tr>
                   <td>${escapeHtml(invite.email)}</td>
                   <td>${escapeHtml(invite.full_name)}</td>
@@ -3152,10 +3296,15 @@ function renderUserAccountSection() {
           </tbody>
         </table>
       </div>
+      ${renderTablePager(invitePage)}
     </article>`;
 }
 
 function bindUserAccountSection() {
+  document.querySelector(".admin-user-assign")?.addEventListener("toggle", (event) => {
+    adminUserFormOpen = event.currentTarget.open;
+  });
+
   document.querySelector("#admin-user-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -3209,17 +3358,21 @@ function bindUserAccountSection() {
 
   document.querySelector("#admin-user-search")?.addEventListener("input", (event) => {
     adminUserQuery = event.currentTarget.value;
+    resetTablePage("admin-users");
+    const page = paginateList("admin-users", getFilteredAdminProfiles());
     const tbody = document.querySelector("#admin-user-tbody");
     const count = document.querySelector("#admin-user-count");
-    const filtered = getFilteredAdminProfiles();
-    if (tbody) tbody.innerHTML = renderAdminUserRows(filtered);
-    if (count) count.textContent = `${filtered.length} / ${appData.orgProfiles.length}`;
+    const host = document.querySelector("[data-table-pager-host='admin-users']");
+    if (tbody) tbody.innerHTML = renderAdminUserRows(page.items);
+    if (count) count.textContent = `${page.total} / ${appData.orgProfiles.length}`;
+    if (host) host.innerHTML = renderTablePager(page);
     document.querySelectorAll(".admin-edit-profile").forEach((button) => {
       button.addEventListener("click", () => {
         setUserAccountEditing({ profileId: button.dataset.profileId, inviteId: "" });
         renderApp();
       });
     });
+    bindTablePagers();
   });
 
   document.querySelectorAll(".admin-edit-invite").forEach((button) => {
@@ -3303,7 +3456,7 @@ function formatMad(amount) {
 
 function isHrRequestPending(status) {
   const value = String(status || "").toLowerCase();
-  return value.includes("attente") || value.includes("valider");
+  return value.includes("attente") || value.includes("valider") || value.includes("prise en charge");
 }
 
 function formatTime(value) {
@@ -3359,14 +3512,17 @@ function getAttestationRequests() {
     return appData.attestationRequests.map((request) => ({
       id: request.id,
       userId: request.user_id,
-      kind: "attestation",
+      kind: isOtherHrType(request.document_type) ? "other" : "attestation",
       type: request.document_type,
       reason: request.reason,
       status: request.status,
       created: request.created_at
     }));
   }
-  return loadStore("attestationRequests", []).map((request) => ({ ...request, kind: "attestation" }));
+  return loadStore("attestationRequests", []).map((request) => ({
+    ...request,
+    kind: request.kind || (isOtherHrType(request.type) ? "other" : "attestation")
+  }));
 }
 
 function getSalaryAdvanceRequests() {
@@ -3385,6 +3541,126 @@ function getSalaryAdvanceRequests() {
   return loadStore("salaryAdvanceRequests", []).map((request) => ({ ...request, kind: "advance" }));
 }
 
+const ADVANCE_CUTOFF_DAY = 6;
+const ADVANCE_YEAR_LIMIT = 4;
+const ADVANCE_NET_RATIO = 0.3;
+
+function isCadreForAdvance(profile = appData.profile) {
+  if (isDirecteurLike(profile)) return true;
+  if (["manager", "codir"].includes(String(profile?.leave_grade || "").toLowerCase())) return true;
+  const role = String(profile?.role || "").toLowerCase();
+  return role === "manager" || role === "admin" || role === "creator";
+}
+
+function minAdvanceMonths(profile = appData.profile) {
+  return isCadreForAdvance(profile) ? 3 : 6;
+}
+
+function addMonthsToIso(iso, months) {
+  const [year, month, day] = String(iso || "").slice(0, 10).split("-").map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1 + months, day);
+}
+
+function hasAdvanceSeniority(profile = appData.profile, at = new Date()) {
+  const hired = getHiredAt(profile);
+  if (!hired) return false;
+  const eligible = addMonthsToIso(hired, minAdvanceMonths(profile));
+  return Boolean(eligible) && at.getTime() >= eligible.getTime();
+}
+
+function latestEdsNetSalary(userId = session?.user?.id) {
+  const cycles = edsPayrollState();
+  let bestStart = "";
+  let best = null;
+  Object.entries(cycles).forEach(([cycle, users]) => {
+    const start = String(cycle).split("_")[0] || "";
+    const net = Number(String(users?.[userId]?.salaireNet ?? "").replace(",", "."));
+    if (!Number.isFinite(net) || net <= 0) return;
+    if (start >= bestStart) {
+      bestStart = start;
+      best = net;
+    }
+  });
+  return best;
+}
+
+function computeSalaryAdvanceQuota(userId = session?.user?.id) {
+  const profile = profileById(userId) || appData.profile || {};
+  const civil = toCompanyCivil(new Date());
+  const year = civil.year;
+  const used = getSalaryAdvanceRequests().filter((row) => {
+    if ((row.userId || session?.user?.id) !== userId) return false;
+    const status = String(row.status || "").toLowerCase();
+    if (status.includes("refus") || status.includes("rejet")) return false;
+    const stamp = new Date(row.created || row.created_at || Date.now());
+    return stamp.getFullYear() === year;
+  }).length;
+  const netSalary = latestEdsNetSalary(userId);
+  const maxAmount = Number.isFinite(netSalary) ? Math.round(netSalary * ADVANCE_NET_RATIO * 100) / 100 : null;
+  const windowOpen = civil.day < ADVANCE_CUTOFF_DAY;
+  const eligible = hasAdvanceSeniority(profile);
+  const cadre = isCadreForAdvance(profile);
+  const minMonths = minAdvanceMonths(profile);
+  let reason = null;
+  if (!windowOpen) reason = `Les demandes d'avance sont bloquées à partir du ${ADVANCE_CUTOFF_DAY} du mois.`;
+  else if (!eligible) reason = `L'avance est possible après ${minMonths} mois d'ancienneté (${cadre ? "cadre" : "collaborateur"}).`;
+  else if (used >= ADVANCE_YEAR_LIMIT) reason = `Quatre avances maximum par an (${used}/${ADVANCE_YEAR_LIMIT}).`;
+  else if (!maxAmount) reason = "Salaire net EDS introuvable. Contactez le RH.";
+  return {
+    ok: !reason,
+    reason,
+    windowOpen,
+    cutoffDay: ADVANCE_CUTOFF_DAY,
+    companyDay: civil.day,
+    year,
+    eligible,
+    cadre,
+    minMonths,
+    yearUsed: used,
+    yearLimit: ADVANCE_YEAR_LIMIT,
+    yearRemaining: Math.max(0, ADVANCE_YEAR_LIMIT - used),
+    netSalary,
+    maxAmount,
+    ratio: ADVANCE_NET_RATIO
+  };
+}
+
+function getSalaryAdvanceQuota() {
+  return appData.salaryAdvanceQuota && typeof appData.salaryAdvanceQuota === "object"
+    ? appData.salaryAdvanceQuota
+    : computeSalaryAdvanceQuota();
+}
+
+function advanceStatusLabel(status) {
+  const value = String(status || "");
+  if (/^A valider/i.test(value) || /prise en charge/i.test(value)) return "Prise en charge";
+  if (/^Approuve/i.test(value) || /^Valid/i.test(value)) return "Validé";
+  if (/^Refuse/i.test(value)) return "Refusé";
+  return value;
+}
+
+function hrStatusBadge(request) {
+  if (request?.kind === "advance" || request?.kind === "attestation" || request?.kind === "other") {
+    return badge(advanceStatusLabel(request.status));
+  }
+  return badge(request?.status);
+}
+
+function hrShowsProgress(request) {
+  return request?.kind === "advance" || request?.kind === "attestation" || request?.kind === "other";
+}
+
+function hrAdvanceProgress(request) {
+  const label = advanceStatusLabel(request.status);
+  const refused = label === "Refusé";
+  const done = label === "Validé";
+  return `<ol class="hr-progress" aria-label="Avancement">
+    <li class="is-done">Prise en charge</li>
+    <li class="${done ? "is-done" : refused ? "is-rejected" : "is-current"}">${done ? "Validé" : refused ? "Refusé" : "En cours"}</li>
+  </ol>`;
+}
+
 function getHrRequests() {
   return [...getSalaryAdvanceRequests(), ...getAttestationRequests()]
     .sort((a, b) => new Date(b.created || 0) - new Date(a.created || 0));
@@ -3395,8 +3671,12 @@ function getOwnHrRequests() {
   return getHrRequests().filter((request) => !request.userId || request.userId === me);
 }
 
+function canApproveHrRequests() {
+  return isHr() || isDirecteurLike(appData.profile);
+}
+
 function canValidateHrRequest(request) {
-  if (!isHr()) return false;
+  if (!canApproveHrRequests()) return false;
   const userId = request?.userId;
   return Boolean(userId && userId !== session?.user?.id);
 }
@@ -3413,7 +3693,7 @@ function getTeamHrRequests() {
 }
 
 function canFollowTeamHrRequests() {
-  return hasDirectReports() && !isHr();
+  return hasDirectReports() && !canApproveHrRequests();
 }
 
 function pendingHrForValidator() {
@@ -3654,12 +3934,14 @@ function ensureStatusClockFromShift() {
 }
 
 function getTodayElapsedMs() {
-  const status = String(getCurrentWorkStatus() || "production");
   const punches = getTodayPunches();
   if (punches.length) {
     const durations = computeDayStatusDurations(punches, companyDateKey());
+    if (getClockState().onBreak) return Number(durations?.lunch) || 0;
+    const status = String(getCurrentWorkStatus() || "production");
     return Number(durations?.[status]) || 0;
   }
+  const status = String(getCurrentWorkStatus() || "production");
   const data = readStatusClock();
   if (!data) return 0;
   let ms = Number(data.totals?.[status]) || 0;
@@ -3867,30 +4149,49 @@ function buildDemoClockPunch(punchType) {
   return punch;
 }
 
+const PUNCH_FUTURE_SLACK_MS = 2000;
+
+function punchTimeMs(punch) {
+  const time = new Date(punch?.time || punch?.punched_at || "").getTime();
+  return Number.isFinite(time) ? time : NaN;
+}
+
+function isFuturePunch(punch, now = Date.now()) {
+  const time = punchTimeMs(punch);
+  return Number.isFinite(time) && time > now + PUNCH_FUTURE_SLACK_MS;
+}
+
+function punchesObservedUntil(punches, now = Date.now()) {
+  return (punches || []).filter((punch) => !isFuturePunch(punch, now));
+}
+
 function computeWorkedHours(punches) {
-  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
   const now = Date.now();
+  const sorted = punchesObservedUntil(punches, now).sort((a, b) => new Date(a.time) - new Date(b.time));
   const sessions = [];
   let workStart = null;
 
   sorted.forEach((punch) => {
-    const time = new Date(punch.time).getTime();
+    const time = punchTimeMs(punch);
+    if (!Number.isFinite(time)) return;
     if (punch.type === "in" || punch.type === "break_end") {
       workStart = time;
       return;
     }
     if (punch.type === "break_start" && workStart !== null) {
-      sessions.push({ start: workStart, end: time });
+      const end = Math.min(time, now);
+      if (end > workStart) sessions.push({ start: workStart, end });
       workStart = null;
       return;
     }
     if (punch.type === "out" && workStart !== null) {
-      sessions.push({ start: workStart, end: time });
+      const end = Math.min(time, now);
+      if (end > workStart) sessions.push({ start: workStart, end });
       workStart = null;
     }
   });
 
-  if (workStart !== null) {
+  if (workStart !== null && now > workStart) {
     sessions.push({ start: workStart, end: now });
   }
 
@@ -3913,14 +4214,15 @@ function computeWorkedHours(punches) {
 }
 
 function computeBreakDuration(punches, fromTime = null) {
-  const sorted = [...punches].sort((a, b) => new Date(a.time) - new Date(b.time));
   const now = Date.now();
+  const sorted = punchesObservedUntil(punches, now).sort((a, b) => punchTimeMs(a) - punchTimeMs(b));
   let breakStart = null;
   let total = 0;
+  const fromMs = fromTime ? new Date(fromTime).getTime() : 0;
 
   sorted.forEach((punch) => {
-    const time = new Date(punch.time).getTime();
-    if (fromTime && time < fromTime.getTime()) return;
+    const time = punchTimeMs(punch);
+    if (!Number.isFinite(time) || time < fromMs) return;
 
     if (punch.type === "break_start") {
       breakStart = time;
@@ -3928,12 +4230,12 @@ function computeBreakDuration(punches, fromTime = null) {
     }
 
     if ((punch.type === "break_end" || punch.type === "out") && breakStart !== null) {
-      total += time - breakStart;
+      total += Math.max(0, Math.min(time, now) - breakStart);
       breakStart = null;
     }
   });
 
-  if (breakStart !== null) total += now - breakStart;
+  if (breakStart !== null) total += Math.max(0, now - breakStart);
   return total;
 }
 
@@ -3957,7 +4259,7 @@ function computeDayStatusDurations(punches, dayKey) {
   if (!sorted.length) return totals;
 
   const isToday = companyDateKey(dayKey) === companyDateKey();
-  const lastTime = new Date(sorted[sorted.length - 1].time).getTime();
+  const lastTime = punchTimeMs(sorted[sorted.length - 1]);
   const cap = isToday ? Date.now() : lastTime;
   let workStart = null;
   let lunchStart = null;
@@ -3977,8 +4279,8 @@ function computeDayStatusDurations(punches, dayKey) {
   };
 
   sorted.forEach((punch) => {
-    const time = new Date(punch.time).getTime();
-    if (!Number.isFinite(time)) return;
+    const time = punchTimeMs(punch);
+    if (!Number.isFinite(time) || time > cap + PUNCH_FUTURE_SLACK_MS) return;
     if (punch.type === "in") {
       closeLunch(time);
       currentStatus = resolvePunchWorkStatus(punch, "production");
@@ -4093,6 +4395,7 @@ function renderTeamStatusRows(dailyRows) {
 function renderTeamPunchDetailCard(dailyRows, options = {}) {
   const view = getTeamPunchDetailView();
   const showLocationHint = Boolean(options.showLocationHint);
+  const page = paginateList(view === "status" ? "team-status" : "team-punches", dailyRows);
   if (view === "status") {
     return `
       <article class="card table-card page-spacer">
@@ -4115,9 +4418,10 @@ function renderTeamPunchDetailCard(dailyRows, options = {}) {
                 <th>Durée totale</th>
               </tr>
             </thead>
-            <tbody>${renderTeamStatusRows(dailyRows)}</tbody>
+            <tbody>${renderTeamStatusRows(page.items)}</tbody>
           </table>
         </div>
+        ${renderTablePager(page)}
       </article>`;
   }
   return `
@@ -4152,9 +4456,10 @@ function renderTeamPunchDetailCard(dailyRows, options = {}) {
               <th></th>
             </tr>
           </thead>
-          <tbody>${renderTeamPunchRows(dailyRows)}</tbody>
+          <tbody>${renderTeamPunchRows(page.items)}</tbody>
         </table>
       </div>
+      ${renderTablePager(page)}
     </article>`;
 }
 
@@ -4760,7 +5065,7 @@ function hoursCard(label, value, options = {}) {
 }
 
 function getClockState() {
-  const punches = getPunches();
+  const punches = punchesObservedUntil(getPunches());
   const last = [...punches].reverse().find((p) => p.type !== "status_change") || punches[punches.length - 1];
   const lastType = last?.type;
   const onBreak = lastType === "break_start";
@@ -4777,7 +5082,8 @@ function getClockState() {
 
 function getTodayPunches(punches = getPunches()) {
   const today = companyDateKey();
-  return punches.filter((punch) => companyDateKey(punch.time) === today);
+  const now = Date.now();
+  return punches.filter((punch) => companyDateKey(punch.time) === today && !isFuturePunch(punch, now));
 }
 
 const LATE_REMINDER_OFFSET_MIN = 3;
@@ -5627,7 +5933,7 @@ function renderGtaClockTools() {
 }
 
 function renderGtaStatusRows(items, emptyLabel, extraCell) {
-  const rows = items.slice(0, 8);
+  const rows = items;
   if (!rows.length) {
     return `<tr><td colspan="5" class="empty-cell">${emptyLabel}</td></tr>`;
   }
@@ -5654,7 +5960,8 @@ function renderGtaOwnLists() {
               ...mine(getPunchCorrections()).map((item) => ({ kind: formatPunchKind(item.punch_kind || item.punchKind || "in"), date: gtaItemDate(item), detail: `${item.time || item.requested_time || ""} — ${item.reason || ""}`, status: item.status })),
     ...mine(getOvertimeRequests()).map((item) => ({ kind: "Heures supp.", date: gtaItemDate(item), detail: `${item.hours || 0} h`, status: item.status })),
     ...mine(getActivityEntries()).map((item) => ({ kind: "Activite", date: gtaItemDate(item), detail: item.category || item.comment || "", status: item.status }))
-  ].slice(0, 10);
+  ];
+  const page = paginateList("gta-own", rows);
   return `
     <article class="card table-card page-spacer">
       <div class="toolbar"><h3>Mes demandes GTA</h3></div>
@@ -5662,8 +5969,8 @@ function renderGtaOwnLists() {
         <table>
           <thead><tr><th>Type</th><th>Date</th><th>Détail</th><th>Statut</th></tr></thead>
           <tbody>
-            ${rows.length
-              ? rows.map((row) => `
+            ${page.items.length
+              ? page.items.map((row) => `
                 <tr>
                   <td>${escapeHtml(row.kind)}</td>
                   <td>${formatDate(row.date)}</td>
@@ -5674,6 +5981,7 @@ function renderGtaOwnLists() {
           </tbody>
         </table>
       </div>
+      ${renderTablePager(page)}
     </article>`;
 }
 
@@ -5685,6 +5993,7 @@ function renderGtaTeamInbox() {
     ...withGtaKind(pendingGtaItems(getActivityEntries()), "activity")
   ].filter(canManageGtaItem);
   if (!pending.length) return "";
+  const page = paginateList("gta-inbox", pending);
   return `
     <article class="card table-card page-spacer">
       <div class="toolbar"><h3>Validations GTA</h3></div>
@@ -5693,7 +6002,7 @@ function renderGtaTeamInbox() {
         <table>
           <thead><tr><th>Collaborateur</th><th>Date</th><th>Demande</th><th>Statut</th><th></th></tr></thead>
           <tbody>
-            ${renderGtaStatusRows(pending, "Aucune demande à valider.", (item) => {
+            ${renderGtaStatusRows(page.items, "Aucune demande à valider.", (item) => {
               if (item._kind === "corrections") return `${formatPunchKind(item.punch_kind || item.punchKind)} ${item.time || item.requested_time || ""} — ${item.reason || ""}`;
               if (item._kind === "overtime") return `HS ${item.hours || 0} h — ${item.reason || ""}`;
               return `${item.category || "Activite"} · ${item.hours || 0} h`;
@@ -5701,6 +6010,7 @@ function renderGtaTeamInbox() {
           </tbody>
         </table>
       </div>
+      ${renderTablePager(page)}
     </article>`;
 }
 
@@ -5953,7 +6263,10 @@ async function loadJournalPunches(filters = journalFilters) {
   let query = supabaseClient
     .from("time_punches")
     .select("*, profiles(full_name, email)")
-    .order("punched_at", { ascending: false });
+    .gte("punched_at", `${shiftDateKey(range.start, -1)}T00:00:00`)
+    .lte("punched_at", `${range.end}T23:59:59`)
+    .order("punched_at", { ascending: false })
+    .limit(TEAM_PUNCH_LIMIT);
 
   if (filters.userId) {
     query = query.eq("user_id", filters.userId);
@@ -5962,9 +6275,6 @@ async function loadJournalPunches(filters = journalFilters) {
     if (!scopedIds.includes(session.user.id)) scopedIds.push(session.user.id);
     query = query.in("user_id", scopedIds);
   }
-
-  query = query.gte("punched_at", `${shiftDateKey(range.start, -1)}T00:00:00`);
-  query = query.lte("punched_at", `${range.end}T23:59:59`);
 
   const result = await withSupabaseRetry(async () => {
     const response = await query;
@@ -6216,10 +6526,11 @@ function renderEventDetailOverlay(events, admin) {
 /* attestationsPage() moved to pages/attestations.js */
 
 function hrRequestDetail(request) {
-  const isAdvance = request.kind === "advance";
-  return isAdvance
-    ? `${formatMad(request.amount)}${request.reason ? ` · ${request.reason}` : ""}`
-    : `${request.type || "Attestation"}${request.reason ? ` · ${request.reason}` : ""}`;
+  if (request.kind === "advance") {
+    return `${formatMad(request.amount)}${request.reason ? ` · ${request.reason}` : ""}`;
+  }
+  const fallback = request.kind === "other" ? "Autre demande" : "Attestation";
+  return `${request.type || fallback}${request.reason ? ` · ${request.reason}` : ""}`;
 }
 
 function hrRequestRows(requests) {
@@ -6227,13 +6538,12 @@ function hrRequestRows(requests) {
     return `<tr><td colspan="4" class="empty-cell">Aucune demande RH pour le moment.</td></tr>`;
   }
   return requests.map((request) => {
-    const isAdvance = request.kind === "advance";
     return `
     <tr>
-      <td><strong>${isAdvance ? "Avance sur salaire" : "Attestation"}</strong></td>
+      <td><strong>${escapeHtml(hrKindLabel(request))}</strong></td>
       <td>${escapeHtml(hrRequestDetail(request))}</td>
       <td>${formatDate(request.created)}</td>
-      <td>${badge(request.status)}</td>
+      <td>${hrStatusBadge(request)}${hrShowsProgress(request) ? hrAdvanceProgress(request) : ""}</td>
     </tr>`;
   }).join("");
 }
@@ -6243,14 +6553,13 @@ function hrTeamRequestRows(requests) {
     return `<tr><td colspan="5" class="empty-cell">Aucune demande RH d'équipe pour le moment.</td></tr>`;
   }
   return requests.map((request) => {
-    const isAdvance = request.kind === "advance";
     return `
     <tr>
       <td>${escapeHtml(profileById(request.userId)?.full_name || "Collaborateur")}</td>
-      <td><strong>${isAdvance ? "Avance sur salaire" : "Attestation"}</strong></td>
+      <td><strong>${escapeHtml(hrKindLabel(request))}</strong></td>
       <td>${escapeHtml(hrRequestDetail(request))}</td>
       <td>${formatDate(request.created)}</td>
-      <td>${badge(request.status)}</td>
+      <td>${hrStatusBadge(request)}${hrShowsProgress(request) ? hrAdvanceProgress(request) : ""}</td>
     </tr>`;
   }).join("");
 }
@@ -6258,22 +6567,22 @@ function hrTeamRequestRows(requests) {
 function renderHrValidationInbox() {
   const pending = pendingHrForValidator();
   if (!pending.length) return "";
+  const page = paginateList("hr-inbox", pending);
   return `
     <article class="card table-card page-spacer">
       <div class="toolbar"><h3>Demandes RH à valider</h3></div>
-      <p class="hierarchy-meta">Seul le RH ou un administrateur peut valider ou refuser. Un seul visa suffit.</p>
+      <p class="hierarchy-meta">Visa RH ou Directeur. Un seul visa suffit. La demande passe en « Prise en charge », puis « Validé » ou « Refusé ».</p>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Collaborateur</th><th>Type</th><th>Détail</th><th>Statut</th><th></th></tr></thead>
           <tbody>
-            ${pending.map((request) => {
-              const isAdvance = request.kind === "advance";
+            ${page.items.map((request) => {
               return `
                 <tr>
                   <td>${escapeHtml(profileById(request.userId)?.full_name || "Collaborateur")}</td>
-                  <td>${isAdvance ? "Avance sur salaire" : "Attestation"}</td>
+                  <td>${escapeHtml(hrKindLabel(request))}</td>
                   <td>${escapeHtml(hrRequestDetail(request))}</td>
-                  <td>${badge(request.status)}</td>
+                  <td>${hrStatusBadge(request)}</td>
                   <td>
                     <button type="button" class="primary hr-approve" data-hr-kind="${request.kind}" data-hr-id="${request.id}">Valider</button>
                     <button type="button" class="outline-button hr-reject" data-hr-kind="${request.kind}" data-hr-id="${request.id}">Refuser</button>
@@ -6283,12 +6592,13 @@ function renderHrValidationInbox() {
           </tbody>
         </table>
       </div>
+      ${renderTablePager(page)}
     </article>`;
 }
 
 function renderHrTeamFollowup() {
   if (!canFollowTeamHrRequests()) return "";
-  const requests = getTeamHrRequests();
+  const page = paginateList("hr-team", getTeamHrRequests());
   return `
     <article class="card table-card page-spacer">
       <div class="toolbar"><h3>Demandes de l'équipe</h3></div>
@@ -6296,9 +6606,10 @@ function renderHrTeamFollowup() {
       <div class="table-wrap">
         <table>
           <thead><tr><th>Collaborateur</th><th>Type</th><th>Détail</th><th>Date</th><th>Statut</th></tr></thead>
-          <tbody>${hrTeamRequestRows(requests)}</tbody>
+          <tbody>${hrTeamRequestRows(page.items)}</tbody>
         </table>
       </div>
+      ${renderTablePager(page)}
     </article>`;
 }
 
@@ -6450,8 +6761,10 @@ function edsLeaveOverlaps(item, range) {
 }
 
 function edsLeaveApproved(item) {
-  const status = String(item.status || "").toLowerCase();
-  return status.includes("approuv");
+  const status = foldAbsenceText(item.status);
+  if (!status || status.includes("refus") || status.includes("rejet")) return false;
+  if (status.startsWith("a valider") || status.includes("prise en charge")) return false;
+  return status.startsWith("approuv") || status.startsWith("valid");
 }
 
 function edsLeaveDays(item) {
@@ -7791,6 +8104,7 @@ function planningSourceLabel(source) {
   const key = String(source || "").toLowerCase();
   if (key === "manual") return "saisie";
   if (key === "assign") return "affectation";
+  if (key === "tt-rotation") return "rotation TT";
   if (key === "import" || key === "cegid") return "import";
   return key;
 }
@@ -7871,7 +8185,8 @@ async function loadPlanningEntries() {
     .from("planning_entries")
     .select("id, user_id, work_date, slot, kind, hours, department, structure, location, note, source, matricule, created_by, created_at")
     .gte("work_date", range.start)
-    .lte("work_date", range.end);
+    .lte("work_date", range.end)
+    .limit(PLANNING_ENTRY_LIMIT);
   if (error) {
     const message = String(error.message || "");
     if (message.includes("does not exist") || message.includes("planning_entries")) {
@@ -8165,7 +8480,7 @@ function planningLeaveCode(type) {
   if (key === "justified") return "AJ";
   if (key === "cp") return "CP";
   if (key === "unpaid") return "SS";
-  if (key === "recup") return "RC";
+  if (key === "recup" || key === "rtt") return "RC";
   if (key === "travel") return "DE";
   if (key === "suspension") return "MP";
   if (key === "special") return "SP";
@@ -8261,8 +8576,16 @@ function countPendingUnjustifiedAbsences() {
 function renderUnjustifiedAbsenceInbox(model) {
   if (!(isHr() || hasDirectReports())) return "";
   const pending = listUnjustifiedAbsencesFromModel(model);
+  const totalPages = Math.max(1, Math.ceil(pending.length / AI_INBOX_PAGE_SIZE));
+  let page = Number(planningState.aiPage) || 1;
+  if (page > totalPages) page = totalPages;
+  if (page < 1) page = 1;
+  planningState.aiPage = page;
+  const start = (page - 1) * AI_INBOX_PAGE_SIZE;
+  const visible = pending.slice(start, start + AI_INBOX_PAGE_SIZE);
+  const showPager = pending.length > AI_INBOX_PAGE_SIZE;
   return `
-    <article class="card table-card page-spacer">
+    <article class="card table-card page-spacer ai-inbox">
       <div class="toolbar">
         <h3>Absences injustifiées à justifier</h3>
         <span class="hierarchy-result-count">${pending.length} absence${pending.length > 1 ? "s" : ""}</span>
@@ -8279,8 +8602,8 @@ function renderUnjustifiedAbsenceInbox(model) {
             </tr>
           </thead>
           <tbody>
-            ${pending.length
-              ? pending.map((item) => `
+            ${visible.length
+              ? visible.map((item) => `
                 <tr>
                   <td><strong>${escapeHtml(item.name)}</strong></td>
                   <td>${formatDate(item.dayKey)}</td>
@@ -8293,6 +8616,12 @@ function renderUnjustifiedAbsenceInbox(model) {
           </tbody>
         </table>
       </div>
+      ${showPager ? `
+      <nav class="ai-pager" aria-label="Pagination des absences injustifiées">
+        <button type="button" class="outline-button" data-ai-page="${page - 1}"${page <= 1 ? " disabled" : ""}>Précédent</button>
+        <span class="ai-pager__status">Page ${page} / ${totalPages}</span>
+        <button type="button" class="outline-button" data-ai-page="${page + 1}"${page >= totalPages ? " disabled" : ""}>Suivant</button>
+      </nav>` : ""}
     </article>`;
 }
 
@@ -8695,6 +9024,225 @@ async function applyMassShiftCode(profiles, shiftCode) {
   return count;
 }
 
+const TT_QUOTA_BY_DEPT = { rnd: 3, cs: 2, ces: 2 };
+
+function ttQuotaForDept(dept) {
+  return TT_QUOTA_BY_DEPT[String(dept || "").toLowerCase()] || 2;
+}
+
+function monthRotationOffset(year, monthIndex) {
+  return ((Number(year) * 12) + Number(monthIndex)) % 5;
+}
+
+function ttWeekdaysForPerson(personIndex, monthOffset, quota) {
+  const count = Math.max(0, Math.min(5, Number(quota) || 0));
+  const start = ((Number(personIndex) || 0) + (Number(monthOffset) || 0)) % 5;
+  const days = [];
+  for (let i = 0; i < count; i += 1) days.push(((start + i) % 5) + 1);
+  return days;
+}
+
+function assignTtRotation(people, workDates, options = {}) {
+  const skip = options.skip instanceof Set ? options.skip : new Set();
+  const offset = monthRotationOffset(options.year, options.monthIndex);
+  const buckets = { rnd: [], cs: [], ces: [] };
+  [...people].sort((a, b) => String(a.id).localeCompare(String(b.id))).forEach((person) => {
+    const dept = buckets[person.dept] ? person.dept : "cs";
+    buckets[dept].push({ ...person, dept });
+  });
+  const sorted = ["rnd", "cs", "ces"].flatMap((dept) => buckets[dept]);
+  const assign = {};
+  Object.values(buckets).forEach((members) => {
+    members.forEach((person, index) => {
+      const ttDays = new Set(ttWeekdaysForPerson(index, offset, ttQuotaForDept(person.dept)));
+      workDates.forEach((date) => {
+        const key = `${person.id}|${date}`;
+        if (skip.has(key)) return;
+        const weekday = parseLocalDate(date).getDay();
+        assign[key] = ttDays.has(weekday) ? "TT" : "PR";
+      });
+    });
+  });
+  const available = (date, dept) => sorted.filter((person) => {
+    if (dept && person.dept !== dept) return false;
+    return !skip.has(`${person.id}|${date}`);
+  });
+  const withKind = (date, dept, kind) => available(date, dept).filter((person) => assign[`${person.id}|${date}`] === kind);
+  const ttCount = (personId) => workDates.filter((date) => assign[`${personId}|${date}`] === "TT").length;
+  const forceOffice = (date, candidates) => {
+    const pick = [...candidates].sort((a, b) => {
+      const diff = ttCount(b.id) - ttCount(a.id);
+      return diff !== 0 ? diff : String(a.id).localeCompare(String(b.id));
+    })[0];
+    if (pick) assign[`${pick.id}|${date}`] = "PR";
+  };
+  workDates.forEach((date) => {
+    ["rnd", "cs", "ces"].forEach((dept) => {
+      if (available(date, dept).length < 2) return;
+      if (!withKind(date, dept, "PR").length) forceOffice(date, withKind(date, dept, "TT"));
+    });
+    if (available(date).length && !withKind(date, null, "PR").length) {
+      forceOffice(date, withKind(date, null, "TT"));
+    }
+  });
+  return assign;
+}
+
+function planningTtWorkDates(cursor = getPlanningCursor()) {
+  return planningDaysOfMonth(cursor).filter(isWorkingDayKey);
+}
+
+function planningTtBlockingKind(kindOrType) {
+  const raw = String(kindOrType || "");
+  const code = PLANNING_ABSENCE_CODES.has(raw) || raw === "DE" ? raw : planningLeaveCode(raw);
+  if (!code || code === "RE" || code === "DP") return "";
+  return PLANNING_ABSENCE_CODES.has(code) || code === "DE" ? code : "";
+}
+
+function planningHoursForLeaveDay(profile, item) {
+  const dept = planningDeptOf(profile);
+  const full = Number(SHIFT_PRESETS[dept]?.plannedHours || 8);
+  const unit = String(item?.unit || "").toLowerCase();
+  const half = String(item?.halfDay || item?.half_day || "").trim();
+  if (unit === "half" || half) return Math.max(1, full / 2);
+  if (unit === "hours" && Number(item?.hours) > 0) return Number(item.hours);
+  return full;
+}
+
+function clonePlanningAbsenceEntry(row) {
+  return {
+    user_id: row.user_id || row.userId,
+    work_date: String(row.work_date).slice(0, 10),
+    slot: Number(row.slot || 1),
+    kind: row.kind,
+    hours: Number(row.hours || 0),
+    department: row.department || "",
+    structure: row.structure || "",
+    location: row.location || "",
+    note: row.note || "",
+    source: row.source || "manual",
+    matricule: row.matricule || ""
+  };
+}
+
+function planningTtSkipSet(profiles, dates) {
+  const skip = new Set();
+  const ids = new Set(profiles.map((profile) => profile.id));
+  const dateSet = new Set(dates);
+  getPlanningLeaves().forEach((item) => {
+    const uid = item.userId || item.user_id;
+    if (!ids.has(uid) || !planningTtBlockingKind(item.type)) return;
+    dates.forEach((day) => {
+      if (leaveCoversPlanningDay(item, day)) skip.add(`${uid}|${day}`);
+    });
+  });
+  getPlanningEntries().forEach((row) => {
+    const uid = row.user_id || row.userId;
+    const day = String(row.work_date || "").slice(0, 10);
+    if (!ids.has(uid) || !dateSet.has(day)) return;
+    if (planningTtBlockingKind(row.kind)) skip.add(`${uid}|${day}`);
+  });
+  return skip;
+}
+
+function keptPlanningAbsenceEntries(profiles, start, end) {
+  const ids = new Set(profiles.map((profile) => profile.id));
+  const profileBy = Object.fromEntries(profiles.map((profile) => [profile.id, profile]));
+  const occupied = new Set();
+  const kept = [];
+  getPlanningEntries().forEach((row) => {
+    const uid = row.user_id || row.userId;
+    const day = String(row.work_date || "").slice(0, 10);
+    if (!ids.has(uid) || day < start || day > end) return;
+    if (!planningTtBlockingKind(row.kind)) return;
+    occupied.add(`${uid}|${day}`);
+    kept.push(clonePlanningAbsenceEntry(row));
+  });
+  getPlanningLeaves().forEach((item) => {
+    const uid = item.userId || item.user_id;
+    const profile = profileBy[uid];
+    const kind = planningTtBlockingKind(item.type);
+    if (!profile || !kind) return;
+    const hours = planningHoursForLeaveDay(profile, item);
+    const cursor = parseLocalDate(start);
+    const last = parseLocalDate(end);
+    while (cursor <= last) {
+      const day = toDateKey(cursor);
+      const key = `${uid}|${day}`;
+      cursor.setDate(cursor.getDate() + 1);
+      if (!isWorkingDayKey(day) || occupied.has(key) || !leaveCoversPlanningDay(item, day)) continue;
+      occupied.add(key);
+      kept.push({
+        user_id: uid,
+        work_date: day,
+        slot: 1,
+        kind,
+        hours,
+        department: profile.department || "",
+        structure: "",
+        location: kind === "DE" ? "Déplacement" : "",
+        note: item.type || kind,
+        source: "leave",
+        matricule: profile.matricule || ""
+      });
+    }
+  });
+  return kept;
+}
+
+async function applyTtRotationMonth() {
+  if (!canImportPlanning()) throw new Error("Seul un manager ou un administrateur peut générer le planning.");
+  const profiles = getPlanningProfiles("all");
+  if (!profiles.length) throw new Error("Aucun collaborateur sur le planning.");
+  const cursor = getPlanningCursor();
+  const range = planningMonthRange(cursor);
+  const todayKey = companyDateKey();
+  const replaceFrom = range.start < todayKey ? todayKey : range.start;
+  const dates = planningTtWorkDates(cursor).filter((day) => day >= replaceFrom);
+  if (!dates.length) throw new Error("Aucun jour ouvré restant sur ce mois.");
+  const people = profiles.map((profile) => ({ id: profile.id, dept: planningDeptOf(profile) }));
+  const skip = planningTtSkipSet(profiles, dates);
+  const assign = assignTtRotation(people, dates, {
+    year: cursor.getFullYear(),
+    monthIndex: cursor.getMonth(),
+    skip
+  });
+  const generated = [];
+  profiles.forEach((profile) => {
+    const dept = planningDeptOf(profile);
+    const hours = Number(SHIFT_PRESETS[dept]?.plannedHours || 8);
+    dates.forEach((day) => {
+      const kind = assign[`${profile.id}|${day}`];
+      if (!kind) return;
+      generated.push({
+        user_id: profile.id,
+        work_date: day,
+        slot: 1,
+        kind,
+        hours,
+        department: profile.department || "",
+        structure: "",
+        location: kind === "TT" ? "Télétravail" : "",
+        note: "Rotation TT auto",
+        source: "tt-rotation",
+        matricule: profile.matricule || ""
+      });
+    });
+  });
+  const entries = [...keptPlanningAbsenceEntries(profiles, replaceFrom, range.end), ...generated];
+  await savePlanningEntries(entries, {
+    replaceFrom,
+    replaceTo: range.end,
+    userIds: profiles.map((profile) => profile.id)
+  });
+  const ttCount = generated.filter((row) => row.kind === "TT").length;
+  const prCount = generated.filter((row) => row.kind === "PR").length;
+  const keptCount = entries.length - generated.length;
+  const keptNote = keptCount ? ` · ${keptCount} jour${keptCount > 1 ? "s" : ""} d'absence conservé${keptCount > 1 ? "s" : ""}` : "";
+  planningState.dept = "all";
+  planningState.importNotice = `Rotation TT ${range.start.slice(0, 7)} : ${profiles.length} agent${profiles.length > 1 ? "s" : ""} · ${ttCount} jour${ttCount > 1 ? "s" : ""} TT · ${prCount} sur site · R&D 3j / CS-CES 2j · bureau non vide${keptNote}.`;
+}
+
 async function applyMassPlanning(formOrData) {
   if (!canImportPlanning()) throw new Error("Seul un manager ou un administrateur peut affecter un planning.");
   const data = formOrData instanceof FormData ? formOrData : new FormData(formOrData);
@@ -9082,6 +9630,7 @@ async function applyPlanningDayChange({ userId, dayKey, kind, hours, coverage, n
 }
 
 function renderPlanningLog(model) {
+  const page = paginateList("planning-log", model.logs || []);
   return `
     <article class="card table-card">
       <div class="toolbar"><h3>Log du planning ${escapeHtml(PLANNING_DEPTS.find((item) => item.id === model.dept)?.label || "")}</h3></div>
@@ -9089,8 +9638,8 @@ function renderPlanningLog(model) {
         <table>
           <thead><tr><th>Date</th><th>Agent</th><th>Code</th><th>Détail</th><th>Source</th></tr></thead>
           <tbody>
-            ${model.logs.length
-              ? model.logs.map((item) => `
+            ${page.items.length
+              ? page.items.map((item) => `
                 <tr>
                   <td>${formatDate(item.dayKey)}</td>
                   <td>${escapeHtml(item.name)}</td>
@@ -9102,6 +9651,7 @@ function renderPlanningLog(model) {
           </tbody>
         </table>
       </div>
+      ${renderTablePager(page)}
     </article>`;
 }
 
@@ -9761,35 +10311,57 @@ async function loadAppSettingsBundle() {
   appData.shiftHours = normalizeShiftHours(byKey.gta_shifts);
 }
 
+function isoDaysAgo(days) {
+  const cursor = new Date();
+  cursor.setDate(cursor.getDate() - Math.max(1, Number(days) || 1));
+  return cursor.toISOString();
+}
+
+function dateKeyMonthsAgo(months) {
+  const cursor = new Date();
+  cursor.setMonth(cursor.getMonth() - Math.max(1, Number(months) || 1));
+  return toDateKey(cursor);
+}
+
+function ownListWindow() {
+  return currentPage === "privacy";
+}
+
 async function loadOwnPunches() {
   const userId = session.user.id;
+  const privacy = ownListWindow();
   const punchesRes = await supabaseClient
     .from("time_punches")
     .select("*")
     .eq("user_id", userId)
-    .order("punched_at", { ascending: true });
+    .gte("punched_at", isoDaysAgo(privacy ? PRIVACY_PUNCH_DAYS : OWN_PUNCH_DAYS))
+    .order("punched_at", { ascending: false })
+    .limit(privacy ? PRIVACY_PUNCH_LIMIT : OWN_PUNCH_LIMIT);
   if (punchesRes.error) throw punchesRes.error;
-    appData.punches = punchesRes.data || [];
+  appData.punches = punchesRes.data || [];
 }
 
 async function loadOwnLeave() {
   const userId = session.user.id;
+  const from = ownListWindow() ? dateKeyMonthsAgo(60) : dateKeyMonthsAgo(OWN_LEAVE_MONTHS);
   const leaveRes = await supabaseClient
     .from("leave_requests")
     .select("*")
     .eq("user_id", userId)
-    .order("created_at", { ascending: false });
+    .gte("end_date", from)
+    .order("created_at", { ascending: false })
+    .limit(OWN_HR_LIMIT);
   if (leaveRes.error) throw leaveRes.error;
-    appData.leaveRequests = leaveRes.data || [];
+  appData.leaveRequests = leaveRes.data || [];
 }
 
 async function loadOwnAttestations() {
   const userId = session.user.id;
   const teamIds = [userId, ...getDirectReportProfiles().map((profile) => profile.id)];
-  const scopeAll = hasOrgWideAccess();
+  const scopeAll = hasOrgWideAccess() || canApproveHrRequests();
   const scopeTeam = !scopeAll && hasDirectReports();
-  let attestationQuery = supabaseClient.from("attestation_requests").select("*").order("created_at", { ascending: false });
-  let advanceQuery = supabaseClient.from("salary_advance_requests").select("*").order("created_at", { ascending: false });
+  let attestationQuery = supabaseClient.from("attestation_requests").select("*").order("created_at", { ascending: false }).limit(OWN_HR_LIMIT);
+  let advanceQuery = supabaseClient.from("salary_advance_requests").select("*").order("created_at", { ascending: false }).limit(OWN_HR_LIMIT);
   if (scopeTeam) {
     attestationQuery = attestationQuery.in("user_id", teamIds);
     advanceQuery = advanceQuery.in("user_id", teamIds);
@@ -9813,6 +10385,25 @@ async function loadOwnAttestations() {
       appData.salaryAdvanceRequests = advanceRes.data || [];
       appData.salaryAdvanceTableMissing = false;
   }
+  await loadSalaryAdvanceQuota();
+}
+
+async function loadSalaryAdvanceQuota() {
+  if (!usesDatabase()) {
+    appData.salaryAdvanceQuota = computeSalaryAdvanceQuota();
+    return;
+  }
+  try {
+    const json = await supabaseClient.rpc("salary_advance_quota", {});
+    const data = json?.data;
+    if (json?.error || !data) {
+      appData.salaryAdvanceQuota = computeSalaryAdvanceQuota();
+      return;
+    }
+    appData.salaryAdvanceQuota = data;
+  } catch (_) {
+    appData.salaryAdvanceQuota = computeSalaryAdvanceQuota();
+  }
 }
 
 async function loadOrgDirectory() {
@@ -9822,7 +10413,7 @@ async function loadOrgDirectory() {
 
 async function loadOrgProfilesFull() {
   const directoryRows = await fetchOrgDirectoryRows();
-  const profilesRes = await supabaseClient.from("profiles").select("*").order("full_name");
+  const profilesRes = await supabaseClient.from("profiles").select(PROFILE_ADMIN_FIELDS.join(",")).order("full_name");
   if (profilesRes.error) throw profilesRes.error;
   appData.orgProfiles = mergeOrgProfiles(directoryRows, profilesRes.data || []);
 }
@@ -9833,7 +10424,7 @@ async function loadPendingInvites() {
     return;
   }
       const invitesRes = await withTimeout(
-        supabaseClient.from("pending_invites").select("*").order("created_at", { ascending: false }),
+        supabaseClient.from("pending_invites").select("*").order("created_at", { ascending: false }).limit(OWN_HR_LIMIT),
         8000,
         "Chargement des invitations"
       );
@@ -9843,10 +10434,11 @@ async function loadPendingInvites() {
 async function loadDocumentsAndPayslips() {
   const userId = session.user.id;
     const [docsRes, payslipsRes] = await Promise.all([
-      supabaseClient.from("hr_documents").select("*").order("published_at", { ascending: false }),
+      supabaseClient.from("hr_documents").select("*").order("published_at", { ascending: false }).limit(OWN_DOCS_LIMIT),
       supabaseClient.from("payslips").select("*").eq("user_id", userId)
         .order("period_year", { ascending: false })
         .order("period_month", { ascending: false })
+        .limit(OWN_DOCS_LIMIT)
     ]);
     if (!docsRes.error) appData.hrDocuments = docsRes.data || [];
     if (!payslipsRes.error) appData.payslips = payslipsRes.data || [];
@@ -10132,7 +10724,7 @@ function renderLogin(error = "") {
             <div id="config-note" class="config-note">Préparation de la connexion en cours...</div>
             <p id="login-error" class="error-message" hidden></p>
             <div class="separator"><span>ou</span></div>
-            <button id="demo-login" type="button" class="demo-button">Voir l'aperçu de démonstration</button>
+            <button id="demo-login" type="button" class="demo-button">Voir l'aperçu administrateur</button>
             <p class="login-legal">Outil RH professionnel.
               <a href="/confidentialite">Confidentialité</a> ·
               <a href="/mentions-legales">Mentions légales</a> ·
@@ -10892,8 +11484,70 @@ function bindTablePan() {
   });
 }
 
+function bindHrDropdowns() {
+  const syncOtherDetail = (root) => {
+    const field = root.closest("form")?.querySelector("[data-other-detail]");
+    if (!field) return;
+    const hasOther = [...root.querySelectorAll('input[name="types"]:checked')]
+      .some((input) => input.value === OTHER_REQUEST_CUSTOM);
+    field.hidden = !hasOther;
+    const detail = field.querySelector("input, textarea");
+    if (detail) detail.required = hasOther;
+  };
+
+  document.querySelectorAll("[data-hr-dropdown]").forEach((root) => {
+    const toggle = root.querySelector("[data-hr-toggle]");
+    const summary = root.querySelector("[data-hr-summary]");
+    const form = root.closest("form");
+    if (!toggle || !summary) return;
+    const placeholder = root.getAttribute("data-placeholder") || "Choisir";
+
+    const selectedTypes = () => [...root.querySelectorAll('input[name="types"]:checked')]
+      .map((input) => input.value)
+      .filter(Boolean);
+
+    const refreshSummary = () => {
+      const selected = selectedTypes();
+      summary.textContent = selected.length ? selected.join(", ") : placeholder;
+      toggle.classList.toggle("is-placeholder", !selected.length);
+      syncOtherDetail(root);
+    };
+
+    const setOpen = (open) => {
+      root.classList.toggle("is-open", open);
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    };
+
+    toggle.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(!root.classList.contains("is-open"));
+    });
+    root.addEventListener("change", refreshSummary);
+    form?.addEventListener("reset", () => {
+      setOpen(false);
+      queueMicrotask(refreshSummary);
+    });
+    refreshSummary();
+  });
+
+  if (!document.documentElement.dataset.hrDropdownBound) {
+    document.documentElement.dataset.hrDropdownBound = "1";
+    document.addEventListener("click", (event) => {
+      document.querySelectorAll("[data-hr-dropdown].is-open").forEach((current) => {
+        if (current.contains(event.target)) return;
+        current.classList.remove("is-open");
+        current.querySelector("[data-hr-toggle]")?.setAttribute("aria-expanded", "false");
+      });
+    });
+  }
+}
+
 function bindPageEvents() {
   bindTablePan();
+  bindTablePagers();
+  bindFilterPanels();
+  bindHrDropdowns();
   document.querySelector("#export-punch-history")?.addEventListener("click", exportPunchHistoryExcel);
   document.querySelectorAll("[data-goto-page]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -11123,6 +11777,8 @@ function bindPageEvents() {
       const range = getEdsRange();
       teamPunchFilters = { ...teamPunchFilters, start: range.start, end: range.end };
       teamPunchesInitialLoadDone = false;
+      resetTablePage("eds");
+      resetTablePage("gta-inbox");
       withAction(async () => {});
     });
   }
@@ -11208,6 +11864,9 @@ function bindPageEvents() {
         alert("La date de fin doit être postérieure à la date de début.");
         return;
       }
+      resetTablePage("team-punches");
+      resetTablePage("team-status");
+      resetTablePage("delay-inbox");
       withAction(() => loadTeamPunches());
     });
   }
@@ -11271,11 +11930,15 @@ function bindPageEvents() {
   });
   document.querySelector("#planning-dept")?.addEventListener("change", (event) => {
     planningState.dept = event.currentTarget.value || "cs";
+    planningState.aiPage = 1;
+    resetTablePage("planning-log");
     renderApp();
   });
   document.querySelector("#planning-prev")?.addEventListener("click", () => {
     const cursor = getPlanningCursor();
     planningState.cursor = new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1);
+    planningState.aiPage = 1;
+    resetTablePage("planning-log");
     const range = planningMonthRange();
     teamPunchFilters = { ...teamPunchFilters, start: range.start, end: range.end };
     if (usesDatabase() && canViewTeamPunches()) {
@@ -11288,6 +11951,8 @@ function bindPageEvents() {
   document.querySelector("#planning-next")?.addEventListener("click", () => {
     const cursor = getPlanningCursor();
     planningState.cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    planningState.aiPage = 1;
+    resetTablePage("planning-log");
     const range = planningMonthRange();
     teamPunchFilters = { ...teamPunchFilters, start: range.start, end: range.end };
     if (usesDatabase() && canViewTeamPunches()) {
@@ -11296,6 +11961,33 @@ function bindPageEvents() {
     } else {
       renderApp();
     }
+  });
+  document.querySelector("#planning-tt-rotate")?.addEventListener("click", () => {
+    const cursor = getPlanningCursor();
+    const monthLabel = cursor.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+    const ok = window.confirm(
+      `Générer la rotation télétravail de ${monthLabel} ?\n\n`
+      + "R&D : 3 jours TT / semaine\n"
+      + "CS et CES : 2 jours TT / semaine\n"
+      + "La répartition tourne chaque mois.\n"
+      + "Le bureau n'est jamais vide (au moins une personne sur site).\n"
+      + "Les congés validés, récupérations, déplacements et autres absences déjà posés sont conservés."
+    );
+    if (!ok) return;
+    (async () => {
+      appData.loading = true;
+      appData.error = "";
+      renderApp();
+      try {
+        await withTimeout(applyTtRotationMonth(), 180000, "Rotation TT");
+        if (usesDatabase()) await loadPageData(currentPage, { force: true });
+      } catch (error) {
+        appData.error = formatAppError(error);
+      } finally {
+        appData.loading = false;
+        renderApp();
+      }
+    })();
   });
   const assignForm = document.querySelector("#planning-assign-form");
   const snapshotAssign = () => {
@@ -11414,6 +12106,15 @@ function bindPageEvents() {
       openJustifyAbsenceDialog(button.dataset.userId, button.dataset.dayKey);
     });
   });
+  document.querySelectorAll("[data-ai-page]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.disabled) return;
+      const next = Number(button.dataset.aiPage);
+      if (!Number.isFinite(next) || next < 1) return;
+      planningState.aiPage = next;
+      renderApp();
+    });
+  });
 
   const journalFilter = document.querySelector("#journal-filter");
   if (journalFilter) {
@@ -11433,6 +12134,7 @@ function bindPageEvents() {
         alert("La date de fin doit être postérieure à la date de début.");
         return;
       }
+      resetTablePage("journal");
       journalPunchesInitialLoadDone = true;
       if (usesDatabase()) {
         withAction(() => loadJournalPunches());
@@ -11490,6 +12192,7 @@ function bindPageEvents() {
       if (value) journalColumnFilters[key] = value;
       else delete journalColumnFilters[key];
       journalOpenColumn = "";
+      resetTablePage("journal");
       refreshPageContent();
     });
   });
@@ -11723,6 +12426,15 @@ function bindPageEvents() {
       alert("Indiquez un montant d'avance supérieur à 0.");
       return;
     }
+    const quota = getSalaryAdvanceQuota();
+    if (!quota.ok) {
+      alert(quota.reason || "Demande d'avance impossible.");
+      return;
+    }
+    if (quota.maxAmount && amount > quota.maxAmount + 0.001) {
+      alert(`Le montant ne peut pas dépasser 30 % du salaire net (${formatMad(quota.maxAmount)}).`);
+      return;
+    }
 
     withAction(async () => {
       const payload = {
@@ -11756,25 +12468,102 @@ function bindPageEvents() {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
+    const types = [...new Set(data.getAll("types"))]
+      .map((item) => String(item || "").trim())
+      .filter((type) => attestationTypes.includes(type));
+    const reason = String(data.get("reason") || "").trim();
+    if (!types.length) {
+      alert("Sélectionnez au moins un type d'attestation.");
+      return;
+    }
+    if (!reason) {
+      alert("Indiquez le motif de la demande.");
+      return;
+    }
 
     withAction(async () => {
-      const payload = {
-        type: data.get("type"),
-        reason: data.get("reason"),
-        status: "A valider"
-      };
-
       if (usesDatabase()) {
-        const { error } = await supabaseClient.from("attestation_requests").insert({
-          user_id: session.user.id,
-          document_type: payload.type,
-          reason: payload.reason,
-          status: payload.status
-        });
+        const { error } = await supabaseClient.from("attestation_requests").insert(
+          types.map((type) => ({
+            user_id: session.user.id,
+            document_type: type,
+            reason,
+            status: "A valider"
+          }))
+        );
         if (error) throw error;
       } else {
         const requests = loadStore("attestationRequests", []);
-        requests.unshift({ id: Date.now(), userId: session?.user?.id, ...payload, created: new Date().toISOString() });
+        const created = new Date().toISOString();
+        types.forEach((type, index) => {
+          requests.unshift({
+            id: `${Date.now()}-${index}`,
+            userId: session?.user?.id,
+            kind: "attestation",
+            type,
+            reason,
+            status: "A valider",
+            created
+          });
+        });
+        saveStore("attestationRequests", requests);
+      }
+
+      form.reset();
+      currentPage = "attestations";
+    });
+  });
+
+  document.querySelector("#other-request-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const types = [...new Set(data.getAll("types"))]
+      .map((item) => String(item || "").trim())
+      .filter((type) => otherRequestTypes.includes(type));
+    const reason = String(data.get("reason") || "").trim();
+    const otherDetail = String(data.get("other_detail") || "").replace(/\s+/g, " ").trim().slice(0, 120);
+    if (!types.length) {
+      alert("Sélectionnez au moins un type de demande.");
+      return;
+    }
+    if (types.includes(OTHER_REQUEST_CUSTOM) && !otherDetail) {
+      alert("Précisez le type de demande (Autre).");
+      return;
+    }
+    if (!reason) {
+      alert("Indiquez le motif de la demande.");
+      return;
+    }
+    const documentTypes = types.map((type) => (
+      type === OTHER_REQUEST_CUSTOM ? `${OTHER_REQUEST_CUSTOM} : ${otherDetail}` : type
+    ));
+
+    withAction(async () => {
+      if (usesDatabase()) {
+        const { error } = await supabaseClient.from("attestation_requests").insert(
+          documentTypes.map((type) => ({
+            user_id: session.user.id,
+            document_type: type,
+            reason,
+            status: "A valider"
+          }))
+        );
+        if (error) throw error;
+      } else {
+        const requests = loadStore("attestationRequests", []);
+        const created = new Date().toISOString();
+        documentTypes.forEach((type, index) => {
+          requests.unshift({
+            id: `${Date.now()}-${index}`,
+            userId: session?.user?.id,
+            kind: "other",
+            type,
+            reason,
+            status: "A valider",
+            created
+          });
+        });
         saveStore("attestationRequests", requests);
       }
 
@@ -11786,7 +12575,7 @@ function bindPageEvents() {
   const settleHrItem = (kind, itemId, refuse) => {
     const table = kind === "advance" ? "salary_advance_requests" : "attestation_requests";
     const store = kind === "advance" ? "salaryAdvanceRequests" : "attestationRequests";
-    const current = getHrRequests().find((item) => String(item.id) === String(itemId) && item.kind === (kind === "advance" ? "advance" : "attestation"));
+    const current = getHrRequests().find((item) => String(item.id) === String(itemId) && item.kind === kind);
     if (!current || !canValidateHrRequest(current)) return;
     withAction(async () => {
       const status = refuse ? "Refuse" : "Approuve";
@@ -12047,6 +12836,7 @@ function bindAppEvents() {
       attestationRequests: [],
       salaryAdvanceRequests: [],
       salaryAdvanceTableMissing: false,
+      salaryAdvanceQuota: null,
       orgProfiles: [],
       pendingInvites: [],
       hrDocuments: [],
@@ -12159,7 +12949,7 @@ async function initialize() {
     ensureAppContainer();
     if (shouldBootAuthenticatedUi()) showAuthBootScreen();
     bindLoginEvents();
-    // Reprise du mode démo après redirection depuis / vers /home.html.
+    // Reprise du mode démo après redirection depuis / vers /admin.html.
     // Le flag reste dans sessionStorage tant que l'utilisateur ne se déconnecte
     // pas : chaque navigation MPA (page reload) re-hydrate l'état démo.
     if (mpaMode) {
@@ -12274,14 +13064,14 @@ window.humanaRender = async function (authSession) {
 
 function hydrateDemoWorkspace() {
   const profiles = [
-    { id: "u-camille", email: "camille.moreau@humaine.fr", full_name: "Camille Moreau", job_title: "Directrice RH", department: "Ressources humaines", role: "creator", manager_id: "", matricule: "HUM-1001", leave_grade: "codir", shift_code: "cs", hired_at: "2018-03-01", leave_balance_cp: 30, leave_balance_rtt: 8 },
+    { id: "u-camille", email: "camille.moreau@humaine.fr", full_name: "Camille Moreau", job_title: "Directrice RH", department: "Ressources humaines", role: "admin", manager_id: "", matricule: "HUM-1001", leave_grade: "codir", shift_code: "cs", hired_at: "2018-03-01", leave_balance_cp: 30, leave_balance_rtt: 8 },
     { id: "u-thomas", email: "thomas.bernard@humaine.fr", full_name: "Thomas Bernard", job_title: "Responsable opérations", department: "Opérations", role: "manager", manager_id: "u-camille", matricule: "HUM-1042", leave_grade: "manager", shift_code: "cs", hired_at: "2020-01-15", leave_balance_cp: 24, leave_balance_rtt: 6 },
     { id: "u-sarah", email: "sarah.nguyen@humaine.fr", full_name: "Sarah Nguyen", job_title: "Responsable commercial", department: "Commercial", role: "manager", manager_id: "u-camille", matricule: "HUM-1088", leave_grade: "manager", shift_code: "cs", hired_at: "2019-09-01", leave_balance_cp: 24, leave_balance_rtt: 8 },
     { id: "u-lea", email: "lea.martin@humaine.fr", full_name: "Léa Martin", job_title: "Chargée de paie", department: "Ressources humaines", role: "rh", manager_id: "u-thomas", matricule: "HUM-1214", leave_grade: "employee", shift_code: "cs", hired_at: "2024-01-08", leave_balance_cp: 18, leave_balance_rtt: 5 },
     { id: "u-hugo", email: "hugo.petit@humaine.fr", full_name: "Hugo Petit", job_title: "Ingénieur R&D", department: "R&D", role: "employee", manager_id: "u-thomas", matricule: "HUM-1307", leave_grade: "employee", shift_code: "rnd", hired_at: "2023-06-12", leave_balance_cp: 18, leave_balance_rtt: 8 },
     { id: "u-nina", email: "nina.rossi@humaine.fr", full_name: "Nina Rossi", job_title: "Commerciale", department: "CES", role: "employee", manager_id: "u-sarah", matricule: "HUM-1420", leave_grade: "employee", shift_code: "ces", hired_at: "2025-11-02", leave_balance_cp: 4, leave_balance_rtt: 2 }
   ];
-  const me = profiles.find((profile) => profile.id === "u-thomas") || profiles[1];
+  const me = profiles.find((profile) => profile.id === "u-camille") || profiles[0];
   session = {
     user: {
       id: me.id,
@@ -12357,6 +13147,14 @@ function hydrateDemoWorkspace() {
     workLocation: row.work_location || null,
     workStatus: row.work_status || null
   })));
+  const nextWork = [];
+  const probe = new Date();
+  probe.setDate(probe.getDate() + 1);
+  while (nextWork.length < 4) {
+    const key = toDateKey(probe);
+    if (isWorkingDayKey(key)) nextWork.push(key);
+    probe.setDate(probe.getDate() + 1);
+  }
   saveStore("leaveRequests", [{
     id: "leave-demo-1",
     userId: "u-lea",
@@ -12367,6 +13165,39 @@ function hydrateDemoWorkspace() {
     days: 3,
     status: "A valider — Manager N+1",
     workflowStep: 1,
+    created: new Date().toISOString()
+  }, {
+    id: "leave-demo-cp",
+    userId: "u-hugo",
+    name: "Hugo Petit",
+    type: "Congés Payés",
+    start: nextWork[0],
+    end: nextWork[1],
+    days: 2,
+    status: "Validé",
+    workflowStep: 2,
+    created: new Date().toISOString()
+  }, {
+    id: "leave-demo-rc",
+    userId: "u-lea",
+    name: "Lea Martin",
+    type: "Récupération",
+    start: nextWork[0],
+    end: nextWork[0],
+    days: 1,
+    status: "Approuve",
+    workflowStep: 2,
+    created: new Date().toISOString()
+  }, {
+    id: "leave-demo-de",
+    userId: "u-thomas",
+    name: "Thomas Bernard",
+    type: "Déplacement",
+    start: nextWork[2],
+    end: nextWork[2],
+    days: 1,
+    status: "Validé",
+    workflowStep: 2,
     created: new Date().toISOString()
   }]);
   const todayKey = toDateKey(new Date());
@@ -12418,6 +13249,14 @@ function hydrateDemoWorkspace() {
     reason: "Dossier de location",
     status: "A valider",
     created: new Date().toISOString()
+  }, {
+    id: "oth-demo-1",
+    userId: "u-lea",
+    kind: "other",
+    type: "Info assurance",
+    reason: "Demande de tableau de garanties",
+    status: "A valider",
+    created: new Date().toISOString()
   }]);
   saveStore("salaryAdvanceRequests", [{
     id: "adv-demo-1",
@@ -12441,15 +13280,222 @@ window.humanaStartDemo = function () {
   showAuthBootScreen();
   hydrateDemoWorkspace();
   if (!mpaMode) {
-    // Le mode démo doit rejoindre la vraie home MPA (avec pages/*.js chargés).
-    // Le state démo est déjà hydraté et sera repris via la session côté nouvelle page.
+    // Le mode démo doit rejoindre la page admin MPA (avec pages/*.js chargés).
     try { sessionStorage.setItem("humana_demo_mode", "1"); } catch (_) { /* ignore */ }
-    window.location.href = pageHref("home");
+    window.location.href = pageHref("admin");
     return;
   }
   renderApp();
   hideAuthBootScreen();
 };
+
+
+
+
+
+
+
+/* HUMANA_PAGE_API_START */
+(function publishHumanaPageApi() {
+  const api = window.Humana || (window.Humana = {});
+  api.pages = api.pages || {};
+  Object.assign(api, {
+    EVENT_TYPES,
+    EVENT_VISIBILITIES,
+    JOURNAL_COLUMNS,
+    NAV_VISIBILITY_AUDIENCES,
+    NAV_VISIBILITY_PAGES,
+    PLANNING_DEPTS,
+    attestationTypes,
+    avatarForProfile,
+    badge,
+    balanceCard,
+    buildEdsRows,
+    buildGlobalDashboardData,
+    buildOrgTree,
+    buildPlanningModel,
+    canEditEdsPayroll,
+    canImportPlanning,
+    canViewGlobal,
+    canViewHrAlerts,
+    canViewJournal,
+    canViewPlanning,
+    canViewReports,
+    canViewTeamPunches,
+    cardHeading,
+    computeBreakDuration,
+    computeWorkedHours,
+    countOrgNodes,
+    dayGreeting,
+    downloadCsv,
+    edsFilterMarkup,
+    edsPeriodLabel,
+    escapeHtml,
+    eventLocalDateTimeValue,
+    eventTypeMeta,
+    eventVisibilityLabel,
+    filterOrgTree,
+    formatCountdown,
+    formatDate,
+    formatDuration,
+    formatEventTimeShort,
+    formatEventWhen,
+    formatTime,
+    formatTimeSeconds,
+    getClockState,
+    getClockStatusCopy,
+    getCompanyEvents,
+    getDefaultTeamPunchRange,
+    getDirectReportProfiles,
+    getEdsRange,
+    getHrDocuments,
+    getJournalProfiles,
+    getJournalRange,
+    getJournalSessions,
+    getLeaveBalances,
+    getLeaveRequests,
+    getLeaveValidatorChain,
+    getManagerChain,
+    getNavVisibility,
+    getOwnHrRequests,
+    getPunches,
+    getSalaryAdvanceQuota,
+    getTeamPunchProfiles,
+    getTeamPunchScope,
+    getTodayPunches,
+    getUserName,
+    hasOrgWideAccess,
+    hoursCard,
+    hrRequestRows,
+    isAdmin,
+    isCreator,
+    isFilterPanelOpen,
+    isNavPageVisible,
+    leaveChainLabel,
+    leaveIsHoursUnit,
+    leaveRows,
+    leaveTypeOptionsHtml,
+    otherRequestTypes,
+    paginateList,
+    pendingLeaveForValidator,
+    privateFileLinkAttributes,
+    profileById,
+    punchTypeLabel,
+    renderClockActions,
+    renderClockStatus,
+    renderCreatorAccountsSection,
+    renderDateBadge,
+    renderDayTimeline,
+    renderEventDetailOverlay,
+    renderGlobalDailyChart,
+    renderGlobalDepartments,
+    renderGlobalDonut,
+    renderGlobalKpiCards,
+    renderGlobalTopDelays,
+    renderGtaClockTools,
+    renderGtaSettingsSection,
+    renderGtaTeamInbox,
+    renderHomeEventsCard,
+    renderHomeShiftSummary,
+    renderHrAlertsCard,
+    renderHrTeamFollowup,
+    renderHrValidationInbox,
+    renderJournalColumnMenu,
+    renderJournalStatus,
+    renderLeaveCalendar,
+    renderOrgNode,
+    renderPendingDelayInbox,
+    renderPlanningAssignPanel,
+    renderPlanningGaps,
+    renderPlanningGrid,
+    renderPlanningLog,
+    renderProfilePyramidCard,
+    renderPunchHistory,
+    renderTablePager,
+    renderTeamPunchDetailCard,
+    renderUnjustifiedAbsenceInbox,
+    renderUserAccountSection,
+    renderWorkLocationBadge,
+    renderWorkLocationSelector,
+    resolveDailyRowWorkLocation,
+    roleLabels,
+    sanitizeEventPosterUrl,
+    seniorityMonths,
+    summarizeTeamPunchesByDay,
+    summarizeTeamPunchesByUser,
+    usesDatabase,
+    visibleEdsColumns
+  });
+  Object.defineProperties(api, {
+    appData: {
+      enumerable: true,
+      configurable: true,
+      get() { return appData; },
+      set(v) { appData = v; }
+    },
+    demoMode: {
+      enumerable: true,
+      configurable: true,
+      get() { return demoMode; },
+      set(v) { demoMode = v; }
+    },
+    hierarchySearch: {
+      enumerable: true,
+      configurable: true,
+      get() { return hierarchySearch; },
+      set(v) { hierarchySearch = v; }
+    },
+    journalColumnFilters: {
+      enumerable: true,
+      configurable: true,
+      get() { return journalColumnFilters; },
+      set(v) { journalColumnFilters = v; }
+    },
+    journalFilters: {
+      enumerable: true,
+      configurable: true,
+      get() { return journalFilters; },
+      set(v) { journalFilters = v; }
+    },
+    journalFullscreen: {
+      enumerable: true,
+      configurable: true,
+      get() { return journalFullscreen; },
+      set(v) { journalFullscreen = v; }
+    },
+    journalOpenColumn: {
+      enumerable: true,
+      configurable: true,
+      get() { return journalOpenColumn; },
+      set(v) { journalOpenColumn = v; }
+    },
+    journalSort: {
+      enumerable: true,
+      configurable: true,
+      get() { return journalSort; },
+      set(v) { journalSort = v; }
+    },
+    planningState: {
+      enumerable: true,
+      configurable: true,
+      get() { return planningState; },
+      set(v) { planningState = v; }
+    },
+    session: {
+      enumerable: true,
+      configurable: true,
+      get() { return session; },
+      set(v) { session = v; }
+    },
+    teamPunchFilters: {
+      enumerable: true,
+      configurable: true,
+      get() { return teamPunchFilters; },
+      set(v) { teamPunchFilters = v; }
+    }
+  });
+})();
+/* HUMANA_PAGE_API_END */
 
 // Retarde initialize() jusqu'à ce que tous les scripts synchrones du HTML aient
 // été exécutés (dont pages/<key>.js). Sans cela, un renderApp() déclenché dans
@@ -12460,3 +13506,4 @@ if (document.readyState === "loading") {
 } else {
 initialize();
 }
+})();

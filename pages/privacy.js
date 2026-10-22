@@ -1,8 +1,11 @@
-(function () {
+/* Page "privacy" : frontière window.Humana (app.js).
+ * Plus de dépendance au scope global. Source maintenue dans pages/.
+ */
+(function (H) {
   "use strict";
 
   function ownId() {
-    return session?.user?.id || appData.profile?.id || "";
+    return H.session?.user?.id || H.appData.profile?.id || "";
   }
 
   function ownRows(rows) {
@@ -14,17 +17,17 @@
 
   function dash(value) {
     const text = String(value == null ? "" : value).trim();
-    return text ? escapeHtml(text) : "—";
+    return text ? H.escapeHtml(text) : "—";
   }
 
   function privacyPack() {
-    const profile = appData.profile || {};
-    const punches = usesDatabase() ? (appData.punches || []) : getPunches();
-    const leave = usesDatabase() ? ownRows(appData.leaveRequests) : getLeaveRequests();
-    const attestations = ownRows(appData.attestationRequests);
-    const advances = ownRows(appData.salaryAdvanceRequests);
-    const payslips = appData.payslips || [];
-    const documents = ownRows(appData.hrDocuments).map((doc) => ({
+    const profile = H.appData.profile || {};
+    const punches = H.usesDatabase() ? (H.appData.punches || []) : H.getPunches();
+    const leave = H.usesDatabase() ? ownRows(H.appData.leaveRequests) : H.getLeaveRequests();
+    const attestations = ownRows(H.appData.attestationRequests);
+    const advances = ownRows(H.appData.salaryAdvanceRequests);
+    const payslips = H.appData.payslips || [];
+    const documents = ownRows(H.appData.hrDocuments).map((doc) => ({
       id: doc.id,
       title: doc.title || doc.name,
       published_at: doc.published_at,
@@ -35,7 +38,7 @@
       product: "Daylyx",
       profile: {
         id: profile.id,
-        email: profile.email || session?.user?.email,
+        email: profile.email || H.session?.user?.email,
         full_name: profile.full_name,
         role: profile.role,
         job_title: profile.job_title,
@@ -78,7 +81,7 @@
       alert("Aucun pointage à exporter pour le moment.");
       return;
     }
-    downloadCsv(
+    H.downloadCsv(
       `daylyx-pointages_${new Date().toISOString().slice(0, 10)}.csv`,
       ["Date", "Type", "Lieu", "Latitude", "Longitude", "IP", "Source"],
       punches.map((punch) => [
@@ -98,35 +101,35 @@
     const name = String(cfg.LEGAL_DPO_NAME || "").trim();
     const email = String(cfg.LEGAL_DPO_EMAIL || "").trim();
     const bits = [];
-    if (name) bits.push(escapeHtml(name));
+    if (name) bits.push(H.escapeHtml(name));
     if (email && /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(email)) {
-      bits.push(`<a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a>`);
+      bits.push(`<a href="mailto:${H.escapeHtml(email)}">${H.escapeHtml(email)}</a>`);
     }
     if (bits.length) return bits.join(" — ");
     return "l’administration RH";
   }
 
   function privacyPage() {
-    const profile = appData.profile || {};
+    const profile = H.appData.profile || {};
     const pack = privacyPack();
-    const name = profile.full_name || session?.user?.email || "Collaborateur";
+    const name = profile.full_name || H.session?.user?.email || "Collaborateur";
 
     return `
       <div class="privacy-grid">
         <article class="card">
-          ${cardHeading("Mon dossier")}
+          ${H.cardHeading("Mon dossier")}
           <dl class="privacy-dl">
             <dt>Nom</dt><dd>${dash(name)}</dd>
-            <dt>E-mail</dt><dd>${dash(profile.email || session?.user?.email)}</dd>
+            <dt>E-mail</dt><dd>${dash(profile.email || H.session?.user?.email)}</dd>
             <dt>Matricule</dt><dd>${dash(profile.matricule)}</dd>
             <dt>Poste</dt><dd>${dash(profile.job_title)}</dd>
             <dt>Service</dt><dd>${dash(profile.department)}</dd>
             <dt>Téléphone</dt><dd>${dash(profile.phone)}</dd>
-            <dt>Rôle</dt><dd>${dash(roleLabels[profile.role] || profile.role)}</dd>
+            <dt>Rôle</dt><dd>${dash(H.roleLabels[profile.role] || profile.role)}</dd>
           </dl>
         </article>
         <article class="card">
-          ${cardHeading("Données enregistrées")}
+          ${H.cardHeading("Données enregistrées")}
           <dl class="privacy-dl">
             <dt>Pointages</dt><dd>${pack.time_punches.length}</dd>
             <dt>Congés</dt><dd>${pack.leave_requests.length}</dd>
@@ -140,7 +143,7 @@
           </div>
         </article>
         <article class="card">
-          ${cardHeading("Vos droits")}
+          ${H.cardHeading("Vos droits")}
           <p>Vous pouvez consulter et récupérer les informations ci-dessus. Pour une correction ou une suppression, contactez ${dpoContactMarkup()} : certaines données (pointages, éléments de paie) sont conservées 5 ans (paie) ou 1 an (détail quotidien des horaires).</p>
           <ul class="privacy-legal-links">
             <li><a href="/confidentialite">Confidentialité</a></li>
@@ -161,7 +164,5 @@
     }
   });
 
-  (window.Humana = window.Humana || {});
-  (window.Humana.pages = window.Humana.pages || {});
-  window.Humana.pages.privacy = privacyPage;
-})();
+  (H.pages = H.pages || {})["privacy"] = privacyPage;
+})(window.Humana);

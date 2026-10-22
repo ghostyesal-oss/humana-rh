@@ -50,6 +50,7 @@ pnpm-debug.log*
 
 # Sauvegardes et archives (données personnelles : ne jamais commiter).
 backups/
+backups-offsite/
 humana_[0-9]*/
 humana_[0-9]*.7z
 *.dump

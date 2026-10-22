@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
-import { adminQuery, withAdmin } from "./db.js";
+import { adminQuery, withAdmin, withUser } from "./db.js";
 import { assertJwtSecret } from "./jwt-secret.js";
 
 const COOKIE = "humana_session";
@@ -140,6 +140,7 @@ export async function bumpSessionEpoch(userId) {
       throw error;
     }
   });
+  invalidateProfileCache(userId);
 }
 
 export function setSessionCookie(res, token) {
@@ -161,9 +162,30 @@ export function clearSessionCookie(res) {
   });
 }
 
+const PROFILE_TTL_MS = 15000;
+const profileCache = new Map();
+
+export function invalidateProfileCache(userId) {
+  if (userId) profileCache.delete(String(userId));
+  else profileCache.clear();
+}
+
 export async function loadProfile(userId) {
-  const { rows } = await adminQuery("select * from public.profiles where id = $1 limit 1", [userId]);
-  return rows[0] || null;
+  const id = String(userId || "");
+  if (!id) return null;
+  const now = Date.now();
+  const hit = profileCache.get(id);
+  if (hit && hit.until > now) return hit.row;
+  const row = await withUser({ sub: id, role: "employee", email: "" }, async (client) => {
+    const { rows } = await client.query(
+      `select id, email, full_name, role, session_epoch
+       from public.profiles where id = $1 limit 1`,
+      [id]
+    );
+    return rows[0] || null;
+  });
+  if (row) profileCache.set(id, { row, until: now + PROFILE_TTL_MS });
+  return row;
 }
 
 export async function findProfileByEmail(email) {

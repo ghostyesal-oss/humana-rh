@@ -23,6 +23,9 @@ import { runRpc } from "./rpc.js";
 import { publicUrl, readFile, removeFile, saveFile, assertCanReadStorage } from "./storage.js";
 import { runMigrations } from "./migrate.js";
 import { logSensitiveAccess, query } from "./db.js";
+import { buildHealth, installProcessHandlers, logJson, requestLogger } from "./obs.js";
+
+installProcessHandlers();
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024 } });
@@ -56,6 +59,7 @@ const origins = allowedOrigins();
 
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
+app.use(requestLogger);
 app.use(cookieParser());
 app.use(express.json({ limit: "8mb" }));
 app.use(cors({
@@ -117,8 +121,9 @@ app.get("/api/auth/csrf", authLimiter, (req, res) => {
   res.json({ csrfToken: req.csrfToken() });
 });
 
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
+app.get("/api/health", async (_req, res) => {
+  const payload = await buildHealth(() => query("select 1"));
+  res.status(payload.ok ? 200 : 503).json(payload);
 });
 
 app.get("/api/auth/microsoft", authLimiter, startMicrosoftLogin);
@@ -139,7 +144,7 @@ app.post("/api/auth/logout", async (req, res) => {
   try {
     if (user?.sub) await bumpSessionEpoch(user.sub);
   } catch (error) {
-    console.error("logout epoch", error);
+    logJson("error", "logout epoch", { err: error });
     return res.status(500).json({
       error: { message: "Déconnexion incomplète. Réessayez." }
     });
@@ -167,7 +172,7 @@ app.post("/api/db", requireAuth, writeLimiter, async (req, res) => {
     const status = result.error ? (result.error.code === "PGRST116" ? 406 : 400) : 200;
     res.status(status).json(result);
   } catch (error) {
-    console.error(error);
+    logJson("error", "db query", { err: error, status: error.status || 500 });
     res.status(error.status || 500).json({ data: null, error: { message: error.message || "Erreur serveur" } });
   }
 });
@@ -177,6 +182,7 @@ app.post("/api/rpc/:name", requireAuth, writeLimiter, async (req, res) => {
     const result = await runRpc(req.user, String(req.params.name || ""), req.body || {});
     res.json(result);
   } catch (error) {
+    logJson("error", "rpc", { err: error, status: error.status || 500, name: String(req.params.name || "") });
     res.status(error.status || 500).json({ data: null, error: { message: error.message || "Erreur serveur" } });
   }
 });
@@ -257,6 +263,7 @@ app.use((error, _req, res, next) => {
     return res.status(403).json({ data: null, error: { message: "csrf token invalid" } });
   }
   const status = Number(error.status || error.statusCode || 500);
+  if (status >= 500) logJson("error", "unhandled", { err: error, status });
   return res.status(status).json({
     data: null,
     error: { message: error.message || "Erreur serveur" }
@@ -274,17 +281,17 @@ const port = Number(process.env.PORT || 3000);
 try {
   assertJwtSecret();
 } catch (error) {
-  console.error("JWT_SECRET:", error.message);
+  logJson("error", "JWT_SECRET", { err: error });
   process.exit(1);
 }
 runMigrations()
   .then(() => query("select 1"))
   .then(() => {
     app.listen(port, () => {
-      console.log(`Daylyx API écoute sur ${port}`);
+      logJson("info", "api.listen", { port });
     });
   })
   .catch((error) => {
-    console.error("Migrations:", error);
+    logJson("error", "startup", { err: error });
     process.exit(1);
   });
