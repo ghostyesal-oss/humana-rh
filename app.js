@@ -34,7 +34,7 @@ function assetUrl(path) {
   return hash ? `/${clean}?h=${hash}` : `/${clean}`;
 }
 
-const PAGE_MODULE_REV = "h11";
+const PAGE_MODULE_REV = "h15";
 
 function ensurePageModule(page) {
   if (window.Humana?.pages?.[page]) return Promise.resolve();
@@ -138,6 +138,8 @@ let bootstrapInFlight = null;
 let hierarchySearch = "";
 const collapsedOrgNodes = new Set();
 let teamPunchFilters = { start: "", end: "", userId: "", scope: "all", detailView: "punches" };
+let globalFilters = { start: "", end: "", scope: "all" };
+let dataRangeContext = "";
 let edsFilters = { start: "", end: "" };
 let teamPunchesInitialLoadDone = false;
 let journalFilters = { start: "", end: "", userId: "", query: "" };
@@ -1352,6 +1354,26 @@ function getTeamPunchScope() {
   return teamPunchFilters.scope === "team" ? "team" : "all";
 }
 
+function ensureGlobalFilters() {
+  if (!globalFilters.start || !globalFilters.end) {
+    const range = getDefaultTeamPunchRange();
+    globalFilters.start = range.start;
+    globalFilters.end = range.end;
+  }
+  globalFilters.scope = hasOrgWideAccess() && globalFilters.scope !== "team" ? "all" : "team";
+  return globalFilters;
+}
+
+function getGlobalScope() {
+  if (!hasOrgWideAccess()) return "team";
+  return ensureGlobalFilters().scope === "team" ? "team" : "all";
+}
+
+function getGlobalFilterRange() {
+  const filters = ensureGlobalFilters();
+  return { start: filters.start, end: filters.end };
+}
+
 function getTeamPunchProfiles(scope = getTeamPunchScope()) {
   const profiles = scope === "team"
     ? getDirectReportProfiles()
@@ -2297,29 +2319,31 @@ function exportTeamPunchesCsv() {
   );
 }
 
-async function loadTeamPunches(filters = teamPunchFilters) {
+async function loadTeamPunches(filters) {
   if (!canViewTeamPunches()) {
     appData.teamPunches = [];
     return [];
   }
 
-  const scope = filters.scope === "team" ? "team" : (isAdmin() ? "all" : "team");
+  const resolved = filters || (currentPage === "global" ? ensureGlobalFilters() : teamPunchFilters);
+  const scope = resolved.scope === "team" ? "team" : (isAdmin() ? "all" : "team");
   const profiles = getTeamPunchProfiles(scope);
-  const userIds = filters.userId
-    ? [filters.userId]
+  const userIds = resolved.userId
+    ? [resolved.userId]
     : profiles.map((profile) => profile.id);
 
-  if (!isAdmin() || scope === "team" || filters.userId) {
+  if (!isAdmin() || scope === "team" || resolved.userId) {
     if (!userIds.length) {
       appData.teamPunches = [];
       return [];
     }
   }
 
-  const range = {
-    start: filters.start || getDefaultTeamPunchRange().start,
-    end: filters.end || getDefaultTeamPunchRange().end
+  const baseRange = {
+    start: resolved.start || getDefaultTeamPunchRange().start,
+    end: resolved.end || getDefaultTeamPunchRange().end
   };
+  const range = currentPage === "global" ? globalMetricsSpan(baseRange) : baseRange;
   let query = supabaseClient
     .from("time_punches")
     .select("*, profiles(full_name, email)")
@@ -2328,8 +2352,8 @@ async function loadTeamPunches(filters = teamPunchFilters) {
     .order("punched_at", { ascending: false })
     .limit(TEAM_PUNCH_LIMIT);
 
-  if (filters.userId) {
-    query = query.eq("user_id", filters.userId);
+  if (resolved.userId) {
+    query = query.eq("user_id", resolved.userId);
   } else if (!isAdmin() || scope === "team") {
     query = query.in("user_id", userIds);
   }
@@ -7874,9 +7898,9 @@ function edsRowCells(row, columns = visibleEdsColumns()) {
 
 const PLANNING_DEPTS = [
   { id: "all", label: "Tous", hint: "Tous les agents du périmètre, y compris le planning importé." },
-  { id: "rnd", label: "R&D", hint: "Objectif : 8h travaillées + 1h de pause déjeuner (horaire souple)." },
-  { id: "cs", label: "CS", hint: "Calendrier fixe 08h–17h, pause 1h." },
-  { id: "ces", label: "CES", hint: "Calendrier fixe 08h–17h, pause 1h." }
+  { id: "rnd", label: "R&D", hint: "8h + pause · 3 j. de télétravail par semaine." },
+  { id: "cs", label: "CS", hint: "08h–17h · 2 j. de télétravail par semaine." },
+  { id: "ces", label: "CES", hint: "08h–17h · 2 j. de télétravail par semaine." }
 ];
 
 const PLANNING_CODES = [
@@ -8593,8 +8617,14 @@ function planningEntriesRange() {
   const eds = getEdsRange();
   if (eds.start < start) start = eds.start;
   if (eds.end > end) end = eds.end;
-  if (teamPunchFilters?.start && teamPunchFilters.start < start) start = teamPunchFilters.start;
-  if (teamPunchFilters?.end && teamPunchFilters.end > end) end = teamPunchFilters.end;
+  if (currentPage === "global") {
+    const span = globalMetricsSpan(getGlobalFilterRange());
+    if (span.start < start) start = span.start;
+    if (span.end > end) end = span.end;
+  } else {
+    if (teamPunchFilters?.start && teamPunchFilters.start < start) start = teamPunchFilters.start;
+    if (teamPunchFilters?.end && teamPunchFilters.end > end) end = teamPunchFilters.end;
+  }
   return { start, end };
 }
 
@@ -8883,7 +8913,7 @@ function planningDeptOf(profile) {
   const code = String(profile?.shift_code || "").toLowerCase();
   if (code === "rnd" || code === "ces" || code === "cs") return code;
   const dept = String(profile?.department || profile?.job_title || "").toLowerCase();
-  if (dept.includes("r&d") || dept.includes("r et d") || /\brd\b/.test(dept)) return "rnd";
+  if (dept.includes("r&d") || dept.includes("r et d") || /(recherche|\brnd\b|\brd\b)/.test(dept)) return "rnd";
   if (/\bces\b/.test(dept)) return "ces";
   return "cs";
 }
@@ -9475,41 +9505,40 @@ function ttWeekdaysForPerson(personIndex, monthOffset, quota) {
   return days;
 }
 
-function assignTtRotation(people, workDates, options = {}) {
-  const skip = options.skip instanceof Set ? options.skip : new Set();
-  const offset = monthRotationOffset(options.year, options.monthIndex);
-  const buckets = { rnd: [], cs: [], ces: [] };
-  [...people].sort((a, b) => String(a.id).localeCompare(String(b.id))).forEach((person) => {
-    const dept = buckets[person.dept] ? person.dept : "cs";
-    buckets[dept].push({ ...person, dept });
-  });
-  const sorted = ["rnd", "cs", "ces"].flatMap((dept) => buckets[dept]);
-  const assign = {};
-  Object.values(buckets).forEach((members) => {
-    members.forEach((person, index) => {
-      const ttDays = new Set(ttWeekdaysForPerson(index, offset, ttQuotaForDept(person.dept)));
-      workDates.forEach((date) => {
-        const key = `${person.id}|${date}`;
-        if (skip.has(key)) return;
-        const weekday = parseLocalDate(date).getDay();
-        assign[key] = ttDays.has(weekday) ? "TT" : "PR";
-      });
-    });
-  });
-  const available = (date, dept) => sorted.filter((person) => {
+function planningMondayKey(iso) {
+  const date = parseLocalDate(iso);
+  const weekday = date.getDay() || 7;
+  date.setDate(date.getDate() - (weekday - 1));
+  return toDateKey(date);
+}
+
+function ttCountKind(assign, personId, dates, kind) {
+  return dates.filter((date) => assign[`${personId}|${date}`] === kind).length;
+}
+
+function ttOnsiteInDept(assign, people, date, dept, skip) {
+  return people.filter((person) => {
+    if (person.dept !== dept) return false;
+    if (skip.has(`${person.id}|${date}`)) return false;
+    return assign[`${person.id}|${date}`] === "PR";
+  }).length;
+}
+
+function ensureTtOfficeOccupied(assign, people, dates, skip, countDates) {
+  const tallyDates = Array.isArray(countDates) && countDates.length ? countDates : dates;
+  const available = (date, dept) => people.filter((person) => {
     if (dept && person.dept !== dept) return false;
     return !skip.has(`${person.id}|${date}`);
   });
   const withKind = (date, dept, kind) => available(date, dept).filter((person) => assign[`${person.id}|${date}`] === kind);
-  const ttCount = (personId) => workDates.filter((date) => assign[`${personId}|${date}`] === "TT").length;
   const forceOffice = (date, candidates) => {
     const pick = [...candidates].sort((a, b) => {
-      const diff = ttCount(b.id) - ttCount(a.id);
+      const diff = ttCountKind(assign, b.id, tallyDates, "TT") - ttCountKind(assign, a.id, tallyDates, "TT");
       return diff !== 0 ? diff : String(a.id).localeCompare(String(b.id));
     })[0];
     if (pick) assign[`${pick.id}|${date}`] = "PR";
   };
-  workDates.forEach((date) => {
+  dates.forEach((date) => {
     ["rnd", "cs", "ces"].forEach((dept) => {
       if (available(date, dept).length < 2) return;
       if (!withKind(date, dept, "PR").length) forceOffice(date, withKind(date, dept, "TT"));
@@ -9518,11 +9547,121 @@ function assignTtRotation(people, workDates, options = {}) {
       forceOffice(date, withKind(date, null, "TT"));
     }
   });
+}
+
+function rebalanceWeeklyTtQuota(assign, people, dates, skip) {
+  const editable = new Set(dates);
+  const groups = new Map();
+  const addDate = (date) => {
+    const key = planningMondayKey(date);
+    if (!key) return;
+    if (!groups.has(key)) groups.set(key, []);
+    const bucket = groups.get(key);
+    if (!bucket.includes(date)) bucket.push(date);
+  };
+  dates.forEach(addDate);
+  Object.keys(assign).forEach((key) => {
+    const index = key.lastIndexOf("|");
+    if (index >= 0) addDate(key.slice(index + 1));
+  });
+  groups.forEach((weekDates) => {
+    people.forEach((person) => {
+      const quota = ttQuotaForDept(person.dept);
+      const available = weekDates.filter((date) => {
+        const kind = assign[`${person.id}|${date}`];
+        return !skip.has(`${person.id}|${date}`) && (kind === "TT" || kind === "PR");
+      });
+      const target = Math.min(quota, available.length);
+      const editableDays = available.filter((date) => editable.has(date));
+      const ttDays = () => editableDays.filter((date) => assign[`${person.id}|${date}`] === "TT");
+      const prDays = () => editableDays.filter((date) => assign[`${person.id}|${date}`] === "PR");
+      let tt = available.filter((date) => assign[`${person.id}|${date}`] === "TT").length;
+      const addCandidates = [...prDays()].sort((a, b) => (
+        ttOnsiteInDept(assign, people, b, person.dept, skip) - ttOnsiteInDept(assign, people, a, person.dept, skip)
+      ) || String(a).localeCompare(String(b)));
+      addCandidates.forEach((date) => {
+        if (tt >= target) return;
+        const deptPresent = people.filter((row) => (
+          row.dept === person.dept && !skip.has(`${row.id}|${date}`) && assign[`${row.id}|${date}`]
+        )).length;
+        if (deptPresent >= 2 && ttOnsiteInDept(assign, people, date, person.dept, skip) <= 1) return;
+        assign[`${person.id}|${date}`] = "TT";
+        tt += 1;
+      });
+      ttDays().forEach((date) => {
+        if (tt <= target) return;
+        assign[`${person.id}|${date}`] = "PR";
+        tt -= 1;
+      });
+    });
+  });
+}
+
+function assignTtRotation(people, workDates, options = {}) {
+  const skip = options.skip instanceof Set ? options.skip : new Set();
+  const locked = options.locked && typeof options.locked === "object" ? options.locked : {};
+  const offset = monthRotationOffset(options.year, options.monthIndex);
+  const buckets = { rnd: [], cs: [], ces: [] };
+  [...people].sort((a, b) => String(a.id).localeCompare(String(b.id))).forEach((person) => {
+    const dept = buckets[person.dept] ? person.dept : "cs";
+    buckets[dept].push({ ...person, dept });
+  });
+  const sorted = ["rnd", "cs", "ces"].flatMap((dept) => buckets[dept]);
+  const assign = {};
+  Object.entries(locked).forEach(([key, kind]) => {
+    if (kind === "TT" || kind === "PR") assign[key] = kind;
+  });
+  const countDates = [...new Set([
+    ...workDates,
+    ...Object.keys(locked).map((key) => key.slice(key.lastIndexOf("|") + 1)).filter(Boolean)
+  ])];
+  Object.values(buckets).forEach((members) => {
+    members.forEach((person, index) => {
+      const ttDays = new Set(ttWeekdaysForPerson(index, offset, ttQuotaForDept(person.dept)));
+      workDates.forEach((date) => {
+        const key = `${person.id}|${date}`;
+        if (skip.has(key) || Object.prototype.hasOwnProperty.call(locked, key)) return;
+        const weekday = parseLocalDate(date).getDay();
+        assign[key] = ttDays.has(weekday) ? "TT" : "PR";
+      });
+    });
+  });
+  ensureTtOfficeOccupied(assign, sorted, workDates, skip, countDates);
+  rebalanceWeeklyTtQuota(assign, sorted, workDates, skip);
+  ensureTtOfficeOccupied(assign, sorted, workDates, skip, countDates);
   return assign;
 }
 
 function planningTtWorkDates(cursor = getPlanningCursor()) {
   return planningDaysOfMonth(cursor).filter((day) => !isWeekendDate(parseLocalDate(day)));
+}
+
+function overlappingWeekWorkdays(dates) {
+  const mondays = new Set((dates || []).map(planningMondayKey).filter(Boolean));
+  const out = [];
+  mondays.forEach((monday) => {
+    const start = parseLocalDate(monday);
+    for (let i = 0; i < 5; i += 1) {
+      const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+      out.push(toDateKey(cursor));
+    }
+  });
+  return out;
+}
+
+function collectLockedTtAssign(profiles, generateDates) {
+  const generateSet = new Set(generateDates);
+  const weekSet = new Set(overlappingWeekWorkdays(generateDates));
+  const ids = new Set(profiles.map((profile) => profile.id));
+  const locked = {};
+  getPlanningEntries().forEach((row) => {
+    const uid = row.user_id || row.userId;
+    const day = String(row.work_date || "").slice(0, 10);
+    if (!ids.has(uid) || generateSet.has(day) || !weekSet.has(day)) return;
+    if (row.kind !== "TT" && row.kind !== "PR") return;
+    locked[`${uid}|${day}`] = row.kind;
+  });
+  return locked;
 }
 
 function planningTtBlockingKind(kindOrType) {
@@ -9640,10 +9779,12 @@ async function applyTtRotationMonth() {
   if (!dates.length) throw new Error("Aucun jour ouvré restant sur ce mois.");
   const people = profiles.map((profile) => ({ id: profile.id, dept: planningDeptOf(profile) }));
   const skip = planningTtSkipSet(profiles, dates);
+  const locked = collectLockedTtAssign(profiles, dates);
   const assign = assignTtRotation(people, dates, {
     year: cursor.getFullYear(),
     monthIndex: cursor.getMonth(),
-    skip
+    skip,
+    locked
   });
   const generated = [];
   profiles.forEach((profile) => {
@@ -9678,7 +9819,7 @@ async function applyTtRotationMonth() {
   const keptCount = entries.length - generated.length;
   const keptNote = keptCount ? ` · ${keptCount} jour${keptCount > 1 ? "s" : ""} d'absence conservé${keptCount > 1 ? "s" : ""}` : "";
   planningState.dept = "all";
-  planningState.importNotice = `Rotation TT ${range.start.slice(0, 7)} : ${profiles.length} agent${profiles.length > 1 ? "s" : ""} · ${ttCount} jour${ttCount > 1 ? "s" : ""} TT · ${prCount} sur site · R&D 3j / CS-CES 2j · bureau non vide${keptNote}.`;
+  planningState.importNotice = `Rotation TT ${range.start.slice(0, 7)} : ${profiles.length} agent${profiles.length > 1 ? "s" : ""} · ${ttCount} jour${ttCount > 1 ? "s" : ""} TT · ${prCount} sur site · R&D 3 j/sem. · CS/CES 2 j/sem. · semaines à cheval incluses · bureau non vide${keptNote}.`;
 }
 
 async function applyMassPlanning(formOrData) {
@@ -10128,10 +10269,8 @@ function renderPlanningGaps(model) {
 /* reportsPage() moved to pages/reports.js */
 
 function buildGlobalDashboardData() {
-  const range = teamPunchFilters.start && teamPunchFilters.end
-    ? teamPunchFilters
-    : getDefaultTeamPunchRange();
-  const scope = getTeamPunchScope();
+  const range = getGlobalFilterRange();
+  const scope = getGlobalScope();
   const profiles = getTeamPunchProfiles(scope);
   const dailyRows = summarizeTeamPunchesByDay(appData.teamPunches || [], range.start, range.end);
 
@@ -10210,7 +10349,8 @@ function buildGlobalDashboardData() {
     .sort((a, b) => b.workedMs - a.workedMs);
 
   const scopeUserIds = new Set(profiles.map((profile) => profile.id));
-  const absenceRate = computeAbsenceRateMetrics(profiles, range);
+  const absenceRows = buildGlobalAbsenceRows(profiles, range);
+  const absenceRate = computeAbsenceRateFromRows(absenceRows);
 
   const correctionStats = (getPunchCorrections() || []).reduce((acc, item) => {
     const userId = gtaItemUserId(item);
@@ -10238,7 +10378,8 @@ function buildGlobalDashboardData() {
     departmentRows,
     sampleSize: rowsWithStats.length,
     corrections: correctionStats,
-    absenceRate
+    absenceRate,
+    absenceRows
   };
 }
 
@@ -10264,55 +10405,200 @@ function absenceRatePlannedHours(profile, dayKey) {
   return Math.max(0, Number(getActiveShift(profile, dayKey).plannedHours || 0));
 }
 
-function computeAbsenceRateMetrics(profiles, range) {
-  const leaves = [
+function previousCalendarMonthRange(fromKey) {
+  const date = parseLocalDate(fromKey);
+  if (Number.isNaN(date.getTime())) return { start: fromKey, end: fromKey };
+  const start = new Date(date.getFullYear(), date.getMonth() - 1, 1);
+  const end = new Date(date.getFullYear(), date.getMonth(), 0);
+  return { start: toDateKey(start), end: toDateKey(end) };
+}
+
+function yearToDateRange(endKey) {
+  const year = String(endKey || "").slice(0, 4);
+  return { start: /^\d{4}$/.test(year) ? `${year}-01-01` : endKey, end: endKey };
+}
+
+function globalMetricsSpan(range) {
+  const period = {
+    start: range?.start || getDefaultTeamPunchRange().start,
+    end: range?.end || getDefaultTeamPunchRange().end
+  };
+  const prev = previousCalendarMonthRange(period.start);
+  const ytd = yearToDateRange(period.end);
+  const start = [prev.start, ytd.start, period.start].reduce((min, key) => (key < min ? key : min));
+  return { start, end: period.end, prev, ytd, period };
+}
+
+function collectApprovedLeaves() {
+  return [
     ...getLeaveRequests(),
     ...(appData.teamLeaveRequests || []).map((row) => (row.type ? row : normalizeTeamLeaveRequest(row)))
   ].filter(edsLeaveApproved);
-  const daily = summarizeTeamPunchesByDay(appData.teamPunches || [], range.start, range.end);
-  let absHours = 0;
-  let plannedHours = 0;
-  const start = parseLocalDate(range.start);
-  const end = parseLocalDate(range.end);
+}
+
+function indexDailyPunches(daily) {
+  const map = new Map();
+  (daily || []).forEach((row) => map.set(`${row.userId}|${row.dayKey}`, row));
+  return map;
+}
+
+function leavesForDay(leaves, userId, dayKey) {
+  return (leaves || []).filter((item) => (
+    (item.userId || item.user_id) === userId && leaveCoversPlanningDay(item, dayKey)
+  ));
+}
+
+function slotHoursOfKind(slots, kind) {
+  return (slots || [])
+    .filter((item) => String(item.kind || "").toUpperCase() === kind)
+    .reduce((total, item) => total + Math.max(0, Number(item.hours) || 0), 0);
+}
+
+function absenceRateDayContribution(profile, dayKey, dayLeaves, dayRow) {
+  if (isWeekendDate(parseLocalDate(dayKey)) || isFrenchHolidayKey(dayKey)) {
+    return { plannedHours: 0, absHours: 0 };
+  }
+  const hours = absenceRatePlannedHours(profile, dayKey);
+  if (hours <= 0) return { plannedHours: 0, absHours: 0 };
+  const skipPlanned = dayLeaves.some((item) => isAbsenceRateExcludedLeave(item.type, { excludePaternity: false }));
+  const plannedHours = skipPlanned ? 0 : hours;
+  const countingLeave = dayLeaves.find((item) => (
+    leaveTypeKey(item.type) !== "hours"
+    && !isAbsenceRateExcludedLeave(item.type, { excludePaternity: true })
+  ));
+  if (countingLeave) {
+    const unit = String(countingLeave.unit || "").toLowerCase();
+    const half = String(countingLeave.halfDay || countingLeave.half_day || "").trim();
+    return { plannedHours, absHours: (unit === "half" || half) ? hours / 2 : hours };
+  }
+  if (isUnjustifiedAbsenceDay(profile, dayKey, { dayRow, dayLeaves })) {
+    return { plannedHours, absHours: hours };
+  }
+  return { plannedHours, absHours: 0 };
+}
+
+function globalDayAbsenceHours(profile, dayKey, dayLeaves, slots) {
+  const justLeave = dayLeaves.find((item) => edsBucketForLeave(item.type) === "justified");
+  const unjustLeave = dayLeaves.find((item) => edsBucketForLeave(item.type) === "unjustified");
+  const ajHours = slotHoursOfKind(slots, "AJ");
+  const aiHours = slotHoursOfKind(slots, "AI");
+  let justHours = 0;
+  let unjustHours = 0;
+  if (ajHours > 0) justHours = ajHours;
+  else if (justLeave) justHours = planningHoursForLeaveDay(profile, justLeave);
+  if (justHours <= 0) {
+    if (aiHours > 0) unjustHours = aiHours;
+    else if (unjustLeave) unjustHours = planningHoursForLeaveDay(profile, unjustLeave);
+  }
+  return { justHours, unjustHours };
+}
+
+function emptyGlobalAbsenceRow(profile) {
+  return {
+    userId: profile.id,
+    matricule: getProfileMatricule(profile.id),
+    name: profile.full_name || "Collaborateur",
+    department: profile.department || "",
+    jobTitle: profile.job_title || "",
+    absHours: 0,
+    plannedHours: 0,
+    absM1Hours: 0,
+    plannedM1Hours: 0,
+    nbJust: 0,
+    hJust: 0,
+    nbUnjust: 0,
+    hUnjust: 0,
+    nbEarly: 0,
+    hEarly: 0,
+    nbDelay: 0,
+    hDelay: 0,
+    occAbsYtd: 0,
+    occDelayYtd: 0
+  };
+}
+
+function buildGlobalAbsenceRows(profiles, range) {
+  const span = globalMetricsSpan(range);
+  const leaves = collectApprovedLeaves();
+  const dailyMap = indexDailyPunches(summarizeTeamPunchesByDay(appData.teamPunches || [], span.start, span.end));
+  const start = parseLocalDate(span.start);
+  const end = parseLocalDate(span.end);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
-    return { rate: 0, absHours: 0, plannedHours: 0 };
+    return (profiles || []).map(emptyGlobalAbsenceRow);
   }
 
-  (profiles || []).forEach((profile) => {
+  return (profiles || []).map((profile) => {
+    const row = emptyGlobalAbsenceRow(profile);
     const cursor = new Date(start);
     while (cursor <= end) {
       const dayKey = toDateKey(cursor);
       cursor.setDate(cursor.getDate() + 1);
-      if (isWeekendDate(parseLocalDate(dayKey)) || isFrenchHolidayKey(dayKey)) continue;
-      const hours = absenceRatePlannedHours(profile, dayKey);
-      if (hours <= 0) continue;
+      if (isWeekendDate(parseLocalDate(dayKey))) continue;
+      const inPeriod = dayKey >= span.period.start && dayKey <= span.period.end;
+      const inPrev = dayKey >= span.prev.start && dayKey <= span.prev.end;
+      const inYtd = dayKey >= span.ytd.start && dayKey <= span.ytd.end;
+      if (!inPeriod && !inPrev && !inYtd) continue;
 
-      const dayLeaves = leaves.filter((item) => (
-        (item.userId || item.user_id) === profile.id && leaveCoversPlanningDay(item, dayKey)
-      ));
-      const skipPlanned = dayLeaves.some((item) => isAbsenceRateExcludedLeave(item.type, { excludePaternity: false }));
-      if (!skipPlanned) plannedHours += hours;
-
-      const countingLeave = dayLeaves.find((item) => (
-        leaveTypeKey(item.type) !== "hours"
-        && !isAbsenceRateExcludedLeave(item.type, { excludePaternity: true })
-      ));
-      if (countingLeave) {
-        const unit = String(countingLeave.unit || "").toLowerCase();
-        const half = String(countingLeave.halfDay || countingLeave.half_day || "").trim();
-        absHours += (unit === "half" || half) ? hours / 2 : hours;
-        continue;
+      const dayLeaves = leavesForDay(leaves, profile.id, dayKey);
+      const dayRow = dailyMap.get(`${profile.id}|${dayKey}`) || null;
+      const slots = planningDaySlots(profile.id, dayKey);
+      const rate = absenceRateDayContribution(profile, dayKey, dayLeaves, dayRow);
+      if (inPeriod) {
+        row.absHours += rate.absHours;
+        row.plannedHours += rate.plannedHours;
       }
-      const dayRow = daily.find((row) => row.userId === profile.id && row.dayKey === dayKey) || null;
-      if (isUnjustifiedAbsenceDay(profile, dayKey, { dayRow, dayLeaves })) absHours += hours;
-    }
-  });
+      if (inPrev) {
+        row.absM1Hours += rate.absHours;
+        row.plannedM1Hours += rate.plannedHours;
+      }
 
+      const { justHours, unjustHours } = globalDayAbsenceHours(profile, dayKey, dayLeaves, slots);
+      let computedUnjust = 0;
+      if (justHours <= 0 && unjustHours <= 0 && isUnjustifiedAbsenceDay(profile, dayKey, { dayRow, dayLeaves, slots })) {
+        computedUnjust = absenceRatePlannedHours(profile, dayKey);
+      }
+      const dayJust = justHours;
+      const dayUnjust = unjustHours + computedUnjust;
+      if (inPeriod && dayJust > 0) {
+        row.nbJust += 1;
+        row.hJust += dayJust;
+      }
+      if (inPeriod && dayUnjust > 0) {
+        row.nbUnjust += 1;
+        row.hUnjust += dayUnjust;
+      }
+      if (inYtd && (dayJust > 0 || dayUnjust > 0)) row.occAbsYtd += 1;
+
+      if (dayRow) {
+        const stats = analyzeWorkedDay(dayRow, profile);
+        const earlyMin = earlyLeaveMinutes(dayRow, profile);
+        if (inPeriod && stats.delayMin > 0) {
+          row.nbDelay += 1;
+          row.hDelay += stats.delayMin / 60;
+        }
+        if (inPeriod && earlyMin > 0) {
+          row.nbEarly += 1;
+          row.hEarly += earlyMin / 60;
+        }
+        if (inYtd && stats.delayMin > 0) row.occDelayYtd += 1;
+      }
+    }
+    return row;
+  }).sort((a, b) => String(a.name).localeCompare(String(b.name), "fr"));
+}
+
+function computeAbsenceRateFromRows(rows) {
+  const absHours = (rows || []).reduce((sum, row) => sum + (Number(row.absHours) || 0), 0);
+  const plannedHours = (rows || []).reduce((sum, row) => sum + (Number(row.plannedHours) || 0), 0);
   return {
     rate: plannedHours > 0 ? absHours / plannedHours : 0,
     absHours,
     plannedHours
   };
+}
+
+function computeAbsenceRateMetrics(profiles, range) {
+  return computeAbsenceRateFromRows(buildGlobalAbsenceRows(profiles, range));
 }
 
 function delaySeverityLevel(minutes) {
@@ -10428,12 +10714,13 @@ function renderGlobalDailyChart(data) {
       </g>`;
   }).join("");
 
-  const labelStep = Math.max(1, Math.round(entries.length / 12));
+  const labelStep = entries.length > 31 ? Math.max(1, Math.round(entries.length / 16)) : 1;
   const labels = entries.map(([key], index) => {
     if (index % labelStep !== 0 && index !== entries.length - 1) return "";
     const x = barGap + index * (colWidth + barGap) + colWidth / 2;
-    const dayLabel = new Date(`${key}T00:00:00`).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
-    return `<text class="global-bar-label" x="${x}" y="105">${dayLabel}</text>`;
+    const dayLabel = String(Number(String(key).slice(8, 10)) || "");
+    if (!dayLabel) return "";
+    return `<span class="global-bar-label" ${pctProps({ l: x })}>${dayLabel}</span>`;
   }).join("");
 
   return `
@@ -10449,10 +10736,10 @@ function renderGlobalDailyChart(data) {
         </div>
       </div>
       <div class="global-chart-wrap">
-        <svg class="global-chart-svg" viewBox="0 0 100 110" preserveAspectRatio="none" role="img" aria-label="Charge journalière">
+        <svg class="global-chart-svg" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Charge journalière">
           ${bars}
-          ${labels}
         </svg>
+        <div class="global-chart-axis" aria-hidden="true">${labels}</div>
       </div>
     </article>`;
 }
@@ -10558,6 +10845,78 @@ function renderGlobalDepartments(data) {
     <article class="card global-dept-card">
       <h3>Charge par département</h3>
       <ul class="global-dept-list">${rows}</ul>
+    </article>`;
+}
+
+function formatAbsPct(absHours, plannedHours) {
+  const rate = plannedHours > 0 ? absHours / plannedHours : 0;
+  return `${(Math.round(rate * 1000) / 10).toFixed(1)} %`;
+}
+
+function formatAbsHours(value) {
+  return (Math.round((Number(value) || 0) * 10) / 10).toFixed(1);
+}
+
+function renderGlobalAbsenceTable(data) {
+  const list = data.absenceRows || [];
+  if (!list.length) {
+    return `
+      <article class="card global-abs-card">
+        <div class="toolbar"><h3>Absences et retards</h3></div>
+        <p class="empty-state">Aucun collaborateur sur le périmètre.</p>
+      </article>`;
+  }
+  const page = paginateList("global-abs", list, 10);
+  const body = page.items.map((row) => `
+    <tr>
+      <td>${escapeHtml(row.matricule || "—")}</td>
+      <td>${escapeHtml(row.name)}</td>
+      <td>${escapeHtml(row.department || "—")}</td>
+      <td>${escapeHtml(row.jobTitle || "—")}</td>
+      <td class="is-num">${formatAbsPct(row.absM1Hours, row.plannedM1Hours)}</td>
+      <td class="is-num">${formatAbsPct(row.absHours, row.plannedHours)}</td>
+      <td class="is-num">${row.nbJust}</td>
+      <td class="is-num">${formatAbsHours(row.hJust)}</td>
+      <td class="is-num">${row.nbUnjust}</td>
+      <td class="is-num">${formatAbsHours(row.hUnjust)}</td>
+      <td class="is-num">${row.nbEarly}</td>
+      <td class="is-num">${formatAbsHours(row.hEarly)}</td>
+      <td class="is-num">${row.nbDelay}</td>
+      <td class="is-num">${formatAbsHours(row.hDelay)}</td>
+      <td class="is-num">${row.occAbsYtd}</td>
+      <td class="is-num">${row.occDelayYtd}</td>
+    </tr>`).join("");
+  return `
+    <article class="card global-abs-card">
+      <div class="toolbar">
+        <h3>Absences et retards</h3>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table global-abs-table">
+          <thead>
+            <tr>
+              <th>Matricule</th>
+              <th>Nom &amp; Prénom</th>
+              <th>Dprmt</th>
+              <th>Job Title</th>
+              <th class="is-num">%ABS M-1</th>
+              <th class="is-num">% ABS</th>
+              <th class="is-num">NB ABS JUST</th>
+              <th class="is-num">H ABS JUST</th>
+              <th class="is-num">NB ABS INJUST</th>
+              <th class="is-num">H ABS INJUSTE</th>
+              <th class="is-num">NB ABS DEPART</th>
+              <th class="is-num">H ABS DEPART</th>
+              <th class="is-num">NB ABS RETARD</th>
+              <th class="is-num">H ABS RETARD</th>
+              <th class="is-num">Nb Occ ABS YTD</th>
+              <th class="is-num">Nb Occ RETARD YTD</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+      ${renderTablePager(page)}
     </article>`;
 }
 
@@ -10969,6 +11328,11 @@ async function loadDocumentsAndPayslips() {
 }
 
 async function loadCollection(key, { force = false } = {}) {
+  const rangeCtx = currentPage === "global" ? "global" : "ops";
+  if ((key === "teamPunches" || key === "teamLeave" || key === "planningEntries")
+      && dataRangeContext && dataRangeContext !== rangeCtx) {
+    force = true;
+  }
   if (!force && cacheFresh(key)) return;
   switch (key) {
     case "settings":
@@ -11020,9 +11384,7 @@ async function loadCollection(key, { force = false } = {}) {
             : currentPage === "planning"
               ? planningMonthRange()
               : currentPage === "global"
-                ? (teamPunchFilters.start && teamPunchFilters.end
-                  ? { start: teamPunchFilters.start, end: teamPunchFilters.end }
-                  : getDefaultTeamPunchRange())
+                ? globalMetricsSpan(getGlobalFilterRange())
                 : getLeaveCalendarMonth()
         );
       } else appData.teamLeaveRequests = [];
@@ -11071,6 +11433,9 @@ async function loadCollection(key, { force = false } = {}) {
       return;
   }
   markLoaded(key);
+  if (key === "teamPunches" || key === "teamLeave" || key === "planningEntries") {
+    dataRangeContext = rangeCtx;
+  }
 }
 
 async function loadCoreData({ force = false } = {}) {
@@ -11234,6 +11599,8 @@ async function signOutUser({ expired = false } = {}) {
   journalOpenColumn = "";
   leaveCalendarMonth = null;
   edsFilters = { start: "", end: "" };
+  globalFilters = { start: "", end: "", scope: "all" };
+  dataRangeContext = "";
   appData = {
     loading: false,
     error: "",
@@ -12627,22 +12994,27 @@ function bindPageEvents() {
 
   const globalFilter = document.querySelector("#global-filter");
   if (globalFilter) {
+    ensureGlobalFilters();
     globalFilter.addEventListener("submit", (event) => {
       event.preventDefault();
       const data = new FormData(event.currentTarget);
-      teamPunchFilters = {
-        ...teamPunchFilters,
-        start: data.get("start"),
-        end: data.get("end"),
-        userId: teamPunchFilters.userId || "",
-        scope: isAdmin() ? (data.get("scope") || teamPunchFilters.scope || "all") : "team"
-      };
-      if (new Date(teamPunchFilters.end) < new Date(teamPunchFilters.start)) {
+      const start = String(data.get("start") || "");
+      const end = String(data.get("end") || "");
+      if (new Date(end) < new Date(start)) {
         alert("La date de fin doit être postérieure à la date de début.");
         return;
       }
+      globalFilters = {
+        start,
+        end,
+        scope: isAdmin() ? (data.get("scope") || globalFilters.scope || "all") : "team"
+      };
+      resetTablePage("global-abs");
       if (usesDatabase()) {
-        withAction(() => loadTeamPunches());
+        dataStamp.teamPunches = 0;
+        dataStamp.teamLeave = 0;
+        dataStamp.planningEntries = 0;
+        withAction(() => loadTeamPunches(globalFilters));
       } else {
         renderApp();
       }
@@ -13733,6 +14105,8 @@ function hydrateDemoWorkspace() {
   appData.navVisibility = normalizeNavVisibility(loadStore("navVisibility", null));
   appData.studioCreators = normalizeStudioCreators(loadStore("studioCreators", ["camille.moreau@humaine.fr"]));
   teamPunchFilters = { start: "", end: "", userId: "", scope: "team", detailView: "punches" };
+  globalFilters = { start: "", end: "", scope: "team" };
+  dataRangeContext = "";
   appData.companyTimezone = loadStore("companyTimezone", "GMT+1") === "GMT" ? "GMT" : "GMT+1";
   appData.shiftHours = normalizeShiftHours(loadStore("shiftHours", defaultShiftHours()));
   appData.planningEntries = [];
@@ -13998,6 +14372,9 @@ window.humanaStartDemo = function () {
     getDefaultTeamPunchRange,
     getDirectReportProfiles,
     getEdsRange,
+    ensureGlobalFilters,
+    getGlobalFilterRange,
+    getGlobalScope,
     getHrDocuments,
     getJournalProfiles,
     getJournalRange,
@@ -14042,6 +14419,7 @@ window.humanaStartDemo = function () {
     renderGlobalDepartments,
     renderGlobalDonut,
     renderGlobalKpiCards,
+    renderGlobalAbsenceTable,
     renderGlobalTopDelays,
     renderGtaClockTools,
     renderGtaSettingsSection,
@@ -14143,6 +14521,12 @@ window.humanaStartDemo = function () {
       configurable: true,
       get() { return teamPunchFilters; },
       set(v) { teamPunchFilters = v; }
+    },
+    globalFilters: {
+      enumerable: true,
+      configurable: true,
+      get() { return globalFilters; },
+      set(v) { globalFilters = v; }
     }
   });
 })();

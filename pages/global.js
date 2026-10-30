@@ -11,9 +11,7 @@
       return `<article class="card"><p class="empty-state">Connectez-vous avec Microsoft pour consulter le tableau de bord global.</p></article>`;
     }
 
-    if (!H.teamPunchFilters.start || !H.teamPunchFilters.end) {
-      Object.assign(H.teamPunchFilters, H.getDefaultTeamPunchRange());
-    }
+    H.ensureGlobalFilters();
     const data = H.buildGlobalDashboardData();
 
     return `
@@ -35,8 +33,8 @@
           <label>
             Périmètre
             <select name="scope">
-              <option value="all"${H.teamPunchFilters.scope !== "team" ? " selected" : ""}>Tous les collaborateurs</option>
-              <option value="team"${H.teamPunchFilters.scope === "team" ? " selected" : ""}>Mon équipe directe</option>
+              <option value="all"${H.globalFilters.scope !== "team" ? " selected" : ""}>Tous les collaborateurs</option>
+              <option value="team"${H.globalFilters.scope === "team" ? " selected" : ""}>Mon équipe directe</option>
             </select>
           </label>` : ""}
           <div class="team-punches-actions">
@@ -50,7 +48,8 @@
         ${H.renderGlobalDonut(data)}
         ${H.renderGlobalTopDelays(data)}
         ${H.renderGlobalDepartments(data)}
-      </div>`;
+      </div>
+      ${H.renderGlobalAbsenceTable(data)}`;
   }
 
   (H.pages = H.pages || {})["global"] = globalPage;

@@ -78,6 +78,33 @@ test("CS : 2 TT par semaine et bureau non vide", () => {
   });
 });
 
+test("CES : 2 TT par semaine et par collaborateur", () => {
+  const people = [
+    { id: "e1", dept: "ces" },
+    { id: "e2", dept: "ces" },
+    { id: "e3", dept: "ces" },
+    { id: "e4", dept: "ces" }
+  ];
+  const assign = assignTtRotation(people, week, { year: 2026, monthIndex: 10 });
+  people.forEach((person) => {
+    const tt = kindsFor(assign, person.id).filter((kind) => kind === "TT").length;
+    assert.equal(tt, 2);
+  });
+});
+
+test("un lundi d'absence ne réduit pas le quota R&D sur le reste de la semaine", () => {
+  const people = [
+    { id: "a", dept: "rnd" },
+    { id: "b", dept: "rnd" },
+    { id: "c", dept: "rnd" },
+    { id: "d", dept: "rnd" }
+  ];
+  const skip = new Set(["a|2026-11-02"]);
+  const assign = assignTtRotation(people, week, { year: 2026, monthIndex: 10, skip });
+  const tt = week.filter((date) => assign[`a|${date}`] === "TT").length;
+  assert.equal(tt, 3);
+});
+
 test("2 personnes R&D : le bureau reste occupé même si le quota 3j se chevauche", () => {
   const people = [{ id: "r1", dept: "rnd" }, { id: "r2", dept: "rnd" }];
   const assign = assignTtRotation(people, week, { year: 2026, monthIndex: 10 });
@@ -109,6 +136,40 @@ test("récup / CP / déplacement : jours skippés, bureau toujours occupé", () 
     const onsite = people.filter((person) => assign[`${person.id}|${date}`] === "PR");
     assert.ok(onsite.length >= 1, `bureau vide le ${date}`);
   });
+});
+
+test("semaine à cheval : un TT du lundi 31 compte pour le quota du mois suivant", () => {
+  const people = [
+    { id: "a", dept: "rnd" },
+    { id: "b", dept: "rnd" },
+    { id: "c", dept: "rnd" },
+    { id: "d", dept: "rnd" }
+  ];
+  const september = ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"];
+  const assign = assignTtRotation(people, september, {
+    year: 2026,
+    monthIndex: 8,
+    locked: { "a|2026-08-31": "TT" }
+  });
+  const ttSep = september.filter((date) => assign[`a|${date}`] === "TT").length;
+  assert.equal(assign["a|2026-08-31"], "TT");
+  assert.equal(ttSep, 2);
+});
+
+test("semaine à cheval CS : 1 TT le lundi 31 puis 1 TT le reste de la semaine", () => {
+  const people = [
+    { id: "c1", dept: "cs" },
+    { id: "c2", dept: "cs" },
+    { id: "c3", dept: "cs" }
+  ];
+  const september = ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04"];
+  const assign = assignTtRotation(people, september, {
+    year: 2026,
+    monthIndex: 8,
+    locked: { "c1|2026-08-31": "TT" }
+  });
+  const ttSep = september.filter((date) => assign[`c1|${date}`] === "TT").length;
+  assert.equal(ttSep, 1);
 });
 
 test("statut congé validé (Validé / Approuve) sans matcher À valider", () => {

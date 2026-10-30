@@ -29,9 +29,10 @@
             <button type="button" class="outline-button" id="planning-next">›</button>
           </div>
           ${H.canImportPlanning() ? `
-          <button type="button" class="outline-button" id="planning-tt-rotate">Générer planning du mois</button>` : ""}
+          <button type="button" class="outline-button" id="planning-tt-rotate" title="R&D : 3 j. TT/semaine · CS et CES : 2 j. TT/semaine">Générer planning du mois</button>` : ""}
         </div>
       </div>
+      ${H.canImportPlanning() ? `<p class="hierarchy-meta">Génération : R&amp;D 3 jours de télétravail par semaine et par collaborateur · CS et CES 2 jours · y compris les semaines à cheval entre deux mois · le bureau n'est jamais vide.</p>` : ""}
       ${H.planningState.importNotice ? `<p class="planning-import-notice">${H.escapeHtml(H.planningState.importNotice)}</p>` : ""}
       ${H.renderPlanningAssignPanel()}
       ${H.renderUnjustifiedAbsenceInbox(model)}
