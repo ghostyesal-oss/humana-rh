@@ -9,7 +9,7 @@ let app = null;
 let session = null;
 let demoMode = false;
 let portalMode = false;
-const SESSION_MAX_MS = 22 * 60 * 60 * 1000;
+const SESSION_MAX_MS = 60 * 60 * 1000;
 const DEMO_STARTED_KEY = "humana_demo_started_at";
 const SESSION_EXPIRED_KEY = "humana_session_expired";
 let sessionExpiryTimer = 0;
@@ -299,11 +299,14 @@ const roleLabels = {
   admin: "Administrateur",
   rh: "RH",
   manager: "Manager",
+  support: "Support",
   employee: "Collaborateur",
   creator: "Créateur"
 };
 
-const ASSIGNABLE_ROLES = ["employee", "manager", "rh", "admin"];
+const ASSIGNABLE_ROLES = ["employee", "support", "manager", "rh", "admin"];
+
+const SHOW_DEFERRED_ADMIN_CARDS = false;
 
 const NAV_VISIBILITY_PAGES = [
   { id: "home", label: "Accueil" },
@@ -332,7 +335,7 @@ function getDefaultNavVisibility() {
     pointeuse: { admin: true, manager: true, employee: true },
     global: { admin: true, manager: true, employee: false },
     "team-punches": { admin: true, manager: true, employee: false },
-    reports: { admin: true, manager: true, employee: true },
+    reports: { admin: true, manager: true, employee: false },
     leave: { admin: true, manager: true, employee: true },
     attestations: { admin: true, manager: true, employee: true },
     planning: { admin: true, manager: true, employee: false },
@@ -470,7 +473,7 @@ function showMicrosoftWelcomePopup() {
           <div class="welcome-lockup">${daylyxLockupMarkup("is-compact is-static")}</div>
           <p class="welcome-eyebrow">Connexion réussie</p>
           <h2 id="welcome-title">${dayGreeting()}, <b>${firstName}</b></h2>
-          <p class="welcome-text">Bienvenue sur Daylyx. Votre espace RH est prêt.</p>
+          <p class="welcome-text">Bienvenue sur Daylyx. Votre espace RH est prêt. Daylyx traite vos données de temps, d’absences et de paie pour votre employeur. <a href="/confidentialite">Politique de confidentialité</a></p>
           <button type="button" class="welcome-cta primary">Commencer</button>
         </div>
       </article>
@@ -580,12 +583,6 @@ const JOURNAL_COLUMNS = [
   { key: "dateOut", label: "Date_Déconnexion" },
   { key: "timeOut", label: "Heure_Déconnexion" },
   { key: "duration", label: "Durée_Session" },
-  { key: "method", label: "Moyen_Connexion" },
-  { key: "os", label: "Système_Exploitation" },
-  { key: "browser", label: "Navigateur_Application" },
-  { key: "ip", label: "Adresse_IP" },
-  { key: "network", label: "Type_Réseau" },
-  { key: "location", label: "Localisation" },
   { key: "status", label: "Statut_Connexion" },
   { key: "reason", label: "Raison_Déconnexion" }
 ];
@@ -981,6 +978,7 @@ function profileRoleLabel(profile) {
   if (profile.role === "creator") parts.push("Créateur");
   else if (profile.role === "admin") parts.push("Admin");
   else if (profile.role === "manager") parts.push("Manager");
+  else if (profile.role === "support") parts.push("Support");
   return parts.join(" · ");
 }
 
@@ -1087,6 +1085,7 @@ function renderUserRolePills() {
   if (appData.profile?.role === "rh" || (isHr() && !isAdmin() && !isCreator())) {
     pills.push(`<span class="admin-pill">RH</span>`);
   }
+  if (appData.profile?.role === "support") pills.push(`<span class="admin-pill">Support</span>`);
   if (appData.profile?.role === "manager") pills.push(`<span class="admin-pill">Manager</span>`);
   if (isAdmin()) pills.push(`<span class="admin-pill">Admin</span>`);
   if (isCreator()) pills.push(`<span class="creator-pill">Créateur</span>`);
@@ -1105,6 +1104,7 @@ function normalizeNavVisibility(raw) {
   NAV_VISIBILITY_PAGES.forEach(({ id }) => {
     base[id] = { ...base[id], ...(raw?.[id] || {}) };
   });
+  base.reports.employee = false;
   return base;
 }
 
@@ -1293,6 +1293,8 @@ function canViewGlobal() {
 }
 
 function canViewReports() {
+  const role = String(appData.profile?.role || "employee").toLowerCase();
+  if (role === "employee" || role === "support") return false;
   return Boolean(session?.user) && isNavPageVisible("reports");
 }
 
@@ -2259,6 +2261,16 @@ function downloadCsv(filename, headers, rows) {
   URL.revokeObjectURL(link.href);
 }
 
+function auditReportExport(action, range, count) {
+  if (!usesDatabase() || !supabaseClient?.rpc) return;
+  supabaseClient.rpc("audit_personal_export", {
+    action,
+    count: Number(count) || 0,
+    start: range?.start || "",
+    end: range?.end || ""
+  }).catch(() => {});
+}
+
 function exportTeamPunchesCsv() {
   const range = teamPunchFilters.start && teamPunchFilters.end
     ? teamPunchFilters
@@ -2268,6 +2280,7 @@ function exportTeamPunchesCsv() {
     alert("Aucun pointage à exporter pour cette période.");
     return;
   }
+  auditReportExport("export.team", range, dailyRows.length);
 
   if (getTeamPunchDetailView() === "status") {
     downloadCsv(
@@ -3299,7 +3312,7 @@ function renderUserAccountSection() {
   const editing = editingProfile || editingInvite;
   const isInvite = Boolean(editingInvite && !editingProfile);
   const userPage = paginateList("admin-users", getFilteredAdminProfiles());
-  const invitePage = paginateList("admin-invites", appData.pendingInvites);
+  const invitePage = SHOW_DEFERRED_ADMIN_CARDS ? paginateList("admin-invites", appData.pendingInvites) : null;
   const formOpen = Boolean(editing) || adminUserFormOpen;
   const formTitle = isInvite ? "Invitation en attente" : editing ? "Modifier un utilisateur" : "Ajouter un utilisateur";
 
@@ -3407,7 +3420,7 @@ function renderUserAccountSection() {
         <div data-table-pager-host="admin-users">${renderTablePager(userPage)}</div>
       </article>
     </div>
-    <article class="card table-card page-spacer">
+    ${SHOW_DEFERRED_ADMIN_CARDS ? `<article class="card table-card page-spacer">
       <div class="toolbar"><h3>Invitations en attente</h3></div>
       <div class="table-wrap">
         <table>
@@ -3430,7 +3443,7 @@ function renderUserAccountSection() {
         </table>
       </div>
       ${renderTablePager(invitePage)}
-    </article>`;
+    </article>` : ""}`;
 }
 
 function holidayCalendarLabel(calendar) {
@@ -4173,42 +4186,10 @@ function navBadge(page) {
 function parseClientEnvironment() {
   const uaData = navigator.userAgentData;
   const ua = navigator.userAgent || "";
-  let os = "Inconnu";
-  if (/Windows/i.test(uaData?.platform || "") || /Windows/i.test(ua)) os = "Windows";
-  else if (/Mac/i.test(uaData?.platform || "") || /Mac OS X/i.test(ua)) os = "macOS";
-    else if (/Android/i.test(ua)) os = "Android";
-    else if (/iPhone|iPad|iPod/i.test(ua)) os = "iOS";
-  else if (/Linux/i.test(uaData?.platform || "") || /Linux/i.test(ua)) os = "Linux";
-
-  let browser = "Navigateur";
-  const brands = uaData?.brands || [];
-  const brand = brands.find((item) => item.brand && !/not.?a.?brand/i.test(item.brand) && !/chromium/i.test(item.brand));
-  if (/Edg\//i.test(ua) || /Edge/i.test(brand?.brand || "")) browser = "Microsoft Edge";
-  else if (/OPR\/|Opera/i.test(ua) || /Opera/i.test(brand?.brand || "")) browser = "Opera";
-  else if (/Firefox/i.test(ua) || /Firefox/i.test(brand?.brand || "")) browser = "Mozilla Firefox";
-  else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) browser = "Safari";
-  else if (/Chrome/i.test(ua) || /Chrome/i.test(brand?.brand || "") || /Google Chrome/i.test(brand?.brand || "")) {
-    browser = "Google Chrome";
-  }
-
   const method = /Mobi|Android|iPhone|iPad/i.test(ua) || uaData?.mobile
     ? "Web mobile"
     : "Web";
-  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  const rawType = String(connection?.type || "").toLowerCase();
-  const networkMap = {
-    wifi: "Wi-Fi",
-    wlan: "Wi-Fi",
-    ethernet: "Ethernet",
-    cellular: "Mobile",
-    bluetooth: "Bluetooth",
-    wimax: "WiMAX",
-    other: "Autre"
-  };
-  const network = networkMap[rawType]
-    || (getPreferredWorkLocation() === "onsite" ? "LAN" : "Internet");
-
-  return { method, os, browser, network };
+  return { method };
 }
 
 async function collectJournalMeta() {
@@ -4219,9 +4200,9 @@ function applyJournalMetaToPayload(payload, meta, punchType) {
   if (!meta || !journalMetaColumnsEnabled) return payload;
   if (punchType === "in") {
     payload.connection_method = meta.method;
-    payload.operating_system = meta.os;
-    payload.browser_application = meta.browser;
-    payload.network_type = meta.network;
+    payload.operating_system = null;
+    payload.browser_application = null;
+    payload.network_type = null;
   }
   if (punchType === "out") {
     payload.disconnect_reason = payload.disconnect_reason || "Sortie manuelle";
@@ -4233,15 +4214,15 @@ function applyJournalMetaToDemoPunch(punch, meta, punchType) {
   if (!meta) return punch;
   if (punchType === "in") {
     punch.connection_method = meta.method;
-    punch.operating_system = meta.os;
-    punch.browser_application = meta.browser;
+    punch.operating_system = null;
+    punch.browser_application = null;
     punch.ip_address = "";
-    punch.network_type = meta.network;
+    punch.network_type = null;
     punch.method = meta.method;
-    punch.os = meta.os;
-    punch.browser = meta.browser;
+    punch.os = null;
+    punch.browser = null;
     punch.ip = "";
-    punch.network = meta.network;
+    punch.network = null;
   }
   if (punchType === "out") punch.disconnect_reason = "Sortie manuelle";
   return punch;
@@ -6534,10 +6515,10 @@ function buildSeedJournalRows(userId) {
       punched_at: inTime.toISOString(),
       work_location: sample.location,
       connection_method: meta.method,
-      operating_system: meta.os,
-      browser_application: meta.browser,
-      ip_address: "90.84.12.4" + index,
-      network_type: sample.location === "remote" ? "Wi-Fi" : "LAN",
+      operating_system: null,
+      browser_application: null,
+      ip_address: null,
+      network_type: null,
       profiles: { full_name: profile.full_name || getUserName(), email: profile.email || "" }
     });
     if (sample.statusOpen) return;
@@ -7294,8 +7275,12 @@ function payrollEmails() {
 }
 
 function canViewEdsPayrollColumns() {
-  if (isAdmin()) return true;
+  if (isHr()) return true;
   return payrollEmails().includes(currentUserEmail());
+}
+
+function canImportEdsPayroll() {
+  return canViewReports() && (isHr() || canViewEdsPayrollColumns());
 }
 
 function canEditEdsPayroll() {
@@ -7375,6 +7360,163 @@ async function saveEdsPayroll(next) {
     .upsert({ key: "eds_payroll", value }, { onConflict: "key" });
   if (error) throw error;
   appData.edsPayroll = value;
+}
+
+function edsPayrollImports(range = getEdsRange()) {
+  const cycle = edsPayrollState()[getEdsCycleKey(range)];
+  const list = cycle && cycle._meta && Array.isArray(cycle._meta.imports) ? cycle._meta.imports : [];
+  return list;
+}
+
+function edsPayrollImportMarkup() {
+  if (!canImportEdsPayroll()) return "";
+  const range = getEdsRange();
+  const imports = edsPayrollImports(range);
+  const history = imports.length
+    ? `<ul class="eds-import-history">${imports.slice().reverse().map((item) => `
+        <li>Période ${escapeHtml(item.period || edsPeriodLabel(range))} · ${escapeHtml(item.fileName || "fichier")} · ${Number(item.matched) || 0} collaborateur${Number(item.matched) > 1 ? "s" : ""}</li>`).join("")}</ul>`
+    : `<p class="hierarchy-meta">Aucun fichier de primes enregistré sur cette période.</p>`;
+  return `
+    <article class="card form-card page-spacer">
+      ${cardHeading("Import des éléments de paie")}
+      <form id="eds-payroll-import" class="feature-form">
+        <div class="form-row">
+          <label>
+            Début de la période de paie
+            <input type="date" name="start" value="${escapeHtml(range.start)}" required>
+          </label>
+          <label>
+            Fin de la période de paie
+            <input type="date" name="end" value="${escapeHtml(range.end)}" required>
+          </label>
+          <label>
+            Fichier
+            <input type="file" name="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" required>
+          </label>
+        </div>
+        <div class="team-punches-actions">
+          <button type="submit" class="primary">Importer les primes</button>
+          <button type="button" id="eds-payroll-template" class="outline-button">Télécharger le modèle</button>
+        </div>
+        <p id="eds-import-result" class="hierarchy-meta" hidden></p>
+      </form>
+      ${history}
+    </article>`;
+}
+
+function mapEdsImportHeaders(rawHeaders) {
+  const used = new Set();
+  return rawHeaders.map((raw) => {
+    const text = foldPlanningToken(raw);
+    if (!text) return "";
+    if (!used.has("prenom") && text.includes("prenom")) {
+      used.add("prenom");
+      return "prenom";
+    }
+    if (!used.has("matricule") && (text.includes("matricule") || text.includes("cegid") || (text.includes("id") && text.includes("employ")))) {
+      used.add("matricule");
+      return "matricule";
+    }
+    if (!used.has("nom") && (text === "nom" || text === "name")) {
+      used.add("nom");
+      return "nom";
+    }
+    const field = edsPayrollFields().find((col) => !used.has(col.key) && (foldPlanningToken(col.label) === text || col.key === text));
+    if (!field) return "";
+    used.add(field.key);
+    return field.key;
+  });
+}
+
+function parseEdsImportAmount(raw) {
+  return sanitizeEdsPayrollValue(String(raw ?? "").replace(/\s/g, ""));
+}
+
+function matchEdsImportProfile(row) {
+  const profiles = getReportProfiles();
+  const matricule = String(row.matricule || "").replace(/\s+/g, "").toLowerCase();
+  if (matricule) {
+    const hits = profiles.filter((profile) => String(getProfileMatricule(profile.id) || profile.matricule || "").replace(/\s+/g, "").toLowerCase() === matricule);
+    if (hits.length === 1) return hits[0];
+    if (hits.length > 1) return null;
+  }
+  const nom = foldPlanningToken(row.nom);
+  const prenom = foldPlanningToken(row.prenom);
+  if (!nom || !prenom) return null;
+  const named = profiles.filter((profile) => {
+    const names = splitFullName(profile.full_name);
+    return foldPlanningToken(names.last) === nom && foldPlanningToken(names.first) === prenom;
+  });
+  return named.length === 1 ? named[0] : null;
+}
+
+async function readEdsImportGrid(file) {
+  const name = String(file?.name || "").toLowerCase();
+  if (name.endsWith(".csv") || file?.type === "text/csv") {
+    return parseCsvGrid(await file.text());
+  }
+  return parseXlsxGrid(await file.arrayBuffer());
+}
+
+async function importEdsPayrollFile(file, range) {
+  const grid = await readEdsImportGrid(file);
+  if (!grid.length) throw new Error("Le fichier est vide.");
+  const headers = mapEdsImportHeaders(grid[0] || []);
+  const payrollKeys = headers.filter((key) => edsPayrollFields().some((field) => field.key === key));
+  if (!headers.includes("matricule") && !(headers.includes("nom") && headers.includes("prenom"))) {
+    throw new Error("Le fichier doit contenir une colonne Matricule, ou les colonnes Nom et Prénom.");
+  }
+  if (!payrollKeys.length) {
+    throw new Error("Aucune colonne de prime reconnue. Utilisez le modèle ou les titres des colonnes en jaune.");
+  }
+  const unmatched = [];
+  const updates = [];
+  grid.slice(1).forEach((cells, index) => {
+    const row = {};
+    headers.forEach((key, cellIndex) => {
+      if (key) row[key] = cells[cellIndex];
+    });
+    const values = {};
+    payrollKeys.forEach((key) => {
+      const value = parseEdsImportAmount(row[key]);
+      if (value !== "") values[key] = value;
+    });
+    if (!Object.keys(values).length && !String(row.matricule || row.nom || row.prenom || "").trim()) return;
+    const profile = matchEdsImportProfile(row);
+    if (!profile) {
+      const label = [row.matricule, row.nom, row.prenom].map((part) => String(part || "").trim()).filter(Boolean).join(" ");
+      unmatched.push(label || `ligne ${index + 2}`);
+      return;
+    }
+    if (!Object.keys(values).length) return;
+    updates.push({ id: profile.id, values });
+  });
+  if (!updates.length) {
+    throw new Error(unmatched.length
+      ? `Aucun collaborateur reconnu. Exemples : ${unmatched.slice(0, 5).join(", ")}.`
+      : "Le fichier ne contient aucune prime à enregistrer.");
+  }
+  const cycleKey = getEdsCycleKey(range);
+  const next = { ...edsPayrollState() };
+  const cycle = { ...(next[cycleKey] || {}) };
+  updates.forEach((item) => {
+    cycle[item.id] = { ...(cycle[item.id] || {}), ...item.values };
+  });
+  const previousMeta = cycle._meta && typeof cycle._meta === "object" ? cycle._meta : {};
+  const imports = Array.isArray(previousMeta.imports) ? previousMeta.imports.slice() : [];
+  imports.push({
+    period: edsPeriodLabel(range),
+    start: range.start,
+    end: range.end,
+    fileName: String(file.name || "fichier").slice(0, 180),
+    at: new Date().toISOString(),
+    matched: updates.length,
+    unmatched: unmatched.slice(0, 30)
+  });
+  cycle._meta = { ...previousMeta, imports };
+  next[cycleKey] = cycle;
+  await saveEdsPayroll(next);
+  return { matched: updates.length, unmatched };
 }
 
 function closeEdsPayrollDialog() {
@@ -11510,6 +11652,11 @@ function scheduleSessionExpiry(expiresAt) {
   }, wait);
 }
 
+function isLocalDevHost() {
+  const host = String(window.location.hostname || "").toLowerCase();
+  return host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
 function demoStartedAt() {
   try {
     const n = Number(sessionStorage.getItem(DEMO_STARTED_KEY));
@@ -11550,7 +11697,7 @@ function consumeSessionExpiredMessage() {
       window.history.replaceState({}, document.title, window.location.pathname || "/");
     }
   } catch (_) { /* ignore */ }
-  return "Session expirée après 22 h. Reconnectez-vous.";
+  return "Session expirée après 1 h. Reconnectez-vous.";
 }
 
 async function signOutUser({ expired = false } = {}) {
@@ -11693,33 +11840,20 @@ async function bootstrapUser(options = {}) {
 
 function bindLoginEvents() {
   bindThemeToggle();
-  const demoForm = document.querySelector("#demo-login-form");
-  if (demoForm && !demoForm.dataset.humanaBound) {
-    demoForm.dataset.humanaBound = "1";
-    demoForm.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const input = demoForm.querySelector("[name=demo_code]");
-      const button = demoForm.querySelector("#demo-login");
-      const code = input ? input.value : "";
-      if (button) button.disabled = true;
-      const unlock = typeof window.humanaUnlockDemo === "function"
-        ? window.humanaUnlockDemo(code)
-        : Promise.reject(new Error("Application non chargée."));
-      unlock.then(() => {
-        if (typeof window.humanaStartDemo === "function") {
-          window.humanaStartDemo();
-          return;
-        }
-        demoMode = true;
-        hydrateDemoWorkspace();
-        renderApp();
-      }).catch((error) => {
-        setLoginState({ ready: Boolean(supabaseClient), error: error.message || "Code d'accès incorrect." });
-        if (button) button.disabled = false;
-      });
-    });
+  const localBtn = document.querySelector("#local-login");
+  if (localBtn) {
+    if (!isLocalDevHost()) {
+      localBtn.hidden = true;
+    } else {
+      localBtn.hidden = false;
+      if (!localBtn.dataset.humanaBound) {
+        localBtn.dataset.humanaBound = "1";
+        localBtn.addEventListener("click", () => {
+          if (typeof window.humanaStartDemo === "function") window.humanaStartDemo();
+        });
+      }
+    }
   }
-
   const microsoftBtn = document.querySelector("#microsoft-login");
   if (microsoftBtn && !microsoftBtn.dataset.humanaBound) {
     microsoftBtn.dataset.humanaBound = "1";
@@ -11738,13 +11872,13 @@ function setLoginState({ ready = false, error } = {}) {
   if (microsoftButton) microsoftButton.disabled = !ready;
   if (configNote) configNote.hidden = ready;
   if (errorMessage && error !== undefined) {
-    if (errorMessage.dataset.sessionExpired === "1" && error && !String(error).includes("22 h")) {
+    if (errorMessage.dataset.sessionExpired === "1" && error && !String(error).includes("1 h")) {
       microsoftButton && (microsoftButton.disabled = !ready);
       return;
     }
     errorMessage.hidden = !error;
     errorMessage.textContent = error;
-    if (error && String(error).includes("22 h")) errorMessage.dataset.sessionExpired = "1";
+    if (error && String(error).includes("1 h")) errorMessage.dataset.sessionExpired = "1";
     else delete errorMessage.dataset.sessionExpired;
   }
 }
@@ -11784,14 +11918,7 @@ function renderLogin(error = "") {
             </button>
             <div id="config-note" class="config-note">Préparation de la connexion en cours...</div>
             <p id="login-error" class="error-message" hidden></p>
-            <div class="separator"><span>ou</span></div>
-            <form id="demo-login-form" class="demo-access-form">
-              <label>
-                Code d'accès démo
-                <input type="text" name="demo_code" id="demo-code" autocomplete="off" spellcheck="false" maxlength="64" placeholder="Code partagé" required>
-              </label>
-              <button id="demo-login" type="submit" class="demo-button">Ouvrir la démo</button>
-            </form>
+            <button type="button" id="local-login" class="demo-button"${isLocalDevHost() ? "" : " hidden"}>Continuer sans Microsoft</button>
             <p class="login-legal">Outil RH professionnel.
               <a href="/confidentialite">Confidentialité</a> ·
               <a href="/mentions-legales">Mentions légales</a> ·
@@ -12880,10 +13007,47 @@ function bindPageEvents() {
   document.querySelector("#eds-payroll-open")?.addEventListener("click", () => {
     openEdsPayrollDialog("one");
   });
+  document.querySelector("#eds-payroll-template")?.addEventListener("click", () => {
+    downloadCsv(
+      "modele-elements-paie.csv",
+      ["Matricule", "Nom", "Prénom", ...edsPayrollFields().map((field) => field.label)],
+      []
+    );
+  });
+  const edsImport = document.querySelector("#eds-payroll-import");
+  if (edsImport && !edsImport.dataset.humanaBound) {
+    edsImport.dataset.humanaBound = "1";
+    edsImport.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const data = new FormData(edsImport);
+      const file = data.get("file");
+      if (!applyEdsFilterFromForm(edsImport)) return;
+      if (!file || !file.size) {
+        alert("Choisissez un fichier Excel ou CSV.");
+        return;
+      }
+      const range = getEdsRange();
+      const button = edsImport.querySelector('button[type="submit"]');
+      if (button) button.disabled = true;
+      importEdsPayrollFile(file, range)
+        .then((result) => {
+          const missed = result.unmatched.length
+            ? ` ${result.unmatched.length} ligne${result.unmatched.length > 1 ? "s" : ""} non reconnue${result.unmatched.length > 1 ? "s" : ""}.`
+            : "";
+          alert(`${result.matched} collaborateur${result.matched > 1 ? "s" : ""} enregistré${result.matched > 1 ? "s" : ""} sur la période ${edsPeriodLabel(range)}.${missed}`);
+          if (currentPage === "reports") refreshPageContent();
+        })
+        .catch((error) => {
+          if (button) button.disabled = false;
+          alert(error?.message || "Impossible d'importer le fichier.");
+        });
+    });
+  }
   document.querySelector("#export-eds")?.addEventListener("click", () => {
     const rows = buildEdsRows();
     const range = getEdsRange();
     const columns = visibleEdsColumns();
+    auditReportExport("export.eds", range, rows.length);
     downloadCsv(`eds_${range.start}_${range.end}.csv`,
       columns.map((col) => col.label),
       rows.map((row) => edsRowCells(row, columns)));
@@ -12893,17 +13057,19 @@ function bindPageEvents() {
     const requests = [...getLeaveRequests(), ...(appData.teamLeaveRequests || [])]
       .map((row) => (row.type ? row : normalizeTeamLeaveRequest(row)))
       .filter((item) => edsLeaveOverlaps(item, range));
+    auditReportExport("export.absences", range, requests.length);
     downloadCsv(`absences_${range.start}_${range.end}.csv`, ["Nom", "Type", "Début", "Fin", "Durée", "Statut"],
       requests.map((item) => [item.name || getUserName(), item.type, item.start, item.end, item.days || item.hours, item.status]));
   });
   document.querySelector("#export-retards")?.addEventListener("click", () => {
     const range = getEdsRange();
     const daily = summarizeTeamPunchesByDay(appData.teamPunches || [], range.start, range.end);
-    downloadCsv(`retards_${range.start}_${range.end}.csv`, ["Nom", "Date", "Retard_min", "Manquant"],
-      daily.map((row) => {
-        const stats = analyzeWorkedDay(row, profileById(row.userId) || {});
-        return [row.name, row.dayKey, stats.delayMin, formatDuration(stats.missingMs)];
-      }).filter((row) => Number(row[2]) > 0 || row[3] !== "0h00"));
+    const lateRows = daily.map((row) => {
+      const stats = analyzeWorkedDay(row, profileById(row.userId) || {});
+      return [row.name, row.dayKey, stats.delayMin, formatDuration(stats.missingMs)];
+    }).filter((row) => Number(row[2]) > 0 || row[3] !== "0h00");
+    auditReportExport("export.delays", range, lateRows.length);
+    downloadCsv(`retards_${range.start}_${range.end}.csv`, ["Nom", "Date", "Retard_min", "Manquant"], lateRows);
   });
 
   const hierarchySearchInput = document.querySelector("#hierarchy-search");
@@ -13952,27 +14118,26 @@ async function initialize() {
     ensureAppContainer();
     if (shouldBootAuthenticatedUi()) showAuthBootScreen();
     bindLoginEvents();
-    const expiredNotice = consumeSessionExpiredMessage();
-    if (expiredNotice) setLoginState({ ready: Boolean(supabaseClient), error: expiredNotice });
-    // Reprise du mode démo après redirection depuis / vers /admin.html.
-    // Le flag reste dans sessionStorage tant que l'utilisateur ne se déconnecte
-    // pas : chaque navigation MPA (page reload) re-hydrate l'état démo.
-    if (mpaMode) {
-      let demoFlag = false;
-      try { demoFlag = sessionStorage.getItem("humana_demo_mode") === "1"; } catch (_) {}
-      if (demoFlag && isDemoSessionExpired()) {
+    if (!isLocalDevHost()) {
+      try {
+        sessionStorage.removeItem("humana_demo_mode");
+        sessionStorage.removeItem(DEMO_STARTED_KEY);
+      } catch (_) { /* ignore */ }
+    } else if (mpaMode) {
+      let localFlag = false;
+      try { localFlag = sessionStorage.getItem("humana_demo_mode") === "1"; } catch (_) { /* ignore */ }
+      if (localFlag && isDemoSessionExpired()) {
         try {
           sessionStorage.removeItem("humana_demo_mode");
           sessionStorage.removeItem(DEMO_STARTED_KEY);
-          sessionStorage.removeItem("humana_auth_boot");
           sessionStorage.setItem(SESSION_EXPIRED_KEY, "1");
         } catch (_) { /* ignore */ }
         window.location.href = `${loginHref()}?expired=1`;
         return;
       }
-      if (demoFlag) {
+      if (localFlag) {
         demoMode = true;
-        supabaseClient = getSupabaseClient();
+        ensureAppContainer();
         showAuthBootScreen();
         hydrateDemoWorkspace();
         renderApp();
@@ -13981,6 +14146,8 @@ async function initialize() {
         return;
       }
     }
+    const expiredNotice = consumeSessionExpiredMessage();
+    if (expiredNotice) setLoginState({ ready: Boolean(supabaseClient), error: expiredNotice });
     if (window.__authReady) await window.__authReady;
     supabaseClient = getSupabaseClient();
     if (!shouldBootAuthenticatedUi()) {
@@ -14296,22 +14463,22 @@ function hydrateDemoWorkspace() {
 }
 
 window.humanaStartDemo = function () {
-  demoMode = true;
-  supabaseClient = getSupabaseClient();
-  ensureAppContainer();
-  try { sessionStorage.setItem("humana_auth_boot", "1"); } catch (_) { /* ignore */ }
+  if (!isLocalDevHost()) return;
   try { sessionStorage.setItem("humana_demo_mode", "1"); } catch (_) { /* ignore */ }
   markDemoStarted(true);
-  showAuthBootScreen();
-  hydrateDemoWorkspace();
   if (!mpaMode) {
-    window.location.href = pageHref("admin");
+    window.location.href = pageHref("home");
     return;
   }
+  demoMode = true;
+  ensureAppContainer();
+  showAuthBootScreen();
+  hydrateDemoWorkspace();
   renderApp();
   hideAuthBootScreen();
   scheduleDemoExpiry();
 };
+
 
 
 
@@ -14339,6 +14506,8 @@ window.humanaStartDemo = function () {
     buildOrgTree,
     buildPlanningModel,
     canEditEdsPayroll,
+    canImportEdsPayroll,
+    edsPayrollImportMarkup,
     canImportPlanning,
     canViewGlobal,
     canViewHrAlerts,
@@ -14444,6 +14613,7 @@ window.humanaStartDemo = function () {
     renderTeamPunchDetailCard,
     renderUnjustifiedAbsenceInbox,
     renderUserAccountSection,
+    SHOW_DEFERRED_ADMIN_CARDS,
     renderWorkLocationBadge,
     renderWorkLocationSelector,
     resolveDailyRowWorkLocation,

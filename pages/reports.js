@@ -14,6 +14,7 @@
     return `
       ${H.renderGtaTeamInbox()}
       ${H.edsFilterMarkup()}
+      ${H.edsPayrollImportMarkup()}
       <article class="card form-card page-spacer">
         ${H.cardHeading("Exports")}
         <div class="team-punches-actions">

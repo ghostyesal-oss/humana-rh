@@ -1,8 +1,27 @@
-import { adminQuery, withAdmin, withUser } from "./db.js";
+import { adminQuery, logSensitiveAccess, withAdmin, withUser } from "./db.js";
 import { salaryAdvanceQuotaFor } from "./salary-advance.js";
 
 function rpcMissing(name) {
   return { data: null, error: { message: `Could not find the function public.${name}` } };
+}
+
+const PERSONAL_EXPORTS = new Set(["export.eds", "export.absences", "export.delays", "export.team"]);
+
+async function auditPersonalExport(user, args) {
+  const action = String(args.action || "");
+  if (!PERSONAL_EXPORTS.has(action)) {
+    return { data: null, error: { message: "Action de journal inconnue." } };
+  }
+  const count = Math.max(0, Math.min(100000, Math.round(Number(args.count) || 0)));
+  const start = /^\d{4}-\d{2}-\d{2}$/.test(String(args.start || "")) ? String(args.start) : "";
+  const end = /^\d{4}-\d{2}-\d{2}$/.test(String(args.end || "")) ? String(args.end) : "";
+  await logSensitiveAccess({
+    actor: user,
+    action,
+    table: "reports",
+    meta: { count, start, end }
+  });
+  return { data: { ok: true }, error: null };
 }
 
 async function applyPendingInvite(user, args) {
@@ -252,7 +271,7 @@ function sanitizeImportedEmployee(row) {
   const matricule = normalizeImportedMatricule(row.matricule);
   const fullName = clip(row.full_name, 120);
   if (!matricule && !fullName) return null;
-  const role = ["employee", "manager", "rh", "admin"].includes(String(row.role || "")) ? row.role : "employee";
+  const role = ["employee", "support", "manager", "rh", "admin"].includes(String(row.role || "")) ? row.role : "employee";
   const leaveGrade = ["employee", "manager", "codir"].includes(String(row.leave_grade || "")) ? row.leave_grade : "employee";
   const holidayCalendar = ["ma", "fr"].includes(String(row.holiday_calendar || "").toLowerCase())
     ? String(row.holiday_calendar).toLowerCase()
@@ -412,6 +431,12 @@ async function importEmployees(user, args) {
     }
     const counted = await client.query("select count(*)::int as n from public.profiles");
     await client.query("commit");
+    await logSensitiveAccess({
+      actor: user,
+      action: "account.import",
+      table: "profiles",
+      meta: { created, updated, managersLinked }
+    });
     return {
       data: {
         created,
@@ -438,6 +463,7 @@ export async function runRpc(user, name, args) {
   if (name === "process_auto_clock_outs") return rpcMissing(name);
   if (name === "import_planning_entries") return importPlanningEntries(user, args || {});
   if (name === "import_employees") return importEmployees(user, args || {});
+  if (name === "audit_personal_export") return auditPersonalExport(user, args || {});
   if (name === "salary_advance_quota") {
     const result = await salaryAdvanceQuotaFor(user.sub, null);
     return {

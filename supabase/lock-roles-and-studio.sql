@@ -85,7 +85,7 @@ security definer
 set search_path = ''
 as $$
 declare
-  allowed_roles constant text[] := array['employee', 'manager', 'rh', 'admin', 'creator'];
+  allowed_roles constant text[] := array['employee', 'support', 'manager', 'rh', 'admin', 'creator'];
 begin
   if tg_op = 'INSERT' and (new.role is null or new.role = '') then
     new.role := 'employee';
@@ -155,7 +155,7 @@ begin
   if not public.humana_is_admin() then
     raise exception 'Seul un administrateur peut gerer les invitations.';
   end if;
-  if new.role is null or new.role not in ('employee', 'manager', 'rh', 'admin', 'creator') then
+  if new.role is null or new.role not in ('employee', 'support', 'manager', 'rh', 'admin', 'creator') then
     raise exception 'Role d invitation invalide.';
   end if;
   return new;

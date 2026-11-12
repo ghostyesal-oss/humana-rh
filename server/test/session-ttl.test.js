@@ -8,12 +8,12 @@ import {
   sessionRemainingMs
 } from "../src/session-ttl.js";
 
-test("durée de session par défaut : 22 h", () => {
+test("durée de session par défaut : 1 h", () => {
   const previous = process.env.JWT_EXPIRES_IN;
   delete process.env.JWT_EXPIRES_IN;
   try {
-    assert.equal(jwtTtl(), "22h");
-    assert.equal(jwtMaxAgeMs(), 22 * 60 * 60 * 1000);
+    assert.equal(jwtTtl(), "1h");
+    assert.equal(jwtMaxAgeMs(), 60 * 60 * 1000);
   } finally {
     if (previous == null) delete process.env.JWT_EXPIRES_IN;
     else process.env.JWT_EXPIRES_IN = previous;

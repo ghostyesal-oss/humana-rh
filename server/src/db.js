@@ -98,6 +98,10 @@ export async function withUser(user, fn) {
   });
 }
 
+export async function purgeAuditLog() {
+  await adminQuery(`delete from public.audit_log where at < now() - interval '6 months'`);
+}
+
 export async function logSensitiveAccess({ actor, action, table, targetId, targetUserId, meta }) {
   try {
     await adminQuery(

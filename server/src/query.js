@@ -171,7 +171,7 @@ function payrollEmails() {
 }
 
 function canManageEdsPayroll(user) {
-  if (isAdmin(user)) return true;
+  if (isHr(user)) return true;
   const email = String(user?.email || "").trim().toLowerCase();
   return Boolean(email && payrollEmails().includes(email));
 }
@@ -420,26 +420,15 @@ async function loadScopedRows(fromSql, filters) {
   return rows;
 }
 
-const OS_LABELS = new Set(["Windows", "macOS", "Linux", "Android", "iOS", "Inconnu"]);
-const BROWSER_LABELS = new Set([
-  "Google Chrome", "Microsoft Edge", "Mozilla Firefox", "Safari", "Opera", "Navigateur"
-]);
 const METHOD_LABELS = new Set(["Web", "Web mobile"]);
-const NETWORK_LABELS = new Set(["Wi-Fi", "Ethernet", "Mobile", "Bluetooth", "WiMAX", "LAN", "Internet", "Autre"]);
 
 function redactPunchTelemetry(row) {
   row.ip_address = null;
-  if (row.operating_system && !OS_LABELS.has(row.operating_system)) {
-    row.operating_system = "Inconnu";
-  }
-  if (row.browser_application && !BROWSER_LABELS.has(row.browser_application)) {
-    row.browser_application = "Navigateur";
-  }
+  row.operating_system = null;
+  row.browser_application = null;
+  row.network_type = null;
   if (row.connection_method && !METHOD_LABELS.has(row.connection_method)) {
     row.connection_method = "Web";
-  }
-  if (row.network_type && !NETWORK_LABELS.has(row.network_type)) {
-    row.network_type = "Internet";
   }
 }
 
@@ -814,7 +803,86 @@ function payloadKeys(row) {
   return Object.keys(COLUMN_SQL).filter((key) => Object.prototype.hasOwnProperty.call(row || {}, key));
 }
 
+function clipLabel(value) {
+  const text = String(value || "").trim();
+  return text ? text.slice(0, 40) : "";
+}
+
+function auditTargetUserId(table, row) {
+  if (!row) return null;
+  if (table === "profiles" || table === "profiles_directory") return row.id || null;
+  return row.user_id || null;
+}
+
+async function auditPersonalWrite(user, table, op, rows, payload) {
+  const list = (rows || []).filter((row) => row && typeof row === "object");
+  if (!list.length) return;
+  const keys = payload && typeof payload === "object" && !Array.isArray(payload) ? Object.keys(payload) : [];
+  if (table === "profiles" && op === "update" && keys.length && keys.every((key) => key === "role" || key === "updated_at")) {
+    return;
+  }
+  if (table === "time_punches" && op === "insert") return;
+
+  if (table === "app_settings") {
+    const payroll = list.some((row) => row.key === "eds_payroll") || payload?.key === "eds_payroll";
+    if (!payroll) return;
+    await logSensitiveAccess({
+      actor: user,
+      action: "payroll.import",
+      table: "app_settings",
+      meta: { key: "eds_payroll" }
+    });
+    return;
+  }
+
+  const actionFor = (row) => {
+    if (table === "profiles") {
+      if (op === "insert") return "account.create";
+      if (op === "delete") return "account.delete";
+      return "account.update";
+    }
+    if (table === "leave_requests") {
+      const type = String(row.leave_type || "");
+      if (op === "insert" && /just/i.test(type)) return "absence.justify";
+      if (op === "update" || op === "upsert") return "leave.decide";
+      return "leave.create";
+    }
+    if (table === "delay_reviews") return "delay.review";
+    if (table === "time_punches") return "punch.correct";
+    return "";
+  };
+
+  for (const row of list) {
+    const action = actionFor(row);
+    if (!action) continue;
+    const meta = {};
+    const status = clipLabel(row.status);
+    const leaveType = clipLabel(row.leave_type);
+    if (status) meta.status = status;
+    if (leaveType) meta.leaveType = leaveType;
+    await logSensitiveAccess({
+      actor: user,
+      action,
+      table,
+      targetId: row.id || null,
+      targetUserId: auditTargetUserId(table, row),
+      meta
+    });
+  }
+}
+
 function auditRead(user, table, rows) {
+  if (table === "profiles" || table === "profiles_directory") {
+    const others = (rows || []).filter((row) => row?.id && row.id !== user?.sub);
+    if (!others.length) return Promise.resolve();
+    return logSensitiveAccess({
+      actor: user,
+      action: "profile.read",
+      table: "profiles",
+      targetUserId: others.length === 1 ? others[0].id : null,
+      meta: { count: others.length }
+    });
+  }
   if (table !== "payslips" && table !== "hr_documents") return Promise.resolve();
   const list = (rows || []).filter(Boolean);
   return logSensitiveAccess({
@@ -916,7 +984,11 @@ async function executeQuery(user, body) {
         throw error;
       }
     }
-    if (body.single || body.maybeSingle) return { data: result.rows[0] || null, error: null };
+    if (body.single || body.maybeSingle) {
+      await auditPersonalWrite(user, table, op, result.rows, first);
+      return { data: result.rows[0] || null, error: null };
+    }
+    await auditPersonalWrite(user, table, op, result.rows, first);
     return { data: result.rows, error: null };
   }
 
@@ -933,6 +1005,7 @@ async function executeQuery(user, body) {
     const whereSql = sql.replace(/\$(\d+)/g, (_, n) => `$${Number(n) + keys.length}`);
     const text = `update public.${fromSql} set ${sets.join(", ")}${whereSql} returning *`;
     const result = await execWrite(text, [...setParams, ...params]);
+    await auditPersonalWrite(user, table, op, result.rows, payload);
     return { data: result.rows, error: null };
   }
 
@@ -940,6 +1013,7 @@ async function executeQuery(user, body) {
     const { sql, params } = whereClause(filters);
     if (!sql) return { data: null, error: { message: "Delete sans filtre refusé" } };
     const result = await execWrite(`delete from public.${fromSql}${sql} returning *`, params);
+    await auditPersonalWrite(user, table, op, result.rows, null);
     return { data: result.rows, error: null };
   }
 

@@ -1869,6 +1869,15 @@ button.brand:focus-visible {
   white-space: normal;
 }
 
+.eds-import-history {
+  margin: 12px 0 0;
+  padding-left: 18px;
+}
+
+.eds-import-history li + li {
+  margin-top: 4px;
+}
+
 .eds-table th.eds-payroll,
 .eds-table td.eds-payroll {
   background: #ffe566;
@@ -5064,6 +5073,12 @@ tbody tr:hover td { background: var(--surface-2); }
   font-size: 14px;
   line-height: 1.55;
   color: var(--text-secondary);
+}
+
+.welcome-text a {
+  color: var(--forest-mid);
+  font-weight: 650;
+  text-underline-offset: 2px;
 }
 
 .welcome-cta {

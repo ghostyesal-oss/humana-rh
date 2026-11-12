@@ -60,21 +60,6 @@
     };
   }
 
-  function downloadJson(filename, data) {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(link.href);
-  }
-
-  function exportPrivacyJson() {
-    const pack = privacyPack();
-    const stamp = new Date().toISOString().slice(0, 10);
-    downloadJson(`daylyx-mes-donnees_${stamp}.json`, pack);
-  }
-
   function exportPrivacyCsv() {
     const punches = privacyPack().time_punches || [];
     if (!punches.length) {
@@ -138,8 +123,7 @@
             <dt>Documents</dt><dd>${pack.hr_documents.length}</dd>
           </dl>
           <div class="privacy-actions">
-            <button type="button" class="primary" id="privacy-export-json">Exporter mon dossier (JSON)</button>
-            <button type="button" class="outline-button" id="privacy-export-csv">Exporter mes pointages (CSV)</button>
+            <button type="button" class="primary" id="privacy-export-csv">Exporter mes pointages (CSV)</button>
           </div>
         </article>
         <article class="card">
@@ -155,10 +139,7 @@
   }
 
   document.addEventListener("click", function (event) {
-    if (event.target.closest("#privacy-export-json")) {
-      event.preventDefault();
-      exportPrivacyJson();
-    } else if (event.target.closest("#privacy-export-csv")) {
+    if (event.target.closest("#privacy-export-csv")) {
       event.preventDefault();
       exportPrivacyCsv();
     }

@@ -3,6 +3,7 @@
  */
 (function (H) {
   "use strict";
+  const SHOW_NEW_ATTESTATION_CARD = false;
   function salaryAdvanceFormCard() {
     const quota = H.getSalaryAdvanceQuota();
     const blocked = !quota.ok;
@@ -60,15 +61,15 @@
     }
 
     const requestPage = H.paginateList("hr-mine", H.getOwnHrRequests());
-    const quota = H.getAttestationQuota();
-    const attestationBlocked = quota.allBlocked;
+    const quota = SHOW_NEW_ATTESTATION_CARD ? H.getAttestationQuota() : null;
+    const attestationBlocked = Boolean(quota?.allBlocked);
 
     return `
       ${H.renderHrValidationInbox()}
       ${H.renderHrTeamFollowup()}
       <div class="feature-grid feature-grid--hr">
         ${salaryAdvanceFormCard()}
-        <article class="card form-card">
+        ${SHOW_NEW_ATTESTATION_CARD ? `<article class="card form-card">
           ${H.cardHeading("Nouvelle attestation")}
           <p class="data-note">Un même type d'attestation ne peut être demandé qu'une fois tous les ${quota.cooldownMonths} mois, à compter de la date de la dernière demande.</p>
           ${quota.blockedTypes.length ? `<p class="data-note">Déjà demandé : ${H.escapeHtml(quota.blockedTypes.map((type) => {
@@ -86,7 +87,7 @@
             </label>
             <button type="submit" class="primary"${attestationBlocked ? " disabled" : ""}>Envoyer la demande</button>
           </form>
-        </article>
+        </article>` : ""}
         <article class="card form-card">
           ${H.cardHeading("Autres demandes")}
           <form id="other-request-form" class="feature-form">

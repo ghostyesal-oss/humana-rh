@@ -24,10 +24,8 @@ import { runQuery } from "./query.js";
 import { runRpc } from "./rpc.js";
 import { publicUrl, readFile, removeFile, saveFile, assertCanReadStorage } from "./storage.js";
 import { runMigrations } from "./migrate.js";
-import { logSensitiveAccess, query } from "./db.js";
+import { logSensitiveAccess, purgeAuditLog, query } from "./db.js";
 import { buildHealth, installProcessHandlers, logJson, requestLogger } from "./obs.js";
-import { demoAccessCodeMatches, demoAccessConfigured } from "./demo-access.js";
-
 installProcessHandlers();
 
 const app = express();
@@ -127,18 +125,6 @@ app.get("/api/auth/csrf", authLimiter, (req, res) => {
 app.get("/api/health", async (_req, res) => {
   const payload = await buildHealth(() => query("select 1"));
   res.status(payload.ok ? 200 : 503).json(payload);
-});
-
-app.post("/api/demo/unlock", authLimiter, (req, res) => {
-  if (!demoAccessConfigured()) {
-    return res.status(503).json({ data: null, error: { message: "Démo indisponible." } });
-  }
-  const code = req.body && typeof req.body === "object" ? req.body.code : "";
-  if (!demoAccessCodeMatches(code)) {
-    logJson("info", "demo.unlock.denied");
-    return res.status(403).json({ data: null, error: { message: "Code d'accès incorrect." } });
-  }
-  res.json({ data: { ok: true }, error: null });
 });
 
 app.get("/api/auth/microsoft", authLimiter, startMicrosoftLogin);
@@ -315,6 +301,7 @@ try {
   process.exit(1);
 }
 runMigrations()
+  .then(() => purgeAuditLog())
   .then(() => query("select 1"))
   .then(() => {
     app.listen(port, () => {

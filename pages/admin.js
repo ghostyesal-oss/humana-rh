@@ -8,12 +8,12 @@
       return `<article class="card"><p class="empty-state">Accès réservé aux administrateurs.</p></article>`;
     }
 
-    const docsPage = H.paginateList("admin-docs", H.getHrDocuments());
+    const docsPage = H.SHOW_DEFERRED_ADMIN_CARDS ? H.paginateList("admin-docs", H.getHrDocuments()) : null;
 
     return `
       ${H.renderUserAccountSection()}
       ${H.renderGtaSettingsSection()}
-      <div class="feature-grid page-spacer">
+      ${H.SHOW_DEFERRED_ADMIN_CARDS ? `<div class="feature-grid page-spacer">
         <article class="card form-card">
           ${H.cardHeading("Publier un document RH")}
           <form id="admin-hr-doc-form" class="feature-form" enctype="multipart/form-data">
@@ -102,7 +102,7 @@
           </table>
         </div>
         ${H.renderTablePager(docsPage)}
-      </article>`;
+      </article>` : ""}`;
   }
 
   (H.pages = H.pages || {})["admin"] = adminPage;

@@ -27,17 +27,22 @@
                 ${H.NAV_VISIBILITY_PAGES.map((page) => `
                   <tr>
                     <td><strong>${page.label}</strong></td>
-                    ${H.NAV_VISIBILITY_AUDIENCES.map((audience) => `
+                    ${H.NAV_VISIBILITY_AUDIENCES.map((audience) => {
+                      const locked = page.id === "reports" && audience.id === "employee";
+                      const checked = !locked && visibility[page.id]?.[audience.id] !== false;
+                      return `
                       <td>
                         <label class="creator-toggle">
                           <input
                             type="checkbox"
                             name="${page.id}_${audience.id}"
-                            ${visibility[page.id]?.[audience.id] !== false ? "checked" : ""}
+                            ${checked ? "checked" : ""}
+                            ${locked ? "disabled" : ""}
                           >
-                          <span>Visible</span>
+                          <span>${locked ? "Masqué" : "Visible"}</span>
                         </label>
-                      </td>`).join("")}
+                      </td>`;
+                    }).join("")}
                   </tr>`).join("")}
               </tbody>
             </table>

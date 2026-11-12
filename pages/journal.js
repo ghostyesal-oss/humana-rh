@@ -17,14 +17,9 @@
     const profiles = H.getJournalProfiles();
     const openCount = sessions.filter((entry) => entry.status === "Connecté").length;
     const canFilterPeople = H.usesDatabase();
-    let dbNote = "";
-    if (!H.usesDatabase()) {
-      dbNote = `<p class="data-note demo">Mode démo : journal local. Connectez-vous avec Microsoft pour voir les sessions réelles.</p>`;
-    } else if (H.appData.journalMetaMissing) {
-      dbNote = `<p class="data-note">Colonnes techniques absentes de la base. Redémarrez l'API pour appliquer les migrations, puis refaites un pointage d'entrée.</p>`;
-    } else if (sessions.length && sessions.every((entry) => entry.method === "—" && entry.os === "—" && entry.browser === "—" && entry.ip === "—")) {
-      dbNote = `<p class="data-note">Les sessions déjà enregistrées n'ont pas d'OS ni de navigateur. Ces détails (sans adresse IP) apparaîtront au prochain pointage d'entrée.</p>`;
-    }
+    const dbNote = !H.usesDatabase()
+      ? `<p class="data-note demo">Mode démo : journal local. Connectez-vous avec Microsoft pour voir les sessions réelles.</p>`
+      : "";
 
     return `
       ${dbNote}
@@ -54,7 +49,7 @@
           </label>` : ""}
           <label>
             Recherche
-            <input type="search" name="query" value="${H.escapeHtml(H.journalFilters.query || "")}" placeholder="Nom, matricule, IP, statut...">
+            <input type="search" name="query" value="${H.escapeHtml(H.journalFilters.query || "")}" placeholder="Nom, matricule, statut...">
           </label>
           <div class="team-punches-actions">
             <button type="submit" class="primary">Actualiser</button>
@@ -117,12 +112,6 @@
                     <td>${H.escapeHtml(entry.dateOut)}</td>
                     <td>${H.escapeHtml(entry.timeOut)}</td>
                     <td><strong>${H.escapeHtml(entry.duration)}</strong></td>
-                    <td>${H.escapeHtml(entry.method)}</td>
-                    <td>${H.escapeHtml(entry.os)}</td>
-                    <td>${H.escapeHtml(entry.browser)}</td>
-                    <td><code class="journal-id">${H.escapeHtml(entry.ip)}</code></td>
-                    <td>${H.escapeHtml(entry.network)}</td>
-                    <td>${H.escapeHtml(entry.location)}</td>
                     <td>${H.renderJournalStatus(entry.status)}</td>
                     <td>${H.escapeHtml(entry.reason)}</td>
                   </tr>`).join("")

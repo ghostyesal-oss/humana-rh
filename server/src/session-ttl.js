@@ -1,6 +1,6 @@
 export function jwtTtl() {
-  const raw = String(process.env.JWT_EXPIRES_IN || "22h").trim();
-  return /^\d+[smhd]$/.test(raw) ? raw : "22h";
+  const raw = String(process.env.JWT_EXPIRES_IN || "1h").trim();
+  return /^\d+[smhd]$/.test(raw) ? raw : "1h";
 }
 
 export function jwtMaxAgeMs() {
