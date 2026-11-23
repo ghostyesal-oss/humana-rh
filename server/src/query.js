@@ -800,8 +800,15 @@ async function embedProfiles(rows, embed) {
   return rows.map((row) => ({ ...row, profiles: map.get(row.user_id) || null }));
 }
 
+const JSONB_COLUMNS = new Set(["value", "payload"]);
+
 function payloadKeys(row) {
   return Object.keys(COLUMN_SQL).filter((key) => Object.prototype.hasOwnProperty.call(row || {}, key));
+}
+
+function bindColumnValue(key, value) {
+  if (value == null || !JSONB_COLUMNS.has(key)) return value;
+  return JSON.stringify(value);
 }
 
 function clipLabel(value) {
@@ -963,7 +970,7 @@ async function executeQuery(user, body) {
     const values = [];
     const tuples = rows.map((row, rowIndex) => {
       const placeholders = keys.map((key, keyIndex) => {
-        values.push(row[key]);
+        values.push(bindColumnValue(key, row[key]));
         return `$${rowIndex * keys.length + keyIndex + 1}`;
       });
       return `(${placeholders.join(",")})`;
@@ -1001,7 +1008,7 @@ async function executeQuery(user, body) {
     if (!sql) {
       return { data: null, error: { message: "Update sans filtre refusé" } };
     }
-    const setParams = keys.map((key) => payload[key]);
+    const setParams = keys.map((key) => bindColumnValue(key, payload[key]));
     const sets = keys.map((key, index) => `${COLUMN_SQL[key]} = $${index + 1}`);
     const whereSql = sql.replace(/\$(\d+)/g, (_, n) => `$${Number(n) + keys.length}`);
     const text = `update public.${fromSql} set ${sets.join(", ")}${whereSql} returning *`;
