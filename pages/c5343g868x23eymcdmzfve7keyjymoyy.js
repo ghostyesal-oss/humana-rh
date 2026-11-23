@@ -148,8 +148,8 @@
     const pay = tableView === "pay" ? " is-active" : "";
     return `<div class="team-punches-actions">
       <div class="segmented" role="tablist">
-        <button type="button" class="planning-tab${ibi}" data-canva-table="ibi">IBI</button>
-        <button type="button" class="planning-tab${pay}" data-canva-table="pay">Paie</button>
+        <button type="button" class="planning-tab${ibi}" data-canva-table="ibi">Informations bancaires</button>
+        <button type="button" class="planning-tab${pay}" data-canva-table="pay">Information perso</button>
       </div>
       <button type="button" class="outline-button" id="canva-export">Exporter Excel</button>
     </div>`;
@@ -239,8 +239,8 @@
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-${worksheet("IBI", ["Matricule", "Collaborateur", "Service", "RIB", "IBAN", "Statut"], ibiExportRows())}
-${worksheet("Paie", PAY_COLUMNS.map(([, label]) => label), payRows().map(payCells))}
+${worksheet("Informations bancaires", ["Matricule", "Collaborateur", "Service", "RIB", "IBAN", "Statut"], ibiExportRows())}
+${worksheet("Information perso", PAY_COLUMNS.map(([, label]) => label), payRows().map(payCells))}
 </Workbook>`;
     const blob = new Blob([xml], { type: "application/vnd.ms-excel" });
     const link = document.createElement("a");
@@ -255,7 +255,7 @@ ${worksheet("Paie", PAY_COLUMNS.map(([, label]) => label), payRows().map(payCell
     const page = H.paginateList("pay", list);
     return `
       <article class="card table-card">
-        ${H.cardHeading("Paie")}
+        ${H.cardHeading("Information perso")}
         <div class="page-spacer">${tableSwitch()}</div>
         <details class="collapse-panel" ${H.isFilterPanelOpen("pay") ? "open" : ""} data-filter-panel="pay">
           <summary>Filtres</summary>
@@ -353,7 +353,7 @@ ${worksheet("Paie", PAY_COLUMNS.map(([, label]) => label), payRows().map(payCell
 
   function bankPage() {
     if (!H.canViewBank()) {
-      return `<article class="card"><p class="empty-state">IBI est réservé aux personnes désignées.</p></article>`;
+      return `<article class="card"><p class="empty-state">Les informations bancaires sont réservées aux personnes désignées.</p></article>`;
     }
     if (H.demoMode) {
       stepUp = { status: "ready", at: Date.now() };
@@ -396,7 +396,7 @@ ${worksheet("Paie", PAY_COLUMNS.map(([, label]) => label), payRows().map(payCell
     return `
       ${editing ? (detail.status === "pending" ? `<div class="boot-message"><span class="loader" aria-hidden="true"></span>Déchiffrement du RIB...</div>` : editForm(editing)) : ""}
       <article class="card table-card">
-        ${H.cardHeading("IBI")}
+        ${H.cardHeading("Informations bancaires")}
         <div class="page-spacer">${tableSwitch()}</div>
         ${H.demoMode ? `<p class="data-note">Lien de démo : ${H.escapeHtml(window.location.origin + H.ibiPagePath())}</p>` : ""}
         <section class="team-punches-summary page-spacer">
