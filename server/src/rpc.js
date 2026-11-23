@@ -457,6 +457,21 @@ async function importEmployees(user, args) {
   });
 }
 
+async function ibiAccess(user) {
+  const email = String(user?.email || "").trim().toLowerCase();
+  if (!email) return { data: { allowed: false }, error: null };
+  const result = await adminQuery(
+    "select value from public.app_settings where key = 'ibi_operators' limit 1"
+  );
+  let value = result.rows[0]?.value;
+  if (typeof value === "string") {
+    try { value = JSON.parse(value); } catch (_) { value = []; }
+  }
+  const list = Array.isArray(value) ? value : [];
+  const allowed = list.some((item) => String(item || "").trim().toLowerCase() === email);
+  return { data: { allowed }, error: null };
+}
+
 export async function runRpc(user, name, args) {
   if (name === "apply_pending_invite") return applyPendingInvite(user, args || {});
   if (name === "notify_auto_clock_out") return notifyAutoClockOut(user, args || {});
@@ -464,6 +479,7 @@ export async function runRpc(user, name, args) {
   if (name === "import_planning_entries") return importPlanningEntries(user, args || {});
   if (name === "import_employees") return importEmployees(user, args || {});
   if (name === "audit_personal_export") return auditPersonalExport(user, args || {});
+  if (name === "ibi_access") return ibiAccess(user);
   if (name === "salary_advance_quota") {
     const result = await salaryAdvanceQuotaFor(user.sub, null);
     return {

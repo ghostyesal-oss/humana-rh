@@ -181,7 +181,7 @@ window.addEventListener("error", function (event) {
     var errorBox = document.getElementById("login-error");
     if (errorBox) {
       errorBox.hidden = false;
-      errorBox.textContent = "Erreur application : " + event.message;
+        errorBox.textContent = "Erreur application : " + event.message;
     }
   }
 }, true);

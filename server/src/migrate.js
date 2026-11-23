@@ -57,6 +57,14 @@ export async function grantAppRole() {
         execute 'grant select on public.profiles_directory to humana_app';
         execute 'revoke insert, update, delete on public.profiles_directory from humana_app';
       end if;
+      if exists (
+        select 1 from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relname = 'bank_accounts'
+      ) then
+        execute 'revoke all on public.bank_accounts from humana_app';
+        execute 'revoke all on public.bank_accounts from public';
+      end if;
     end $$
   `);
 }

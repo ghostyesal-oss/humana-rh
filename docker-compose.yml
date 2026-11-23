@@ -24,6 +24,24 @@ services:
     networks:
       - humana
 
+  postgres-bank:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      POSTGRES_DB: bank
+      POSTGRES_USER: bank
+      POSTGRES_PASSWORD: ${BANK_POSTGRES_PASSWORD}
+    volumes:
+      - bankdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bank -d bank"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - humana
+
   api:
     build:
       context: .
@@ -42,11 +60,16 @@ services:
       APP_ORIGIN: ${APP_ORIGIN}
       BOOTSTRAP_CREATOR_EMAILS: ${BOOTSTRAP_CREATOR_EMAILS:-}
       PAYROLL_EMAILS: ${PAYROLL_EMAILS:-}
+      BANK_DATA_KEY: ${BANK_DATA_KEY:-}
+      BANK_DATABASE_URL: postgres://bank:${BANK_POSTGRES_PASSWORD}@postgres-bank:5432/bank
+      BANK_POSTGRES_PASSWORD: ${BANK_POSTGRES_PASSWORD}
     logging: *default-logging
     volumes:
       - storage:/data/storage
     depends_on:
       postgres:
+        condition: service_healthy
+      postgres-bank:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -97,6 +120,10 @@ services:
       PGUSER: humana
       PGPASSWORD: ${POSTGRES_PASSWORD}
       PGDATABASE: humana
+      BANK_PGHOST: postgres-bank
+      BANK_PGUSER: bank
+      BANK_PGPASSWORD: ${BANK_POSTGRES_PASSWORD}
+      BANK_PGDATABASE: bank
       BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:-}
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
       BACKUP_INTERVAL_SEC: ${BACKUP_INTERVAL_SEC:-86400}
@@ -109,6 +136,8 @@ services:
       - ./scripts/backup-postgres.sh:/backup.sh:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      postgres-bank:
         condition: service_healthy
     logging: *default-logging
     entrypoint: ["/bin/sh", "/backup.sh", "--loop"]
@@ -138,6 +167,7 @@ services:
 
 volumes:
   pgdata:
+  bankdata:
   storage:
   caddy_data:
   caddy_config:

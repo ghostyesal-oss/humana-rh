@@ -1577,6 +1577,26 @@ button.brand:focus-visible {
   font-weight: 700;
 }
 
+.payroll-header-button {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.payroll-header-button:hover,
+.payroll-header-button.is-active {
+  border-color: var(--forest-mid);
+  background: var(--lime-muted);
+  color: var(--forest);
+}
+
 /* Page */
 
 .page {
@@ -7315,6 +7335,10 @@ small { font-size: 11px; }
   background: var(--forest-mid);
   color: #fff;
 }
+.canva-pay-table th,
+.canva-pay-table td {
+  white-space: nowrap;
+}
 .planning-filters {
   display: flex;
   flex-wrap: wrap;
@@ -7478,6 +7502,11 @@ small { font-size: 11px; }
 .admin-user-assign-form,
 .collapse-panel-form {
   margin-top: 10px;
+}
+.collapse-panel:not([open]) > .collapse-panel-form,
+.planning-assign:not([open]) > .planning-assign-form,
+.admin-user-assign:not([open]) > .admin-user-assign-form {
+  display: none;
 }
 .planning-assign-form .primary,
 .admin-user-assign-form .primary,

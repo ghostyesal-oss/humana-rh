@@ -6,6 +6,7 @@ import {
   bumpSessionEpoch,
   clearSessionCookie,
   finishMicrosoftLogin,
+  hasIbiStepUp,
   loadProfile,
   readToken,
   requireAuth,
@@ -23,6 +24,8 @@ import { rateLimit } from "./rate-limit.js";
 import { runQuery } from "./query.js";
 import { runRpc } from "./rpc.js";
 import { publicUrl, readFile, removeFile, saveFile, assertCanReadStorage } from "./storage.js";
+import { listBankAccounts, readBankAccount, saveBankAccount } from "./bank-accounts.js";
+import { ensureBankSchema } from "./bank-db.js";
 import { runMigrations } from "./migrate.js";
 import { logSensitiveAccess, purgeAuditLog, query } from "./db.js";
 import { buildHealth, installProcessHandlers, logJson, requestLogger } from "./obs.js";
@@ -129,6 +132,12 @@ app.get("/api/health", async (_req, res) => {
 
 app.get("/api/auth/microsoft", authLimiter, startMicrosoftLogin);
 app.get("/api/auth/microsoft/callback", authLimiter, finishMicrosoftLogin);
+
+app.get("/api/auth/ibi-stepup", (req, res) => {
+  const user = readToken(req);
+  const ok = Boolean(user?.sub) && sessionRemainingMs(user) > 0 && hasIbiStepUp(req, user.sub);
+  res.json({ data: { ok }, error: null });
+});
 
 app.get("/api/auth/session", async (req, res) => {
   const user = readToken(req);
@@ -258,6 +267,40 @@ app.post("/api/storage/:bucket/signed-url", requireAuth, async (req, res) => {
   }
 });
 
+app.get("/api/ibi/accounts", requireAuth, async (req, res) => {
+  try {
+    const data = await listBankAccounts(req.user, req);
+    res.json({ data, error: null });
+  } catch (error) {
+    const status = error.status || 500;
+    if (status >= 500) logJson("error", "ibi.list", { err: error, status });
+    res.status(status).json({ data: null, error: { message: error.message || "Lecture impossible." } });
+  }
+});
+
+app.get("/api/ibi/accounts/:profileId", requireAuth, async (req, res) => {
+  try {
+    const data = await readBankAccount(req.user, req, req.params.profileId);
+    if (!data) return res.status(404).json({ data: null, error: { message: "Aucun RIB enregistré." } });
+    res.json({ data, error: null });
+  } catch (error) {
+    const status = error.status || 500;
+    if (status >= 500) logJson("error", "ibi.read", { err: error, status });
+    res.status(status).json({ data: null, error: { message: error.message || "Lecture impossible." } });
+  }
+});
+
+app.put("/api/ibi/accounts/:profileId", requireAuth, writeLimiter, async (req, res) => {
+  try {
+    const data = await saveBankAccount(req.user, req, req.params.profileId, req.body || {});
+    res.json({ data, error: null });
+  } catch (error) {
+    const status = error.status || 500;
+    if (status >= 500) logJson("error", "ibi.write", { err: error, status });
+    res.status(status).json({ data: null, error: { message: error.message || "Enregistrement impossible." } });
+  }
+});
+
 app.post("/api/storage/:bucket/remove", requireAuth, async (req, res) => {
   try {
     if (!["admin", "creator"].includes(req.user.role)) {
@@ -303,7 +346,9 @@ try {
 runMigrations()
   .then(() => purgeAuditLog())
   .then(() => query("select 1"))
-  .then(() => {
+  .then(() => ensureBankSchema())
+  .then((bankReady) => {
+    logJson("info", "bank.db", { ready: Boolean(bankReady) });
     app.listen(port, () => {
       logJson("info", "api.listen", { port });
     });

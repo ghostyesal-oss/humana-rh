@@ -50,6 +50,20 @@
           <button type="submit" class="primary">Enregistrer les réglages</button>
         </form>
       </article>
+      <article class="card form-card page-spacer">
+        ${H.cardHeading("Accès IBI")}
+        <p class="creator-intro">Le bouton Canva de l'en-tête reste masqué, sauf pour les deux ou trois adresses désignées ici. En mode démo, le bouton reste visible.</p>
+        <form id="ibi-operators-form" class="feature-form">
+          <div class="form-row">
+            ${[0, 1, 2].map((index) => `
+              <label>
+                Personne ${index + 1}
+                <input type="email" name="ibi_email_${index}" value="${H.escapeHtml(H.getIbiOperators()[index] || "")}" placeholder="prenom.nom@entreprise.fr">
+              </label>`).join("")}
+          </div>
+          <button type="submit" class="primary">Enregistrer les accès IBI</button>
+        </form>
+      </article>
       ${H.renderCreatorAccountsSection()}`;
   }
 

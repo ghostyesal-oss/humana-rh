@@ -14,6 +14,9 @@ export { jwtMaxAgeMs, jwtTtl, sessionAuthTimeSec, sessionDeadlineMs, sessionRema
 
 const COOKIE = "humana_session";
 const STATE_COOKIE = "humana_oauth_state";
+const IBI_STEPUP_COOKIE = "humana_ibi_stepup";
+const IBI_STEPUP_SEC = 5 * 60;
+const IBI_PAGE_SLUG = "c5343g868x23eymcdmzfve7keyjymoyy";
 
 function privilegedCreatorEmails() {
   return String(process.env.BOOTSTRAP_CREATOR_EMAILS || "")
@@ -162,6 +165,43 @@ export function clearSessionCookie(res) {
     sameSite: "lax",
     secure: process.env.COOKIE_SECURE !== "false"
   });
+  clearIbiStepUpCookie(res);
+}
+
+function cookieFlags() {
+  return {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.COOKIE_SECURE !== "false",
+    path: "/"
+  };
+}
+
+export function clearIbiStepUpCookie(res) {
+  res.clearCookie(IBI_STEPUP_COOKIE, cookieFlags());
+}
+
+export function setIbiStepUpCookie(res, userId) {
+  const token = jwt.sign(
+    { sub: userId, purpose: "ibi" },
+    jwtSecret(),
+    { expiresIn: IBI_STEPUP_SEC }
+  );
+  res.cookie(IBI_STEPUP_COOKIE, token, {
+    ...cookieFlags(),
+    maxAge: IBI_STEPUP_SEC * 1000
+  });
+}
+
+export function hasIbiStepUp(req, userId) {
+  const token = req.cookies?.[IBI_STEPUP_COOKIE] || "";
+  if (!token || !userId) return false;
+  try {
+    const payload = jwt.verify(token, jwtSecret());
+    return payload.purpose === "ibi" && payload.sub === userId;
+  } catch {
+    return false;
+  }
 }
 
 const PROFILE_TTL_MS = 15000;
@@ -258,7 +298,8 @@ export function startMicrosoftLogin(req, res) {
     return res.status(500).send("ENTRA_CLIENT_ID manquant.");
   }
   const state = crypto.randomBytes(16).toString("hex");
-  res.cookie(STATE_COOKIE, state, {
+  const stepUp = req.query.next === "ibi";
+  res.cookie(STATE_COOKIE, stepUp ? `${state}.ibi` : state, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.COOKIE_SECURE !== "false",
@@ -273,7 +314,24 @@ export function startMicrosoftLogin(req, res) {
     scope: "openid email profile User.Read",
     state
   });
+  if (stepUp) {
+    params.set("prompt", "login");
+    params.set("max_age", "0");
+    const mfa = { amr: { essential: true, values: ["mfa"] } };
+    params.set("claims", JSON.stringify({ id_token: mfa, access_token: mfa }));
+  }
   res.redirect(`${tenantUrl()}/authorize?${params.toString()}`);
+}
+
+function amrValues(claims) {
+  const amr = claims?.amr;
+  if (Array.isArray(amr)) return amr.map((value) => String(value).toLowerCase());
+  if (amr) return [String(amr).toLowerCase()];
+  return [];
+}
+
+function tokenHasMfa(claims) {
+  return amrValues(claims).includes("mfa");
 }
 
 function decodeJwtPayload(token) {
@@ -292,7 +350,10 @@ export async function finishMicrosoftLogin(req, res) {
     if (error) {
       return res.redirect(`/?error=${encodeURIComponent(description || error)}`);
     }
-    if (!code || !state || state !== req.cookies?.[STATE_COOKIE]) {
+    const packed = String(req.cookies?.[STATE_COOKIE] || "");
+    const cookieState = packed.split(".")[0];
+    const stepUp = packed.endsWith(".ibi");
+    if (!code || !state || state !== cookieState) {
       return res.redirect("/?error=Etat+OAuth+invalide");
     }
     res.clearCookie(STATE_COOKIE, { path: "/" });
@@ -374,6 +435,14 @@ export async function finishMicrosoftLogin(req, res) {
     profile = await grantCreatorAccess(profile, email);
     const token = signUser(profile);
     setSessionCookie(res, token);
+    if (stepUp) {
+      const accessClaims = decodeJwtPayload(tokenJson.access_token);
+      if (!tokenHasMfa(claims) && !tokenHasMfa(accessClaims)) {
+        return res.redirect(`/${IBI_PAGE_SLUG}?stepup=required`);
+      }
+      setIbiStepUpCookie(res, profile.id);
+      return res.redirect(`/${IBI_PAGE_SLUG}`);
+    }
     res.redirect("/");
   } catch (error) {
     console.error(error);

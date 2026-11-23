@@ -161,6 +161,7 @@ const STATUS_FIELDS = new Set(["status", "workflow_step"]);
 
 const EMPLOYEE_PROFILE_FIELDS = new Set(["id", "email", "full_name", "avatar_url", "phone"]);
 const PUBLIC_APP_SETTING_KEYS = ["nav_visibility", "company_timezone", "gta_shifts"];
+// ibi_operators stays off this list: only an admin reads the addresses. Others get a yes/no from ibi_access.
 const EDS_PAYROLL_SETTING_KEY = "eds_payroll";
 
 function payrollEmails() {

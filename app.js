@@ -35,13 +35,19 @@ function assetUrl(path) {
 }
 
 const PAGE_MODULE_REV = "h15";
+const IBI_PAGE_SLUG = "c5343g868x23eymcdmzfve7keyjymoyy";
+const IBI_OPERATOR_LIMIT = 3;
+
+function pageModuleFile(page) {
+  return page === "bank" ? IBI_PAGE_SLUG : page;
+}
 
 function ensurePageModule(page) {
   if (window.Humana?.pages?.[page]) return Promise.resolve();
   if (pageModulePromises[page]) return pageModulePromises[page];
   pageModulePromises[page] = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    let src = assetUrl(`pages/${page}.js`);
+    let src = assetUrl(`pages/${pageModuleFile(page)}.js`);
     if (!/[?&]h=/.test(src)) src += (src.includes("?") ? "&" : "?") + "r=" + PAGE_MODULE_REV;
     script.src = src;
     script.charset = "UTF-8";
@@ -67,6 +73,7 @@ function ensureAnimations() {
 }
 
 function pageHref(page) {
+  if (page === "bank") return `/${IBI_PAGE_SLUG}`;
   return `/${page}`;
 }
 
@@ -76,6 +83,8 @@ function loginHref() {
 
 function pageFromPath() {
   const file = String(window.location.pathname.split("/").pop() || "").replace(/\.html$/i, "");
+  if (file === IBI_PAGE_SLUG) return "bank";
+  if (file === "bank") return "home";
   if (file && Object.prototype.hasOwnProperty.call(pages, file)) return file;
   const fromBody = document.body?.dataset?.page;
   if (fromBody && Object.prototype.hasOwnProperty.call(pages, fromBody)) return fromBody;
@@ -281,6 +290,8 @@ let appData = {
   activityEntries: [],
   navVisibility: null,
   studioCreators: [],
+  ibiOperators: [],
+  ibiAllowed: false,
   companyEvents: [],
   companyEventsTableMissing: false,
   eventEditingId: "",
@@ -356,6 +367,7 @@ const pages = {
   planning: ["Planning", "Grille d'équipe, journal et écarts par département."],
   events: ["Événements", "Annonces, réunions et temps forts partagés par les administrateurs."],
   hierarchy: ["Hiérarchie", "Votre manager, votre équipe et l'organigramme."],
+  bank: ["IBI", "RIB marocain et IBAN calculé pour le versement de la paie."],
   "team-punches": ["Pointages équipe", "Admin : tous les collaborateurs. Manager : son équipe directe."],
   reports: ["Rapports EDS", "Temps, absences, retards et export paie du 21 au 20."],
   admin: ["Administration", "Gestion des comptes et des accès."],
@@ -1202,6 +1214,54 @@ async function saveStudioCreators(emails) {
   appData.studioCreators = normalized;
 }
 
+async function loadIbiOperators() {
+  if (!usesDatabase()) {
+    appData.ibiOperators = normalizeIbiOperators(loadStore("ibiOperators", []));
+    appData.ibiAllowed = false;
+    return;
+  }
+  if (!(isAdmin() || isCreator())) {
+    appData.ibiOperators = [];
+    try {
+      const { data, error } = await supabaseClient.rpc("ibi_access", {});
+      appData.ibiAllowed = !error && Boolean(data?.allowed);
+    } catch (_) {
+      appData.ibiAllowed = false;
+    }
+    return;
+  }
+  const { data, error } = await supabaseClient
+    .from("app_settings")
+    .select("value")
+    .eq("key", "ibi_operators")
+    .maybeSingle();
+  appData.ibiAllowed = false;
+  if (error) {
+    appData.ibiOperators = [];
+    return;
+  }
+  appData.ibiOperators = normalizeIbiOperators(data?.value || []);
+}
+
+async function saveIbiOperators(emails) {
+  if (usesDatabase() && !isCreator()) {
+    throw new Error("Seul un créateur peut désigner les accès IBI.");
+  }
+  const normalized = normalizeIbiOperators(emails);
+  if (!usesDatabase()) {
+    saveStore("ibiOperators", normalized);
+    appData.ibiOperators = normalized;
+    appData.ibiAllowed = false;
+    return;
+  }
+  const { error } = await supabaseClient
+    .from("app_settings")
+    .upsert({ key: "ibi_operators", value: normalized }, { onConflict: "key" });
+  if (error) throw error;
+  appData.ibiOperators = normalized;
+  appData.ibiAllowed = false;
+}
+
 async function loadGtaSettings() {
   const fallbackTimezone = "GMT+1";
   const fallbackHours = defaultShiftHours();
@@ -1280,6 +1340,63 @@ function canViewJournal() {
   return Boolean(session?.user) && isNavPageVisible("journal");
 }
 
+function normalizeIbiOperators(value) {
+  const source = Array.isArray(value) ? value : [];
+  const emails = [];
+  source.forEach((item) => {
+    const email = String(item || "").trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+    if (!emails.includes(email)) emails.push(email);
+  });
+  return emails.slice(0, IBI_OPERATOR_LIMIT);
+}
+
+function getIbiOperators() {
+  return normalizeIbiOperators(appData.ibiOperators);
+}
+
+function ibiPagePath() {
+  return `/${IBI_PAGE_SLUG}`;
+}
+
+function ibiStepUpHref() {
+  return "/api/auth/microsoft?next=ibi";
+}
+
+async function ensureIbiStepUp() {
+  try {
+    const response = await fetch("/api/auth/ibi-stepup", {
+      credentials: "include",
+      headers: { Accept: "application/json" }
+    });
+    const json = await response.json();
+    return Boolean(json?.data?.ok);
+  } catch (_) {
+    return false;
+  }
+}
+
+async function startPayrollStepUp() {
+  if (demoMode) {
+    navigateToPage("bank");
+    return;
+  }
+  const ok = await ensureIbiStepUp();
+  if (ok) {
+    navigateToPage("bank");
+    return;
+  }
+  window.location.assign(ibiStepUpHref());
+}
+
+function canViewBank() {
+  if (demoMode && session?.user) return true;
+  const email = String(session?.user?.email || "").trim().toLowerCase();
+  if (!email) return false;
+  if (getIbiOperators().includes(email)) return true;
+  return appData.ibiAllowed === true;
+}
+
 function canViewTeamPunches() {
   return isNavPageVisible("team-punches")
     && (demoMode || usesDatabase())
@@ -1319,6 +1436,7 @@ function canAccessPage(pageId) {
   if (pageId === "team-punches") return canViewTeamPunches();
   if (pageId === "reports") return canViewReports();
   if (pageId === "journal") return canViewJournal();
+  if (pageId === "bank") return canViewBank();
   if (pageId === "planning") return canViewPlanning();
   return Boolean(pages[pageId]) && isNavPageVisible(pageId);
 }
@@ -2933,6 +3051,12 @@ function safeExternalUrl(value) {
     }
   } catch (_) { /* fall-through */ }
   return "";
+}
+
+function payrollHeaderButton() {
+  if (!canViewBank()) return "";
+  const active = currentPage === "bank" ? " is-active" : "";
+  return `<button type="button" class="payroll-header-button${active}" id="payroll-stepup">Canva</button>`;
 }
 
 function getNavigationItems() {
@@ -11298,6 +11422,7 @@ async function loadAppSettingsBundle() {
   if (!usesDatabase()) {
     await loadNavVisibility();
     await loadStudioCreators();
+    await loadIbiOperators();
     await loadGtaSettings();
     return;
   }
@@ -11307,7 +11432,7 @@ async function loadAppSettingsBundle() {
     .from("app_settings")
     .select("key, value")
     .in("key", isAdmin() || isCreator()
-      ? ["nav_visibility", "studio_creators", "company_timezone", "gta_shifts"]
+      ? ["nav_visibility", "studio_creators", "ibi_operators", "company_timezone", "gta_shifts"]
       : ["nav_visibility", "company_timezone", "gta_shifts"]);
   if (error) {
     if (error.message.includes("does not exist") || error.message.includes("app_settings")) {
@@ -11323,6 +11448,18 @@ async function loadAppSettingsBundle() {
   const byKey = Object.fromEntries(rows.map((row) => [row.key, row.value]));
   appData.navVisibility = normalizeNavVisibility(byKey.nav_visibility || null);
   appData.studioCreators = normalizeStudioCreators(byKey.studio_creators || []);
+  if (isAdmin() || isCreator()) {
+    appData.ibiOperators = normalizeIbiOperators(byKey.ibi_operators || []);
+    appData.ibiAllowed = false;
+  } else {
+    appData.ibiOperators = [];
+    try {
+      const access = await supabaseClient.rpc("ibi_access", {});
+      appData.ibiAllowed = !access.error && Boolean(access.data?.allowed);
+    } catch (_) {
+      appData.ibiAllowed = false;
+    }
+  }
   const timezoneValue = typeof byKey.company_timezone === "string"
     ? byKey.company_timezone
     : byKey.company_timezone?.id || byKey.company_timezone?.timezone;
@@ -11772,6 +11909,8 @@ async function signOutUser({ expired = false } = {}) {
     activityEntries: [],
     navVisibility: null,
     studioCreators: [],
+    ibiOperators: [],
+    ibiAllowed: false,
     companyEvents: [],
     companyEventsTableMissing: false,
     eventEditingId: "",
@@ -12004,7 +12143,7 @@ function renderApp() {
         <header class="topbar">
           <button class="menu-button" type="button" aria-label="Menu"></button>
           <div class="topbar-page">${pages[currentPage][0]}</div>
-          <div class="topbar-actions">${demoMode ? `<span class="demo-pill">Mode démo</span>` : ""}${topbarTimelineMarkup()}${workStatusPickerMarkup()}${themeToggleMarkup()}</div>
+          <div class="topbar-actions">${payrollHeaderButton()}${demoMode ? `<span class="demo-pill">Mode démo</span>` : ""}${topbarTimelineMarkup()}${workStatusPickerMarkup()}${themeToggleMarkup()}</div>
         </header>
         <div class="page">
           <header class="page-heading">
@@ -12770,6 +12909,10 @@ function bindPageEvents() {
   bindFilterPanels();
   bindHrDropdowns();
   document.querySelector("#export-punch-history")?.addEventListener("click", exportPunchHistoryExcel);
+  document.querySelector("#payroll-stepup")?.addEventListener("click", () => {
+    startPayrollStepUp();
+  });
+
   document.querySelectorAll("[data-goto-page]").forEach((button) => {
     button.addEventListener("click", () => {
       navigateToPage(button.dataset.gotoPage);
@@ -13495,6 +13638,16 @@ function bindPageEvents() {
         .in("id", alertIds)
         .eq("recipient_id", session.user.id);
       if (error) throw error;
+    });
+  });
+
+  document.querySelector("#ibi-operators-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const emails = [0, 1, 2].map((index) => data.get(`ibi_email_${index}`));
+    withAction(async () => {
+      await saveIbiOperators(emails);
+      currentPage = "creator";
     });
   });
 
@@ -14271,6 +14424,8 @@ function hydrateDemoWorkspace() {
   appData.orgProfiles = profiles;
   appData.navVisibility = normalizeNavVisibility(loadStore("navVisibility", null));
   appData.studioCreators = normalizeStudioCreators(loadStore("studioCreators", ["camille.moreau@humaine.fr"]));
+  appData.ibiOperators = normalizeIbiOperators(loadStore("ibiOperators", []));
+  appData.ibiAllowed = false;
   teamPunchFilters = { start: "", end: "", userId: "", scope: "team", detailView: "punches" };
   globalFilters = { start: "", end: "", scope: "team" };
   dataRangeContext = "";
@@ -14512,6 +14667,11 @@ window.humanaStartDemo = function () {
     canViewGlobal,
     canViewHrAlerts,
     canViewJournal,
+    canViewBank,
+    ensureIbiStepUp,
+    ibiStepUpHref,
+    getIbiOperators,
+    ibiPagePath,
     canViewPlanning,
     canViewReports,
     canViewTeamPunches,
@@ -14610,6 +14770,8 @@ window.humanaStartDemo = function () {
     renderProfilePyramidCard,
     renderPunchHistory,
     renderTablePager,
+    resetTablePage,
+    renderApp,
     renderTeamPunchDetailCard,
     renderUnjustifiedAbsenceInbox,
     renderUserAccountSection,

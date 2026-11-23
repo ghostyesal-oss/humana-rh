@@ -36,6 +36,17 @@ dump_once() {
   pg_dump --no-owner --no-acl | gzip > "$RAW"
   encrypt_copy "$RAW" "$RAW.enc"
 
+  if [ -n "${BANK_PGHOST:-}" ] && [ -n "${BANK_PGPASSWORD:-}" ]; then
+    RAW_BANK="$DEST/bank-$STAMP.sql.gz"
+    echo "[backup] dump postgres-bank $STAMP"
+    PGPASSWORD="$BANK_PGPASSWORD" pg_dump --no-owner --no-acl \
+      -h "$BANK_PGHOST" -U "${BANK_PGUSER:-bank}" -d "${BANK_PGDATABASE:-bank}" \
+      | gzip > "$RAW_BANK"
+    encrypt_copy "$RAW_BANK" "$RAW_BANK.enc"
+  else
+    echo "[backup] base bancaire absente, dump ignoré"
+  fi
+
   if [ -d "$STORAGE_ROOT" ]; then
     TAR="$DEST/humana-$STAMP-storage.tar.gz"
     echo "[backup] archive storage $STORAGE_ROOT"
@@ -45,9 +56,9 @@ dump_once() {
     echo "[backup] storage absent ($STORAGE_ROOT), ignoré"
   fi
 
-  find "$DEST" -type f \( -name 'humana-*.sql.gz.enc' -o -name 'humana-*-storage.tar.gz.enc' \) -mtime +"$KEEP" -delete 2>/dev/null || true
+  find "$DEST" -type f \( -name 'humana-*.sql.gz.enc' -o -name 'bank-*.sql.gz.enc' -o -name 'humana-*-storage.tar.gz.enc' \) -mtime +"$KEEP" -delete 2>/dev/null || true
   if [ -n "$OFFSITE" ]; then
-    find "$OFFSITE" -type f \( -name 'humana-*.sql.gz.enc' -o -name 'humana-*-storage.tar.gz.enc' \) -mtime +"$KEEP" -delete 2>/dev/null || true
+    find "$OFFSITE" -type f \( -name 'humana-*.sql.gz.enc' -o -name 'bank-*.sql.gz.enc' -o -name 'humana-*-storage.tar.gz.enc' \) -mtime +"$KEEP" -delete 2>/dev/null || true
   fi
 }
 

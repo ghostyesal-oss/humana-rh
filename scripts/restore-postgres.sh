@@ -5,6 +5,8 @@
 #   PGPASSWORD=... PGHOST=postgres PGUSER=humana PGDATABASE=humana \
 #   BACKUP_ENCRYPTION_KEY=... \
 #   ./scripts/restore-postgres.sh /backups/humana-20260924T020000Z.sql.gz.enc
+#   PGHOST=postgres-bank PGUSER=bank PGDATABASE=bank PGPASSWORD=... \
+#   ./scripts/restore-postgres.sh /backups/bank-20260924T020000Z.sql.gz.enc
 #   STORAGE_ROOT=/data/storage ./scripts/restore-postgres.sh /backups/humana-...-storage.tar.gz.enc
 set -eu
 
