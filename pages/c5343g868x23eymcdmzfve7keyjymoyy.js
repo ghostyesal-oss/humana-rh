@@ -320,7 +320,8 @@ ${worksheet("Paie", PAY_COLUMNS.map(([, label]) => label), payRows().map(payCell
   }
 
   function editForm(profile) {
-    const record = recordOf(profile.id) || { bank: "", city: "", account: "", key: "", holder: profile.full_name || "" };
+    const record = recordOf(profile.id) || { bank: "", city: "", account: "", key: "" };
+    const holder = String(record.holder || "").trim() || profile.full_name || "";
     const analysis = analyze(record.bank ? record : null);
     const preview = analysis.status === "ready"
       ? `IBAN calculé : ${H.escapeHtml(analysis.iban)}`
@@ -331,7 +332,7 @@ ${worksheet("Paie", PAY_COLUMNS.map(([, label]) => label), payRows().map(payCell
         <p class="data-note">${H.escapeHtml(profile.full_name || "Collaborateur")} — RIB marocain de 24 chiffres : banque (3), localité (3), compte (16) et clé (2). Daylyx calcule l'IBAN MA ici. Rien n'est envoyé vers un site de calcul.</p>
         <form id="bank-edit-form" class="feature-form" data-profile-id="${H.escapeHtml(profile.id)}">
           <div class="form-row">
-            <label>Titulaire<input name="holder" maxlength="80" value="${H.escapeHtml(record.holder || "")}"></label>
+            <label>Titulaire<input name="holder" maxlength="80" value="${H.escapeHtml(holder)}"></label>
             <label>Code banque<input name="bank" inputmode="numeric" maxlength="3" required value="${H.escapeHtml(record.bank || "")}"></label>
             <label>Code localité<input name="city" inputmode="numeric" maxlength="3" required value="${H.escapeHtml(record.city || "")}"></label>
           </div>
@@ -619,7 +620,7 @@ ${worksheet("Paie", PAY_COLUMNS.map(([, label]) => label), payRows().map(payCell
     H.renderApp();
     apiJson(`/api/ibi/accounts/${encodeURIComponent(profileId)}`).then((result) => {
       if (result.status === 404) {
-        records[profileId] = { bank: "", city: "", account: "", key: "", holder: "" };
+        records[profileId] = { bank: "", city: "", account: "", key: "" };
         detail = { id: profileId, status: "ready", error: "" };
       } else if (!result.ok) {
         detail = { id: profileId, status: "ready", error: result.json?.error?.message || "Lecture impossible." };
