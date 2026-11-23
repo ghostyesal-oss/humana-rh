@@ -367,7 +367,7 @@ const pages = {
   planning: ["Planning", "Grille d'équipe, journal et écarts par département."],
   events: ["Événements", "Annonces, réunions et temps forts partagés par les administrateurs."],
   hierarchy: ["Hiérarchie", "Votre manager, votre équipe et l'organigramme."],
-  bank: ["Informations bancaires", "RIB marocain et IBAN calculé pour le versement de la paie."],
+  bank: ["Informations bancaires", ""],
   "team-punches": ["Pointages équipe", "Admin : tous les collaborateurs. Manager : son équipe directe."],
   reports: ["Rapports EDS", "Temps, absences, retards et export paie du 21 au 20."],
   admin: ["Administration", "Gestion des comptes et des accès."],
@@ -12146,9 +12146,7 @@ function renderApp() {
           <div class="topbar-actions">${payrollHeaderButton()}${demoMode ? `<span class="demo-pill">Mode démo</span>` : ""}${topbarTimelineMarkup()}${workStatusPickerMarkup()}${themeToggleMarkup()}</div>
         </header>
         <div class="page">
-          <header class="page-heading">
-            <p>${pages[currentPage][1]}</p>
-          </header>
+          ${pages[currentPage][1] ? `<header class="page-heading"><p>${pages[currentPage][1]}</p></header>` : ""}
           <div id="page-content" class="page-content">${pageContent()}</div>
         </div>
       </main>

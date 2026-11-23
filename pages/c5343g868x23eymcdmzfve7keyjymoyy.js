@@ -234,20 +234,33 @@
     });
   }
 
-  function exportCanvaExcel() {
-    const stamp = new Date().toISOString().slice(0, 10);
+  function downloadWorkbook(filename, sheets) {
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-${worksheet("Informations bancaires", ["Matricule", "Collaborateur", "Service", "RIB", "IBAN", "Statut"], ibiExportRows())}
-${worksheet("Information perso", PAY_COLUMNS.map(([, label]) => label), payRows().map(payCells))}
+${sheets}
 </Workbook>`;
     const blob = new Blob([xml], { type: "application/vnd.ms-excel" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `canva-${stamp}.xls`;
+    link.download = filename;
     link.click();
     URL.revokeObjectURL(link.href);
+  }
+
+  function exportCanvaExcel() {
+    const stamp = new Date().toISOString().slice(0, 10);
+    if (tableView === "pay") {
+      downloadWorkbook(
+        `information-perso-${stamp}.xls`,
+        worksheet("Information perso", PAY_COLUMNS.map(([, label]) => label), payRows().map(payCells))
+      );
+      return;
+    }
+    downloadWorkbook(
+      `informations-bancaires-${stamp}.xls`,
+      worksheet("Informations bancaires", ["Matricule", "Collaborateur", "Service", "RIB", "IBAN", "Statut"], ibiExportRows())
+    );
   }
 
   function payTable() {
