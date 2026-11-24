@@ -12042,7 +12042,7 @@ function renderLogin(error = "") {
           <div class="login-message">
             <span class="eyebrow">Daylyx</span>
             <h1>Gestion RH<br><em>simplifiée</em>.</h1>
-            <p>Pointage, congés, documents — un espace fiable pour votre quotidien professionnel.</p>
+            <p>Un espace fiable pour votre quotidien professionnel.</p>
           </div>
         </section>
         <section class="login-panel">
@@ -12058,7 +12058,7 @@ function renderLogin(error = "") {
             <div id="config-note" class="config-note">Préparation de la connexion en cours...</div>
             <p id="login-error" class="error-message" hidden></p>
             <button type="button" id="local-login" class="demo-button"${isLocalDevHost() ? "" : " hidden"}>Continuer sans Microsoft</button>
-            <p class="login-legal">Outil RH professionnel.
+            <p class="login-legal">
               <a href="/confidentialite">Confidentialité</a> ·
               <a href="/mentions-legales">Mentions légales</a> ·
               <a href="/cookies">Cookies</a></p>
