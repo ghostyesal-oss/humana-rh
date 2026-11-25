@@ -12,6 +12,8 @@
   let stepUp = { status: "unknown", at: 0 };
   let storeStatus = { status: "idle", error: "" };
   let detail = { id: "", status: "idle", error: "" };
+  let payExtra = null;
+  let importNotice = "";
 
   function stepUpGate() {
     const refused = new URLSearchParams(window.location.search).get("stepup") === "required";
@@ -151,8 +153,11 @@
         <button type="button" class="planning-tab${ibi}" data-canva-table="ibi">Informations bancaires</button>
         <button type="button" class="planning-tab${pay}" data-canva-table="pay">Information perso</button>
       </div>
+      <button type="button" class="outline-button" id="canva-import">Importer</button>
+      <input id="canva-import-file" type="file" accept=".csv,.xls,.xlsx,text/csv" hidden>
       <button type="button" class="outline-button" id="canva-export">Exporter Excel</button>
-    </div>`;
+    </div>
+    ${importNotice ? `<p class="hierarchy-meta">${H.escapeHtml(importNotice)}</p>` : ""}`;
   }
 
   function shown(value) {
@@ -180,7 +185,150 @@
       dateRecrutement: profile.hired_at,
       statut: profile.full_name ? "Actif" : ""
     };
+    const extra = extraMap()[profile.id] || {};
+    PAY_COLUMNS.forEach(([key]) => {
+      const value = String(extra[key] || "").trim();
+      if (value && value !== "—") known[key] = value;
+    });
     return PAY_COLUMNS.map(([key]) => shown(known[key]));
+  }
+
+  function payStoreKey() {
+    const email = H.appData.profile?.email || H.appData.sessionEmail || "demo";
+    return `humana_${email}_canvaPayImport`;
+  }
+
+  function extraMap() {
+    if (payExtra) return payExtra;
+    try {
+      const raw = JSON.parse(localStorage.getItem(payStoreKey()) || "{}");
+      payExtra = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    } catch (_) {
+      payExtra = {};
+    }
+    return payExtra;
+  }
+
+  function saveExtra(next) {
+    payExtra = next;
+    localStorage.setItem(payStoreKey(), JSON.stringify(next));
+  }
+
+  function foldToken(value) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "");
+  }
+
+  function headerKey(label) {
+    const token = foldToken(label);
+    if (!token) return "";
+    const found = PAY_COLUMNS.find(([key, title]) => foldToken(title) === token || foldToken(key) === token);
+    return found ? found[0] : "";
+  }
+
+  function parseSpreadsheetMl(text) {
+    const doc = new DOMParser().parseFromString(text, "application/xml");
+    if (doc.querySelector("parsererror")) return [];
+    return [...doc.getElementsByTagName("*")]
+      .filter((node) => (node.localName || node.nodeName) === "Row")
+      .map((row) => [...row.getElementsByTagName("*")]
+        .filter((node) => (node.localName || node.nodeName) === "Cell")
+        .map((cell) => {
+          const data = [...cell.getElementsByTagName("*")].find((node) => (node.localName || node.nodeName) === "Data");
+          return data ? data.textContent || "" : "";
+        }));
+  }
+
+  async function readImportGrid(file) {
+    const name = String(file.name || "").toLowerCase();
+    if (name.endsWith(".xlsx")) return H.parseXlsxGrid(await file.arrayBuffer());
+    const text = await file.text();
+    if (text.includes("<Workbook") || text.includes("<Table")) {
+      const grid = parseSpreadsheetMl(text);
+      if (grid.length) return grid;
+    }
+    if (name.endsWith(".csv") || file.type === "text/csv" || text.includes(";") || text.includes(",")) {
+      return H.parseCsvGrid(text);
+    }
+    throw new Error("Enregistrez le fichier en CSV ou en Excel (.xlsx), avec les titres des colonnes.");
+  }
+
+  function matchPayProfile(row) {
+    const profiles = visibleProfiles();
+    const ids = [row.matriculeRh, row.cegidId].map((value) => foldToken(value)).filter(Boolean);
+    for (const id of ids) {
+      const hits = profiles.filter((profile) => foldToken(profile.matricule) === id);
+      if (hits.length === 1) return hits[0];
+    }
+    const email = String(row.email || "").trim().toLowerCase();
+    if (email) {
+      const hits = profiles.filter((profile) => String(profile.email || "").trim().toLowerCase() === email);
+      if (hits.length === 1) return hits[0];
+    }
+    const full = foldToken(row.nomPrenom);
+    if (full) {
+      const hits = profiles.filter((profile) => foldToken(profile.full_name) === full);
+      if (hits.length === 1) return hits[0];
+    }
+    const nom = foldToken(row.nom);
+    const prenom = foldToken(row.prenom);
+    if (nom && prenom) {
+      const hits = profiles.filter((profile) => {
+        const parts = String(profile.full_name || "").trim().split(/\s+/).filter(Boolean);
+        const profilePrenom = foldToken(parts.slice(0, -1).join(" "));
+        const profileNom = foldToken(parts[parts.length - 1] || "");
+        return profileNom === nom && profilePrenom === prenom;
+      });
+      if (hits.length === 1) return hits[0];
+    }
+    return null;
+  }
+
+  async function importPayFile(file) {
+    try {
+      const grid = await readImportGrid(file);
+      if (!grid.length) throw new Error("Le fichier est vide.");
+      const headers = (grid[0] || []).map(headerKey);
+      if (!headers.some(Boolean)) {
+        throw new Error("Aucune colonne reconnue. La première ligne doit reprendre les titres du tableau.");
+      }
+      const next = { ...extraMap() };
+      let imported = 0;
+      const unknown = [];
+      grid.slice(1).forEach((cells, index) => {
+        const row = {};
+        headers.forEach((key, cellIndex) => {
+          if (!key) return;
+          const value = String(cells[cellIndex] ?? "").trim().replace(/^'(?=[=\-+@])/, "");
+          if (value && value !== "—") row[key] = value;
+        });
+        if (!Object.keys(row).length) return;
+        const profile = matchPayProfile(row);
+        if (!profile) {
+          unknown.push(row.matriculeRh || row.cegidId || row.nomPrenom || row.email || `ligne ${index + 2}`);
+          return;
+        }
+        next[profile.id] = { ...(next[profile.id] || {}), ...row };
+        imported += 1;
+      });
+      if (!imported) {
+        throw new Error(unknown.length
+          ? `Aucun collaborateur reconnu. Exemples : ${unknown.slice(0, 5).join(", ")}.`
+          : "Le fichier ne contient aucune valeur à importer.");
+      }
+      saveExtra(next);
+      tableView = "pay";
+      importNotice = unknown.length
+        ? `${imported} ligne${imported > 1 ? "s" : ""} importée${imported > 1 ? "s" : ""}. Non reconnues : ${unknown.slice(0, 5).join(", ")}.`
+        : `${imported} ligne${imported > 1 ? "s" : ""} importée${imported > 1 ? "s" : ""}.`;
+      H.renderApp();
+    } catch (error) {
+      importNotice = error?.message || "Import impossible.";
+      H.renderApp();
+    }
   }
 
   function payRows() {
@@ -267,7 +415,7 @@ ${sheets}
     const list = payRows();
     const page = H.paginateList("pay", list);
     return `
-      <article class="card table-card">
+      <article class="card table-card canva-board">
         ${H.cardHeading("Information perso")}
         <div class="page-spacer">${tableSwitch()}</div>
         <details class="collapse-panel" ${H.isFilterPanelOpen("pay") ? "open" : ""} data-filter-panel="pay">
@@ -408,7 +556,7 @@ ${sheets}
     }, { ready: 0, missing: 0, invalid: 0 });
     return `
       ${editing ? (detail.status === "pending" ? `<div class="boot-message"><span class="loader" aria-hidden="true"></span>Déchiffrement du RIB...</div>` : editForm(editing)) : ""}
-      <article class="card table-card">
+      <article class="card table-card canva-board">
         ${H.cardHeading("Informations bancaires")}
         <div class="page-spacer">${tableSwitch()}</div>
         ${H.demoMode ? `<p class="data-note">Lien de démo : ${H.escapeHtml(window.location.origin + H.ibiPagePath())}</p>` : ""}
@@ -545,6 +693,10 @@ ${sheets}
         exportCanvaExcel();
         return;
       }
+      if (event.target?.id === "canva-import") {
+        document.querySelector("#canva-import-file")?.click();
+        return;
+      }
       const tab = event.target.closest?.("[data-canva-table]");
       if (tab) {
         tableView = tab.dataset.canvaTable === "pay" ? "pay" : "ibi";
@@ -580,6 +732,12 @@ ${sheets}
     });
     document.addEventListener("input", (event) => {
       if (event.target?.closest?.("#bank-edit-form")) refreshPreview(event.target.form);
+    });
+    document.addEventListener("change", (event) => {
+      if (event.target?.id !== "canva-import-file") return;
+      const file = event.target.files && event.target.files[0];
+      event.target.value = "";
+      if (file) importPayFile(file);
     });
   }
 

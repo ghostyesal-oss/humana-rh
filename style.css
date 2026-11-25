@@ -7339,6 +7339,54 @@ small { font-size: 11px; }
 .canva-pay-table td {
   white-space: nowrap;
 }
+
+.canva-board.table-card {
+  padding: 22px 24px 28px;
+  overflow: visible;
+}
+
+.canva-board > .card-heading {
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+}
+
+.canva-board .page-spacer {
+  margin-top: 16px;
+}
+
+.canva-board .team-punches-actions {
+  gap: 12px;
+}
+
+.canva-board .data-note,
+.canva-board .hierarchy-meta {
+  margin-top: 14px;
+  margin-bottom: 0;
+}
+
+.canva-board .team-punches-summary {
+  gap: 16px;
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+
+.canva-board .team-punch-summary-card {
+  gap: 10px;
+  padding: 18px 20px;
+}
+
+.canva-board .collapse-panel {
+  margin-bottom: 18px;
+}
+
+.canva-board .table-wrap {
+  margin-top: 8px;
+}
+
+.canva-board .table-wrap th,
+.canva-board .table-wrap td {
+  padding: 12px 16px;
+}
 .planning-filters {
   display: flex;
   flex-wrap: wrap;

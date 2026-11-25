@@ -14726,6 +14726,8 @@ window.humanaStartDemo = function () {
     isCreator,
     isFilterPanelOpen,
     isNavPageVisible,
+    parseCsvGrid,
+    parseXlsxGrid,
     leaveChainLabel,
     leaveIsHoursUnit,
     leaveRows,
